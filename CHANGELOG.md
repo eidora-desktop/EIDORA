@@ -4,6 +4,11 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Keep Discovery hover tooltips compact with a 360 px text-width limit, word
+  wrapping for long values and identifiers, and a 300-character preview per value.
+
 ## 0.2.0 — Prepared, not published
 
 This minor prototype release adds Methods and Citations reporting and requires
