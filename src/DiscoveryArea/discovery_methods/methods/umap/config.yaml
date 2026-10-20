@@ -1,0 +1,65 @@
+id: umap
+name: UMAP
+class: UMAPDiscoveryMethod
+status: available
+execution: subprocess
+supports_transform: false
+supports_arrangement_transform: true
+output_dimensions:
+  - 2
+description: Uniform Manifold Approximation and Discovery.
+implementation:
+  distribution: umap-learn
+citations:
+  - id: mcinnes2018umap
+    role: method
+    title: "UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction"
+    authors:
+      - McInnes, Leland
+      - Healy, John
+      - Melville, James
+    year: 2018
+    doi: 10.48550/arXiv.1802.03426
+parameters:
+  n_neighbors:
+    ui: spin_box
+    type: int
+    default: 15
+    min: 2
+    max: 200
+    info: Number of neighbors.
+  min_dist:
+    ui: double_spin_box
+    type: float
+    default: 0.1
+    min: 0.0
+    max: 1.0
+    decimals: 3
+    info: Minimum distance between projected points.
+  metric:
+    ui: combo_box
+    type: str
+    default: cosine
+    choices:
+      - euclidean
+      - cosine
+    info: Distance metric.
+  random_state:
+    ui: spin_box
+    type: int
+    default: 42
+    min: 0
+    max: 2147483647
+    info: Random seed used when repeatable mode is enabled.
+  reproducible:
+    ui: check_box
+    type: bool
+    default: false
+    info: Use one worker for repeatable output; leave off for much faster parallel execution.
+  epochs:
+    ui: spin_box
+    type: int
+    default: 0
+    min: 0
+    max: 5000
+    info: Training epochs; 0 lets UMAP choose an efficient dataset-based value.

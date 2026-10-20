@@ -1,0 +1,220 @@
+{
+  "bibtex": {
+    "minimum_records": 1,
+    "required": true,
+    "required_fields": [
+      "title"
+    ],
+    "type": "string",
+    "values": "self-contained literals"
+  },
+  "execution_providers": [
+    "CPUExecutionProvider",
+    "CUDAExecutionProvider",
+    "CoreMLExecutionProvider"
+  ],
+  "implementation_sha256": {
+    "src/EmbeddingsArea/model_package.py": "0d22f0573a6b4226df8f5696c487e32ad34cb023ea3b9eb65f4ad6aa131b51d6",
+    "src/EmbeddingsArea/preparation_contract.py": "7d00565f2ad0e4473f070aee6f67bc88fc20e7800c2e3a487ac5870c095ee1fc",
+    "src/EmbeddingsArea/runtime/adapters/base.py": "5db5eb06c302222c4b291a5761645014963c05a423d2784bec52a62fa17904db",
+    "src/EmbeddingsArea/runtime/adapters/onnx.py": "888dea93f84c36456653e8763bc526213634f6edcd5da667b918736156e72a93",
+    "src/EmbeddingsArea/runtime/contracts.py": "910ac06f5d59c2b3b30a8ad41bb6bc03a1b1b217fbc12263e3a3622fce806c88",
+    "src/EmbeddingsArea/runtime/package_validation.py": "0bb667d501e6f3e88adfcff01d06ff1a0ff97ae04c8e1f2986274a7604e034ad",
+    "src/EmbeddingsArea/runtime/preparers.py": "ba648879baa7103a389c0d0687d698c1c6b1c9fce8c9b67e06830c747f20c47f",
+    "src/shared/bibtex.py": "dddcc064e69464a35d9fa0e9035d6fb747ea0042076b439364b072e111afa06e"
+  },
+  "operations": {
+    "audio": [
+      "decode_first_stream",
+      "channel_selection",
+      "pyav_resample",
+      "sample_accurate_excerpt",
+      "right_zero_pad",
+      "tensor_binding"
+    ],
+    "image": [
+      "first_page",
+      "exif_orientation",
+      "rgb_alpha_composite",
+      "resize_crop_pad",
+      "rescale_normalize",
+      "layout",
+      "batch"
+    ],
+    "text": [
+      "read_utf8",
+      "prefix_suffix",
+      "packaged_tokenizer",
+      "truncate",
+      "fixed_padding",
+      "tensor_binding"
+    ],
+    "video": [
+      "decode_first_stream",
+      "uniform_timestamp_sampling",
+      "rgb",
+      "resize_crop_pad",
+      "rescale_normalize",
+      "repeat_last_frame",
+      "layout",
+      "batch"
+    ]
+  },
+  "options": {
+    "alpha_background": {
+      "default": [
+        0,
+        0,
+        0
+      ],
+      "kind": "rgb",
+      "modalities": [
+        "image",
+        "video"
+      ]
+    },
+    "channels": {
+      "kind": "channel",
+      "maximum": 255,
+      "minimum": 0,
+      "modalities": [
+        "audio"
+      ]
+    },
+    "crop_position": {
+      "choices": [
+        "top_left",
+        "top",
+        "top_right",
+        "left",
+        "center",
+        "right",
+        "bottom_left",
+        "bottom",
+        "bottom_right"
+      ],
+      "default": "center",
+      "enabled_when": {
+        "resize": [
+          "fill_crop",
+          "short_edge_crop"
+        ]
+      },
+      "kind": "choice",
+      "modalities": [
+        "image",
+        "video"
+      ]
+    },
+    "duration_seconds": {
+      "kind": "number",
+      "maximum": 86400,
+      "minimum": 0.001,
+      "modalities": [
+        "video"
+      ]
+    },
+    "excerpt": {
+      "choices": [
+        "beginning",
+        "center",
+        "end",
+        "custom"
+      ],
+      "default": "beginning",
+      "kind": "choice",
+      "modalities": [
+        "audio",
+        "video"
+      ]
+    },
+    "interpolation": {
+      "choices": [
+        "nearest",
+        "bilinear",
+        "bicubic",
+        "lanczos"
+      ],
+      "kind": "choice",
+      "modalities": [
+        "image",
+        "video"
+      ]
+    },
+    "prefix": {
+      "default": "",
+      "kind": "text",
+      "modalities": [
+        "text"
+      ]
+    },
+    "resize": {
+      "choices": [
+        "stretch",
+        "fill_crop",
+        "fit_pad",
+        "short_edge_crop"
+      ],
+      "kind": "choice",
+      "modalities": [
+        "image",
+        "video"
+      ]
+    },
+    "short_edge": {
+      "enabled_when": {
+        "resize": [
+          "short_edge_crop"
+        ]
+      },
+      "kind": "integer",
+      "maximum": 16384,
+      "minimum": 1,
+      "modalities": [
+        "image",
+        "video"
+      ]
+    },
+    "start_seconds": {
+      "default": 0.0,
+      "enabled_when": {
+        "excerpt": [
+          "custom"
+        ]
+      },
+      "kind": "number",
+      "maximum": 604800,
+      "minimum": 0,
+      "modalities": [
+        "audio",
+        "video"
+      ]
+    },
+    "suffix": {
+      "default": "",
+      "kind": "text",
+      "modalities": [
+        "text"
+      ]
+    },
+    "truncation_side": {
+      "choices": [
+        "left",
+        "right"
+      ],
+      "kind": "choice",
+      "modalities": [
+        "text"
+      ]
+    }
+  },
+  "preparation_version": 1,
+  "schema_version": 3,
+  "semantics": {
+    "audio_resampling": "PyAV fltp resampler; channel selection before resampling",
+    "crop_offsets": "integer floor; nine-position grid",
+    "interpolation": "Pillow RGB resize filters",
+    "resize_rounding": "Python round (ties to even)",
+    "video_sampling": "first frame at or after start+k*duration/frame_count; endpoint excluded"
+  }
+}

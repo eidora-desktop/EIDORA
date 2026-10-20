@@ -1,0 +1,221 @@
+{
+  "default_palette": "krzywinski_15",
+  "max_categorical_values": 15,
+  "palettes": [
+    {
+      "id": "distinct_15",
+      "label": "Distinct",
+      "author": "EIDORA",
+      "notes": "Custom palette; not certified for color-vision deficiencies. Review contrast against your canvas background.",
+      "generation": {
+        "method": "Greedy maximin Euclidean Oklab distance; nearest candidate to blue seed first; RGB-ascending tie order",
+        "reference": "https://bottosson.github.io/posts/oklab/",
+        "rgb_grid_step": 8,
+        "rgb_grid_includes_255": true,
+        "lightness_range": [
+          0.42,
+          0.82
+        ],
+        "chroma_range": [
+          0.06,
+          0.32
+        ],
+        "seed": "#4477aa"
+      },
+      "colors": [
+        "#4078a8",
+        "#00e800",
+        "#ff10ff",
+        "#ff8000",
+        "#980000",
+        "#38d8ff",
+        "#0000ff",
+        "#9000a8",
+        "#009000",
+        "#f0a0e0",
+        "#f01070",
+        "#a070ff",
+        "#98b870",
+        "#385830",
+        "#a06800"
+      ]
+    },
+    {
+      "id": "vivid_15",
+      "label": "Vivid",
+      "author": "EIDORA",
+      "notes": "Custom palette; not certified for color-vision deficiencies. Review contrast against your canvas background.",
+      "generation": {
+        "method": "Greedy maximin Euclidean Oklab distance; nearest candidate to blue seed first; RGB-ascending tie order",
+        "reference": "https://bottosson.github.io/posts/oklab/",
+        "rgb_grid_step": 8,
+        "rgb_grid_includes_255": true,
+        "lightness_range": [
+          0.52,
+          0.8
+        ],
+        "chroma_range": [
+          0.15,
+          0.32
+        ],
+        "seed": "#3366ff"
+      },
+      "colors": [
+        "#3068ff",
+        "#00e000",
+        "#ff0000",
+        "#f808ff",
+        "#008030",
+        "#f0a800",
+        "#a04090",
+        "#18c0ff",
+        "#ff88b8",
+        "#9800ff",
+        "#b080ff",
+        "#00b880",
+        "#ff0098",
+        "#b04800",
+        "#d07800"
+      ]
+    },
+    {
+      "id": "krzywinski_15",
+      "label": "Deuteranopia",
+      "author": "Martin Krzywinski",
+      "source": "https://mk.bcgsc.ca/colorblind/palettes/15.color.blindness.palette.txt",
+      "license": "MIT; see palettes.LICENSE.txt",
+      "notes": "Published main colors in source order. Alternatives are substitutions, not additional categories. Designed for deuteranopia, not a universal color-vision guarantee.",
+      "colors": [
+        "#68023f",
+        "#008169",
+        "#ef0096",
+        "#00dcb5",
+        "#ffcfe2",
+        "#003c86",
+        "#9400e6",
+        "#009ffa",
+        "#ff71fd",
+        "#7cfffa",
+        "#6a0213",
+        "#008607",
+        "#f60239",
+        "#00e307",
+        "#ffdc3d"
+      ]
+    },
+    {
+      "id": "muted_15",
+      "label": "Muted",
+      "author": "EIDORA",
+      "notes": "Custom palette; not certified for color-vision deficiencies. Review contrast against your canvas background.",
+      "generation": {
+        "method": "Greedy maximin Euclidean Oklab distance; nearest candidate to blue seed first; RGB-ascending tie order",
+        "reference": "https://bottosson.github.io/posts/oklab/",
+        "rgb_grid_step": 8,
+        "rgb_grid_includes_255": true,
+        "lightness_range": [
+          0.5,
+          0.75
+        ],
+        "chroma_range": [
+          0.04,
+          0.105
+        ],
+        "seed": "#668899"
+      },
+      "colors": [
+        "#688898",
+        "#e09870",
+        "#885808",
+        "#b0a0e8",
+        "#70c098",
+        "#805088",
+        "#b86868",
+        "#207850",
+        "#989040",
+        "#306898",
+        "#58b0d8",
+        "#a078b8",
+        "#d088a8",
+        "#40a080",
+        "#b8b060"
+      ]
+    },
+    {
+      "id": "pastel_15",
+      "label": "Pastel",
+      "author": "EIDORA",
+      "notes": "Custom palette; not certified for color-vision deficiencies. Light colors: use a darker canvas or contrasting borders for small points.",
+      "generation": {
+        "method": "Greedy maximin Euclidean Oklab distance; nearest candidate to blue seed first; RGB-ascending tie order",
+        "reference": "https://bottosson.github.io/posts/oklab/",
+        "rgb_grid_step": 8,
+        "rgb_grid_includes_255": true,
+        "lightness_range": [
+          0.75,
+          0.88
+        ],
+        "chroma_range": [
+          0.055,
+          0.125
+        ],
+        "seed": "#aaccff"
+      },
+      "colors": [
+        "#a8d0ff",
+        "#e0a050",
+        "#b0e898",
+        "#e090c8",
+        "#30c8b8",
+        "#ffc8b8",
+        "#ffb8ff",
+        "#98c068",
+        "#60f0e8",
+        "#98a8f8",
+        "#ff9890",
+        "#f0c868",
+        "#50c0f0",
+        "#a0d0c0",
+        "#d8b8d8"
+      ]
+    },
+    {
+      "id": "web_safe_15",
+      "label": "Web-safe",
+      "author": "EIDORA",
+      "notes": "Custom palette; not certified for color-vision deficiencies. Review contrast against your canvas background.",
+      "generation": {
+        "method": "Greedy maximin Euclidean Oklab distance; nearest candidate to blue seed first; RGB-ascending tie order",
+        "reference": "https://bottosson.github.io/posts/oklab/",
+        "rgb_grid_step": 51,
+        "rgb_grid_includes_255": true,
+        "lightness_range": [
+          0.42,
+          0.82
+        ],
+        "chroma_range": [
+          0.06,
+          0.32
+        ],
+        "seed": "#336699"
+      },
+      "colors": [
+        "#336699",
+        "#cccc00",
+        "#ff33ff",
+        "#ff3300",
+        "#00ccff",
+        "#009900",
+        "#990033",
+        "#0000ff",
+        "#9900cc",
+        "#ff99cc",
+        "#996600",
+        "#6666ff",
+        "#006633",
+        "#cc9966",
+        "#cc6699"
+      ]
+    }
+  ]
+}

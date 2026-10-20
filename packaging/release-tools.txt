@@ -1,0 +1,8 @@
+# Tools used only to assemble release artifacts. Runtime dependencies remain
+# authoritative in pyproject.toml and are locked for every target OS.
+aqtinstall==3.3.0
+build==1.6.1
+cmake==4.4.0
+ninja==1.13.0
+pip-tools==7.6.1
+pyinstaller==6.22.3

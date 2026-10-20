@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dialog_methods_citations</class>
+ <widget class="QDialog" name="dialog_methods_citations">
+  <property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <property name="minimumSize"><size><width>720</width><height>560</height></size></property>
+  <property name="windowTitle"><string>Methods &amp; Citations</string></property>
+  <layout class="QVBoxLayout" name="layout_methods_citations">
+   <property name="spacing"><number>12</number></property>
+   <item><widget class="QLabel" name="label_methods_citations_title"><property name="text"><string>Methods, Parameters &amp; Citations</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="QTextBrowser" name="browser_methods_citations"><property name="openExternalLinks"><bool>true</bool></property></widget></item>
+   <item>
+    <layout class="QHBoxLayout" name="layout_methods_citations_actions">
+     <item><widget class="QPushButton" name="button_copy_methods"><property name="text"><string>Copy Methods</string></property></widget></item>
+     <item><widget class="QPushButton" name="button_copy_caption"><property name="text"><string>Copy Caption</string></property></widget></item>
+     <item><widget class="QPushButton" name="button_copy_report"><property name="text"><string>Copy Full Report</string></property></widget></item>
+     <item><widget class="QPushButton" name="button_copy_bibtex"><property name="text"><string>Copy BibTeX</string></property></widget></item>
+     <item><spacer name="spacer_methods_citations"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+     <item><widget class="QPushButton" name="button_save_report"><property name="text"><string>Save Report…</string></property></widget></item>
+     <item><widget class="QPushButton" name="button_close"><property name="text"><string>Close</string></property></widget></item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

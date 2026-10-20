@@ -1,0 +1,58 @@
+[
+  {
+    "label": "macOS Apple Silicon",
+    "runner": "macos-15",
+    "qt_host": "mac",
+    "qt_version": "6.11.1",
+    "qt_arch": "clang_64",
+    "qt_sdk": "qt/6.11.1/macos",
+    "native_arch": "arm64",
+    "icon_file": "eidora.icns",
+    "installer_extra": "",
+    "max_bundle_mib": 700,
+    "artifact": "eidora-macos-arm64",
+    "target": "apple-silicon"
+  },
+  {
+    "label": "macOS Intel",
+    "runner": "macos-15-intel",
+    "qt_host": "mac",
+    "qt_version": "6.11.1",
+    "qt_arch": "clang_64",
+    "qt_sdk": "qt/6.11.1/macos",
+    "native_arch": "x86_64",
+    "icon_file": "eidora.icns",
+    "installer_extra": "",
+    "max_bundle_mib": 700,
+    "artifact": "eidora-macos-x86_64",
+    "target": "apple-intel"
+  },
+  {
+    "label": "Windows x64",
+    "runner": "windows-2022",
+    "qt_host": "windows",
+    "qt_version": "6.10.1",
+    "qt_arch": "win64_msvc2022_64",
+    "qt_sdk": "qt/6.10.1/msvc2022_64",
+    "native_arch": "x86_64",
+    "icon_file": "eidora.ico",
+    "installer_extra": "",
+    "max_bundle_mib": 700,
+    "artifact": "eidora-windows-x86_64",
+    "target": "windows"
+  },
+  {
+    "label": "Linux x64",
+    "runner": "ubuntu-24.04",
+    "qt_host": "linux",
+    "qt_version": "6.11.1",
+    "qt_arch": "linux_gcc_64",
+    "qt_sdk": "qt/6.11.1/gcc_64",
+    "native_arch": "x86_64",
+    "icon_file": "eidora-256.png",
+    "installer_extra": "--appimagetool build-output/tools/appimagetool",
+    "max_bundle_mib": 900,
+    "artifact": "eidora-linux-x86_64",
+    "target": "linux"
+  }
+]

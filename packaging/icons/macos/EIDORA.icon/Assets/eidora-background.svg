@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='utf-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>EIDORA original deep teal surface and highlights — full canvas</title>
+  <defs>
+    <linearGradient id="glass" x1="0" y1="0" x2=".8" y2="1">
+      <stop stop-color="#5B8581" stop-opacity=".92" />
+      <stop offset=".42" stop-color="#254948" stop-opacity=".97" />
+      <stop offset="1" stop-color="#173837" stop-opacity=".99" />
+    </linearGradient>
+    <radialGradient id="bloom" cx=".08" cy=".03" r=".95">
+      <stop stop-color="#F5FFF7" stop-opacity=".35" />
+      <stop offset=".55" stop-color="#B2E7DB" stop-opacity=".06" />
+      <stop offset="1" stop-color="#B2E7DB" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="caustic" cx=".92" cy="1.08" r=".85">
+      <stop stop-color="#8CE2D4" stop-opacity=".22" />
+      <stop offset=".38" stop-color="#73C8CD" stop-opacity=".06" />
+      <stop offset="1" stop-color="#73C8CD" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#glass)" />
+  <rect width="1024" height="1024" fill="url(#bloom)" />
+  <rect width="1024" height="1024" fill="url(#caustic)" />
+</svg>

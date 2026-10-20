@@ -1,0 +1,227 @@
+# EIDORA semantic icon manifest
+# Material Symbols are used as replaceable starter assets.
+icons:
+  help:
+    material: help
+    style: outlined
+    size: 40
+  add_circle:
+    material: add_circle
+    style: outlined
+    size: 40
+  animation_pause:
+    material: pause
+    style: outlined
+    size: 40
+  animation_play:
+    material: play_arrow
+    style: outlined
+    size: 40
+  appearance:
+    material: palette
+    style: outlined
+    size: 40
+  bold:
+    material: format_bold
+    style: outlined
+    size: 40
+  border_color:
+    material: border_color
+    style: outlined
+    size: 40
+  camera:
+    material: videocam
+    style: outlined
+    size: 40
+  canvas_fit:
+    material: zoom_in_map
+    style: outlined
+    size: 40
+  canvas_lasso:
+    material: lasso_select
+    style: outlined
+    size: 40
+  canvas_pan:
+    material: pan_tool
+    style: outlined
+    size: 40
+  canvas_pin:
+    material: push_pin
+    style: outlined
+    size: 40
+  canvas_zoom:
+    material: frame_inspect
+    style: outlined
+    size: 40
+  close:
+    material: close
+    style: outlined
+    size: 40
+  connector_center:
+    material: arrows_input
+    style: outlined
+    size: 40
+  diagonal_line:
+    material: diagonal_line
+    style: outlined
+    size: 40
+  down:
+    material: keyboard_arrow_down
+    style: outlined
+    size: 40
+  embedding_runs:
+    material: database
+    style: outlined
+    size: 40
+  embeddings:
+    material: deployed_code
+    style: outlined
+    size: 40
+  figures:
+    material: photo_prints
+    style: outlined
+    size: 40
+  fill_color:
+    material: format_color_fill
+    style: outlined
+    size: 40
+  filter:
+    material: filter_alt
+    style: outlined
+    size: 40
+  find_item:
+    material: location_searching
+    style: outlined
+    size: 40
+  format_paint:
+    material: format_paint
+    style: outlined
+    size: 40
+  hide:
+    material: visibility_off
+    style: outlined
+    size: 40
+  image:
+    material: image
+    style: outlined
+    size: 40
+  italic:
+    material: format_italic
+    style: outlined
+    size: 40
+  layers:
+    material: layers
+    style: outlined
+    size: 40
+  line_width:
+    material: line_weight
+    style: outlined
+    size: 40
+  media_sources:
+    material: perm_media
+    style: outlined
+    size: 40
+  metadata:
+    material: data_table
+    style: outlined
+    size: 40
+  models:
+    material: science
+    style: outlined
+    size: 40
+  move_left:
+    material: arrow_left_alt
+    style: outlined
+    size: 40
+  move_right:
+    material: arrow_right_alt
+    style: outlined
+    size: 40
+  next:
+    material: keyboard_arrow_right
+    style: outlined
+    size: 40
+  opacity:
+    material: opacity
+    style: outlined
+    size: 40
+  point_size:
+    material: circles
+    style: outlined
+    size: 40
+  previous:
+    material: keyboard_arrow_left
+    style: outlined
+    size: 40
+  explore:
+    material: explore
+    style: outlined
+    size: 40
+  discovery:
+    material: scatter_plot
+    style: outlined
+    size: 40
+  scatter_plot:
+    material: scatter_plot
+    style: outlined
+    size: 40
+  quick_export:
+    material: download
+    style: outlined
+    size: 40
+  regex:
+    material: regular_expression
+    style: outlined
+    size: 40
+  save:
+    material: save
+    style: outlined
+    size: 40
+  settings:
+    material: settings
+    style: outlined
+    size: 40
+  shape:
+    material: pentagon
+    style: outlined
+    size: 40
+  slicer:
+    material: view_array
+    style: outlined
+    size: 40
+  slicer_spread:
+    material: arrows_outward
+    style: outlined
+    size: 40
+  slicer_steps:
+    material: stairs_2
+    style: outlined
+    size: 40
+  snapshot:
+    material: photo_camera
+    style: outlined
+    size: 40
+  snapshot_size:
+    material: resize
+    style: outlined
+    size: 40
+  sync:
+    material: sync
+    style: outlined
+    size: 40
+  text_color:
+    material: format_color_text
+    style: outlined
+    size: 40
+  text_size:
+    material: format_size
+    style: outlined
+    size: 40
+  underline:
+    material: format_underlined
+    style: outlined
+    size: 40
+  up:
+    material: keyboard_arrow_up
+    style: outlined
+    size: 40

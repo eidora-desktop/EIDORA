@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dialog_model_execution</class>
+ <widget class="QDialog" name="dialog_model_execution">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>620</width>
+    <height>560</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Run Embedding Model</string>
+  </property>
+  <layout class="QVBoxLayout" name="layout_root">
+   <property name="topMargin">
+    <number>12</number>
+   </property>
+   <item>
+    <layout class="QGridLayout" name="grid_run_summary">
+     <item row="0" column="0">
+      <widget class="QLabel" name="label_model_title">
+       <property name="text">
+        <string>Model:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLabel" name="label_model_value">
+       <property name="text">
+        <string>Embedding model</string>
+       </property>
+       <property name="textFormat">
+        <enum>Qt::TextFormat::PlainText</enum>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
+       </property>
+       <property name="textInteractionFlags">
+        <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QLineEdit" name="edit_output_name"/>
+     </item>
+     <item row="1" column="0">
+      <widget class="QLabel" name="label_output_name">
+       <property name="text">
+        <string>Output name:</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="group_inputs">
+     <property name="title">
+      <string>Inputs</string>
+     </property>
+     <layout class="QFormLayout" name="form_inputs"/>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="group_parameters">
+     <property name="title">
+      <string>Execution settings</string>
+     </property>
+     <layout class="QFormLayout" name="form_parameters"/>
+    </widget>
+   </item>
+   <item alignment="Qt::AlignmentFlag::AlignHCenter">
+    <widget class="QPushButton" name="button_reset_preparation">
+     <property name="text">
+      <string>Reset to Model Defaults</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="check_create_thumbnails">
+     <property name="text">
+      <string>Create default thumbnails after completion</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="spacer">
+     <property name="orientation">
+      <enum>Qt::Orientation::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>20</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+   <item>
+    <widget class="QLabel" name="label_error">
+     <property name="text">
+      <string/>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="textRole" stdset="0">
+      <string>error</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout_buttons">
+     <item>
+      <spacer name="button_spacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="button_cancel">
+       <property name="text">
+        <string>Cancel</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="button_run">
+       <property name="text">
+        <string>Run Model</string>
+       </property>
+       <property name="default">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

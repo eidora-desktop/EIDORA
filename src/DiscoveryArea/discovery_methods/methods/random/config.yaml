@@ -1,0 +1,20 @@
+id: random
+name: Random
+class: RandomDiscoveryMethod
+status: available
+execution: in_process
+supports_transform: false
+supports_arrangement_transform: true
+output_dimensions:
+  - 2
+description: Deterministic random coordinates for metadata rows.
+implementation:
+  distribution: numpy
+parameters:
+  random_state:
+    ui: spin_box
+    type: int
+    default: 42
+    min: 0
+    max: 2147483647
+    info: Random seed.

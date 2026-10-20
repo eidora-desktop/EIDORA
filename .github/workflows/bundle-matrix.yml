@@ -1,0 +1,230 @@
+name: Unsigned development bundles
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Platforms to build
+        type: choice
+        default: all
+        options:
+          - all
+          - windows
+          - windows-msix
+          - windows-both
+          - linux
+          - apple-silicon
+          - apple-intel
+      upload_bundles:
+        description: Upload unpacked application bundles for debugging
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  select-targets:
+    # Official candidate dispatches are owner initiated on the reviewed main branch.
+    if: github.repository == 'eidora-desktop/EIDORA' && github.ref == 'refs/heads/main' && github.actor == 'tillmannohm' && github.triggering_actor == 'tillmannohm' && !github.event.repository.private
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: targets
+        env:
+          BUILD_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || 'all' }}
+        run: python3 automation/select_release_targets.py
+
+  build:
+    needs: select-targets
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
+
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13.14"
+
+      - name: Validate Store configuration
+        if: runner.os == 'Windows' && matrix.windows_format != 'exe'
+        run: python automation/package_msix.py --validate-config-only
+
+      - name: Install application and release tools
+        run: |
+          python -m pip install --only-binary=numba,llvmlite -r packaging/runtime-requirements.txt -r packaging/release-tools.txt
+          python -m pip install --no-deps .
+          python -m pip check
+          python -m pip freeze --all > build-dependencies.txt
+
+      - name: Read application version
+        id: version
+        run: python automation/export_version.py --github-output
+
+      - name: Validate public source
+        run: |
+          python automation/source_gate.py
+          python automation/resource_inventory.py --output build-output/resource-inventory.json
+
+      - name: Fetch and verify pinned starter collection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python automation/fetch_starter_collection.py
+
+      - name: Generate platform application icons
+        run: python automation/generate_app_icons.py --output-dir build-output/icons
+
+      - name: Install Linux native-build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev
+
+      - name: Install matching Qt SDK
+        if: runner.os != 'Windows'
+        run: >-
+          python -m aqt install-qt
+          ${{ matrix.qt_host }} desktop ${{ matrix.qt_version }} ${{ matrix.qt_arch }}
+          --base https://qt.mirror.constant.com
+          --timeout 30
+          --outputdir qt
+          --modules qtshadertools
+
+      - name: Install matching Qt SDK on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Avoid py7zr's intermittent Windows path-check failure (aqtinstall#995).
+          $sevenZipCommand = Get-Command 7z.exe -ErrorAction SilentlyContinue
+          $sevenZip = if ($sevenZipCommand) { $sevenZipCommand.Source } else { Join-Path $env:ProgramFiles "7-Zip\7z.exe" }
+          if (-not (Test-Path -LiteralPath $sevenZip -PathType Leaf)) {
+            throw "Native 7-Zip is required to extract the Windows Qt SDK: $sevenZip"
+          }
+          # Serialize extraction into the shared SDK directory (aqtinstall#938).
+          python -m aqt --config packaging/windows/aqt.ini install-qt `
+            ${{ matrix.qt_host }} desktop ${{ matrix.qt_version }} ${{ matrix.qt_arch }} `
+            --base https://qt.mirror.constant.com `
+            --timeout 30 `
+            --outputdir qt `
+            --modules qtshadertools `
+            --external "$sevenZip"
+          if ($LASTEXITCODE -ne 0) { throw "Qt SDK installation failed: exit $LASTEXITCODE" }
+
+      - name: Build native Discovery renderer
+        run: >-
+          python automation/build_native_renderer.py
+          --qt-sdk "${{ matrix.qt_sdk }}"
+          --architecture "${{ matrix.native_arch }}"
+          --build-dir build-output/native-build
+          --stage-dir build-output/native-stage
+
+      - name: Build application bundle
+        run: >-
+          python automation/build_bundle.py
+          --native-stage build-output/native-stage
+          --output-dir build-output/dist
+          --work-dir build-output/pyinstaller
+          --app-icon build-output/icons/${{ matrix.icon_file }}
+          --max-mib ${{ matrix.max_bundle_mib }}
+
+      - name: Verify bundled starter archive
+        run: python automation/resource_inventory.py --output build-output/resource-inventory.json
+
+      - name: Run packaged application self-test
+        run: >-
+          python automation/run_bundle_self_test.py
+          --bundle-dir build-output/dist
+          --report build-output/release-self-test.json
+
+      - name: Create Store MSIX
+        if: runner.os == 'Windows' && matrix.windows_format != 'exe'
+        run: >-
+          python automation/package_msix.py
+          --bundle-dir build-output/dist
+          --output-dir build-output/store
+          --version ${{ steps.version.outputs.version }}
+          --commit ${{ github.sha }}
+
+      - name: Install Inno Setup
+        if: runner.os == 'Windows' && matrix.windows_format != 'msix'
+        run: choco install innosetup --no-progress --yes
+
+      - name: Download pinned AppImage tool
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p build-output/tools
+          curl -L --fail --output build-output/tools/appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  build-output/tools/appimagetool" | sha256sum --check
+          chmod +x build-output/tools/appimagetool
+
+      - name: Create installation artifacts
+        if: runner.os != 'Windows' || matrix.windows_format != 'msix'
+        run: >-
+          python automation/package_installers.py
+          --bundle-dir build-output/dist
+          --output-dir build-output/installers
+          --version ${{ steps.version.outputs.version }}
+          --icon-dir build-output/icons
+          ${{ matrix.installer_extra }}
+
+      - name: Checksum final installation artifacts
+        if: runner.os != 'Windows' || matrix.windows_format != 'msix'
+        run: python automation/package_installers.py --output-dir build-output/installers --checksums-only
+
+      - name: Upload build diagnostics
+        if: always()
+        # A diagnostics outage must not prevent delivery of a valid installer.
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eidora-diagnostics-${{ matrix.artifact }}
+          path: |
+            build-dependencies.txt
+            aqtinstall.log
+            build-output/resource-inventory.json
+            build-output/release-self-test.json
+            build-output/store/msix-build-report.json
+            build-output/release-self-test.*.log
+            build-output/dist/bundle-inventory.json
+            build-output/native-build/CMakeFiles/CMakeConfigureLog.yaml
+            build-output/native-build/CMakeFiles/CMakeError.log
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Upload unpacked application bundle
+        if: github.event_name == 'workflow_dispatch' && inputs.upload_bundles
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.artifact }}
+          path: build-output/dist/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Record unsigned candidate
+        run: >-
+          python automation/record_unsigned_candidate.py
+          --target ${{ matrix.target }}
+          --output build-output/candidate
+
+      - name: Upload unsigned candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eidora-candidate-${{ matrix.target }}
+          path: build-output/candidate/*
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6

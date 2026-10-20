@@ -1,0 +1,100 @@
+id: pacmap
+name: PaCMAP
+class: PaCMAPDiscoveryMethod
+status: available
+execution: subprocess
+supports_transform: false
+supports_arrangement_transform: true
+output_dimensions:
+  - 2
+description: Pairwise-controlled projection that balances local and global structure.
+implementation:
+  distribution: pacmap
+citations:
+  - id: wang2021pacmap
+    role: method
+    title: "Understanding How Dimension Reduction Tools Work: An Empirical Approach to Deciphering t-SNE, UMAP, TriMAP, and PaCMAP for Data Visualization"
+    authors:
+      - Wang, Yingfan
+      - Huang, Haiyang
+      - Rudin, Cynthia
+      - Shaposhnik, Yaron
+    year: 2021
+    journal: Journal of Machine Learning Research
+    volume: "22"
+    issue: "201"
+    pages: 1-73
+    url: https://jmlr.org/papers/v22/20-1061.html
+parameters:
+  n_neighbors:
+    ui: spin_box
+    type: int
+    default: 10
+    min: 1
+    max: 500
+    info: Nearest-neighbor pairs used to preserve local structure.
+  mid_near_ratio:
+    ui: double_spin_box
+    type: float
+    default: 0.5
+    min: 0.1
+    max: 20.0
+    decimals: 2
+    info: Mid-near pairs per neighbor pair; larger values emphasize global structure.
+  further_ratio:
+    ui: double_spin_box
+    type: float
+    default: 2.0
+    min: 0.1
+    max: 50.0
+    decimals: 2
+    info: Repulsive further pairs per neighbor pair.
+  distance:
+    ui: combo_box
+    type: str
+    default: angular
+    choices:
+      - angular
+      - euclidean
+      - manhattan
+    info: High-dimensional distance; angular is recommended for neural embeddings.
+  initialization:
+    ui: combo_box
+    type: str
+    default: pca
+    choices:
+      - pca
+      - random
+    info: Initial two-dimensional layout used before optimization.
+  learning_rate:
+    ui: double_spin_box
+    type: float
+    default: 1.0
+    min: 0.0001
+    max: 100.0
+    decimals: 4
+    info: Adam optimizer learning rate.
+  iterations:
+    ui: spin_box
+    type: int
+    default: 450
+    min: 9
+    max: 10000
+    info: Total iterations divided proportionally across PaCMAP's three optimization phases.
+  apply_pca:
+    ui: check_box
+    type: bool
+    default: true
+    info: Pre-reduce embeddings wider than 100 dimensions for faster neighbor search.
+  reproducible:
+    ui: check_box
+    type: bool
+    default: false
+    info: Use seeded pair sampling and initialization; leave off for faster parallel execution.
+  random_state:
+    ui: spin_box
+    type: int
+    default: 42
+    min: 0
+    max: 2147483647
+    info: Seed used when reproducible mode is enabled.

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>StarterCollectionDialog</class>
+ <widget class="QDialog" name="StarterCollectionDialog">
+  <property name="windowTitle"><string>Welcome to EIDORA</string></property>
+  <property name="minimumSize"><size><width>420</width><height>140</height></size></property>
+  <property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <layout class="QVBoxLayout" name="layout_setup">
+   <item><widget class="QLabel" name="label_status"><property name="text"><string>Preparing your starter collection…</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="QProgressBar" name="progress_install"><property name="value"><number>0</number></property></widget></item>
+   <item><widget class="QPushButton" name="button_cancel"><property name="text"><string>Cancel</string></property></widget></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

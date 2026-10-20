@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dialog_import_discovery</class>
+ <widget class="QDialog" name="dialog_import_discovery"><property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>720</width>
+    <height>560</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Import Projection Data</string>
+  </property>
+  <layout class="QVBoxLayout" name="layout_import_discovery">
+   <item>
+    <layout class="QGridLayout" name="layout_import_form">
+     <item row="0" column="0">
+      <widget class="QLabel" name="label_import_file">
+       <property name="text">
+        <string>file:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLineEdit" name="edit_import_file"/>
+     </item>
+     <item row="0" column="2">
+      <widget class="QPushButton" name="button_browse_import_file">
+       <property name="text">
+        <string>browse...</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="0">
+      <widget class="QLabel" name="label_import_name">
+       <property name="text">
+        <string>name:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1" colspan="2">
+      <widget class="QLineEdit" name="edit_import_discovery_name"/>
+     </item>
+     <item row="3" column="0">
+      <widget class="QLabel" name="label_import_id_column">
+       <property name="text">
+        <string>import id:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="1" colspan="2">
+      <widget class="QComboBox" name="combo_import_id_column"/>
+     </item>
+     <item row="4" column="0">
+      <widget class="QLabel" name="label_import_metadata_column">
+       <property name="text">
+        <string>metadata column:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="1" colspan="2">
+      <widget class="QComboBox" name="combo_import_metadata_column"/>
+     </item>
+     <item row="5" column="0">
+      <widget class="QLabel" name="label_import_x_column">
+       <property name="text">
+        <string>x:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="1" colspan="2">
+      <widget class="QComboBox" name="combo_import_x_column"/>
+     </item>
+     <item row="6" column="0">
+      <widget class="QLabel" name="label_import_y_column">
+       <property name="text">
+        <string>y:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="6" column="1" colspan="2">
+      <widget class="QComboBox" name="combo_import_y_column"/>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QTableWidget" name="table_import_preview"><property name="gridRole" stdset="0"><string>subtle</string></property>
+     <property name="alternatingRowColors">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTextBrowser" name="text_import_validation"/>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="button_box_import_discovery">
+     <property name="standardButtons">
+      <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

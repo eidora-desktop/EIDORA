@@ -1,0 +1,12 @@
+MET_Example starter collection, version 1
+
+A portable example project for EIDORA Desktop with 5,400 artworks, metadata,
+384-pixel source images, four thumbnail sizes, two 128-dimensional embeddings,
+published groups, a saved t-SNE projection, and a snapshot with its settings.
+
+Source: The Metropolitan Museum of Art Open Access. The archive includes the
+source attribution and metadata field dictionary. Resized images and derived
+annotations form a modified subset; this is not an official Met product or endorsement.
+
+The starter is bundled with EIDORA and installed offline into each user's workspace.
+See starter-collection.json for the SHA-256 checksum and exact content counts.

@@ -1,0 +1,2 @@
+"""UMAP discovery plugin placeholder."""
+

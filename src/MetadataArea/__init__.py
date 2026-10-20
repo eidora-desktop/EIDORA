@@ -1,0 +1,2 @@
+"""Metadata browsing area."""
+

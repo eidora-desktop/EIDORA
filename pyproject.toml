@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eidora-desktop"
+dynamic = ["version"]
+description = "Clean PySide desktop application for EIDORA."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "av==16.1.0",
+  "certifi>=2024.2.2",
+  "numpy>=1.26",
+  "onnxruntime>=1.18",
+  "Pillow>=10",
+  "PySide6==6.10.1; sys_platform == 'win32'",
+  "PySide6==6.11.1; sys_platform != 'win32'",
+  "huggingface_hub>=0.23",
+  "matplotlib>=3.8",
+  "h5py>=3.11",
+  "ijson>=3.3",
+  "lxml>=5",
+  "odfpy>=1.4",
+  "openpyxl>=3.1",
+  "pacmap==0.9.1",
+  "pyarrow>=16",
+  "scikit-learn>=1.4",
+  "scipy>=1.11",
+  "tokenizers>=0.19",
+  "trimap==1.1.5",
+  "PyYAML>=6",
+  "umap-learn>=0.5",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+]
+
+[project.scripts]
+eidora-desktop = "app:main"
+
+[tool.setuptools]
+py-modules = ["app", "eidora_version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "eidora_version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+shared = ["resources/video-audit/*.mkv"]
+project = ["resources/*.json"]
+DiscoveryArea = ["palettes.json", "palettes.LICENSE.txt"]
+"*" = ["**/*.qrc", "**/*.svg", "**/*.png", "**/*.ico", "**/*.ui", "**/*.yaml", "**/*.onnx", "**/*.qml", "**/*.qsb", "**/qmldir", "**/*.so", "**/*.dylib", "**/*.dll"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "automation/tests"]
+pythonpath = ["src"]

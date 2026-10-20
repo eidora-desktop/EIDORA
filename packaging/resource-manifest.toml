@@ -1,0 +1,112 @@
+schema_version = 1
+
+[[groups]]
+name = "designer-forms"
+patterns = ["src/**/ui/*.ui"]
+
+[[groups]]
+name = "semantic-icons"
+patterns = ["src/shared/icons/manifest.yaml", "src/shared/icons/material/*.svg"]
+
+[[groups]]
+name = "application-branding"
+patterns = [
+  "src/shared/branding/eidora_icon_linux.png",
+  "src/shared/branding/eidora_icon_macos.png",
+  "src/shared/branding/eidora_icon_windows.ico",
+  "src/shared/branding/eidora_logo_ui.png",
+  "src/shared/branding/eidora_wordmark.svg",
+]
+
+[[groups]]
+name = "cursors"
+patterns = ["src/shared/cursors/*.svg"]
+
+[[groups]]
+name = "discovery-qml"
+patterns = ["src/DiscoveryArea/canvas/quick/*.qml"]
+
+[[groups]]
+name = "method-configurations"
+patterns = [
+  "src/DiscoveryArea/discovery_methods/methods/*/config.yaml",
+]
+
+[[groups]]
+name = "application-data"
+patterns = [
+  "src/DiscoveryArea/palettes.json",
+  "src/DiscoveryArea/palettes.LICENSE.txt",
+]
+
+[[groups]]
+name = "starter-manifest"
+patterns = ["src/project/resources/starter-collection.json"]
+
+[[groups]]
+name = "video-audit-fixtures"
+patterns = ["src/shared/resources/video-audit/*.mkv"]
+
+[native_renderer]
+stage_subdirectory = "DiscoveryRenderer"
+required_files = ["DiscoveryRenderer/qmldir"]
+bundle_subdirectory = "DiscoveryArea/canvas/native/packaged/DiscoveryRenderer"
+
+[dynamic_imports]
+modules = [
+  "FiguresArea.controllers.snapshot_animation_tab_controller",
+  "ProjectArea.controllers.main_controller",
+  "ProjectArea.controllers.media_sources_panel_controller",
+  "ProjectArea.controllers.thumbnails_panel_controller",
+  "DiscoveryArea.discovery_methods.process_runner",
+  "ProjectArea.video_thumbnail_worker",
+  "DiscoveryArea.discovery_methods.methods.custom_coordinates.method",
+  "DiscoveryArea.discovery_methods.methods.pacmap.method",
+  "DiscoveryArea.discovery_methods.methods.pca.method",
+  "DiscoveryArea.discovery_methods.methods.random.method",
+  "DiscoveryArea.discovery_methods.methods.trimap.method",
+  "DiscoveryArea.discovery_methods.methods.tsne.method",
+  "DiscoveryArea.discovery_methods.methods.tsne.worker",
+  "DiscoveryArea.discovery_methods.methods.umap.method",
+  "EmbeddingsArea.clustering.methods.kmeans.method",
+  "EmbeddingsArea.clustering.methods.minibatch_kmeans.method",
+  "EmbeddingsArea.clustering.methods.hdbscan.method",
+  "EmbeddingsArea.clustering.methods.agglomerative.method",
+  "EmbeddingsArea.clustering.methods.dbscan.method",
+  "EmbeddingsArea.clustering.methods.gaussian_mixture.method",
+  "EmbeddingsArea.clustering.process_runner",
+  "EmbeddingsArea.runtime.process_runner",
+  "EmbeddingsArea.runtime.package_validation",
+  "FiguresArea.animation_gif_worker",
+  "av",
+  "matplotlib.backends.backend_agg",
+  "matplotlib.backends.backend_pdf",
+  "matplotlib.backends.backend_ps",
+  "matplotlib.backends.backend_svg",
+  "PIL.AvifImagePlugin",
+  "PIL.GifImagePlugin",
+  "PIL.JpegImagePlugin",
+  "PIL.PngImagePlugin",
+  "PIL.TiffImagePlugin",
+  "PIL.WebPImagePlugin",
+  "PySide6.QtMultimedia",
+  "PySide6.QtMultimediaWidgets",
+  "h5py",
+  "pyarrow",
+  "pyarrow.ipc",
+  "pyarrow.parquet",
+  "shared.export_runtime_audit",
+  "shared.internal_workers",
+  "shared.release_self_test",
+  "project.starter_ui_audit",
+  "shared.video_runtime_audit",
+]
+
+[exclude]
+patterns = [
+  "src/**/*_legacy.*",
+  "src/**/__pycache__/**",
+  "src/DiscoveryArea/canvas/native/build/**",
+  "src/DiscoveryArea/canvas/native/shaders/*.qsb",
+  "src/EmbeddingsArea/models/**",
+]

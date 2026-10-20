@@ -1,0 +1,9 @@
+{
+  "compiler": "Xcode 27.0\nBuild version 27A266a",
+  "sha256": {
+    "Assets.car": "48b74d2075b9c156c9ddaed6dca5ac15d17622babf1a87c9cca6d1c05a1ac5a1",
+    "EIDORA.icon/Assets/eidora-background.svg": "cbcdc6ca6b8cd0836cb31b64c58a73d01b922cbe9db3825bda3485df26249d21",
+    "EIDORA.icon/Assets/eidora-mark.svg": "182220500149a2f8581af3b4f3f406a99e20262761bfae04adc2c0b89c6560d0",
+    "EIDORA.icon/icon.json": "2b3a4a6992d303fd5810835b87502fbb575a08d9e3b64b9883cf81ef51c1b9db"
+  }
+}

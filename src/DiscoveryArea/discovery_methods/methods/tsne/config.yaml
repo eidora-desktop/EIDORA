@@ -1,0 +1,76 @@
+id: tsne
+name: t-SNE
+class: TSNEDiscoveryMethod
+status: available
+execution: subprocess
+supports_transform: false
+supports_arrangement_transform: true
+output_dimensions:
+  - 2
+description: t-distributed stochastic neighbor embedding.
+implementation:
+  distribution: scikit-learn
+citations:
+  - id: vanDerMaaten2008tsne
+    role: method
+    title: Visualizing Data using t-SNE
+    authors:
+      - van der Maaten, Laurens
+      - Hinton, Geoffrey
+    year: 2008
+    journal: Journal of Machine Learning Research
+    volume: "9"
+    pages: 2579-2605
+    url: https://jmlr.org/papers/v9/vandermaaten08a.html
+parameters:
+  perplexity:
+    ui: spin_box
+    type: int
+    default: 30
+    min: 2
+    max: 200
+    info: Effective neighbor count.
+  learning_rate:
+    ui: combo_box
+    type: str
+    default: auto
+    choices:
+      - auto
+    info: Automatic scikit-learn learning rate.
+  random_state:
+    ui: spin_box
+    type: int
+    default: 42
+    min: 0
+    max: 2147483647
+    info: Random seed.
+  init:
+    ui: combo_box
+    type: str
+    default: pca
+    choices:
+      - pca
+      - random
+    info: Initial layout.
+  pca_dimensions:
+    ui: spin_box
+    type: int
+    default: 50
+    min: 0
+    max: 200
+    info: Pre-reduce wider embeddings before neighbor search; 0 disables it.
+  iterations:
+    ui: spin_box
+    type: int
+    default: 1000
+    min: 250
+    max: 5000
+    info: Number of optimization iterations.
+  angle:
+    ui: double_spin_box
+    type: float
+    default: 0.5
+    min: 0.0
+    max: 1.0
+    decimals: 2
+    info: Barnes-Hut approximation; larger values are faster and less exact.

@@ -1,0 +1,111 @@
+id: trimap
+name: TriMAP
+class: TriMAPDiscoveryMethod
+status: available
+execution: subprocess
+supports_transform: false
+supports_arrangement_transform: true
+output_dimensions:
+  - 2
+description: Scalable triplet-based dimensionality reduction that preserves global structure.
+implementation:
+  distribution: trimap
+citations:
+  - id: amid2019trimap
+    role: method
+    title: "TriMap: Large-scale Dimensionality Reduction Using Triplets"
+    authors:
+      - Amid, Ehsan
+      - Warmuth, Manfred K.
+    year: 2019
+    doi: 10.48550/arXiv.1910.00204
+parameters:
+  n_inliers:
+    ui: spin_box
+    type: int
+    default: 6
+    min: 1
+    max: 500
+    info: Nearest neighbors used to form local triplet constraints.
+  n_outliers:
+    ui: spin_box
+    type: int
+    default: 1
+    min: 1
+    max: 500
+    info: Outliers sampled for each nearest-neighbor triplet.
+  n_random:
+    ui: spin_box
+    type: int
+    default: 1
+    min: 0
+    max: 100
+    info: Additional random triplets sampled per item.
+  distance:
+    ui: combo_box
+    type: str
+    default: cosine
+    choices:
+      - cosine
+      - euclidean
+      - manhattan
+      - angular
+      - hamming
+    info: Distance measure; cosine is recommended for neural embeddings.
+  weight_temp:
+    ui: double_spin_box
+    type: float
+    default: 0.5
+    min: 0.0
+    max: 10.0
+    decimals: 3
+    info: Triplet-weight temperature; larger values create more compact layouts.
+  learning_rate:
+    ui: double_spin_box
+    type: float
+    default: 0.1
+    min: 0.0001
+    max: 100.0
+    decimals: 4
+    info: Optimizer learning rate.
+  iterations:
+    ui: spin_box
+    type: int
+    default: 200
+    min: 10
+    max: 10000
+    info: Number of optimization iterations.
+  apply_pca:
+    ui: check_box
+    type: bool
+    default: true
+    info: Reduce wide embeddings before neighbor search and optimization.
+  pca_dimensions:
+    ui: spin_box
+    type: int
+    default: 50
+    min: 2
+    max: 100
+    info: Dimensions retained when PCA preprocessing is enabled.
+  optimizer:
+    ui: combo_box
+    type: str
+    default: dbd
+    choices:
+      - dbd
+      - momentum
+      - sd
+    info: TriMAP gradient optimization method.
+  random_state:
+    ui: spin_box
+    type: int
+    default: 42
+    min: 0
+    max: 2147483647
+    info: Seed for PCA, neighbor construction, and stochastic sampling.
+  neighbor_trees:
+    ui: hidden
+    type: int
+    default: 10
+    min: 1
+    max: 100

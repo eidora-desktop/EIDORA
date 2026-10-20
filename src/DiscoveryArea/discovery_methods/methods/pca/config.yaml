@@ -1,0 +1,39 @@
+id: pca
+name: PCA
+class: PCADiscoveryMethod
+status: available
+execution: subprocess
+supports_transform: false
+supports_arrangement_transform: false
+output_dimensions:
+  - 2
+description: Fast randomized principal component discovery to two dimensions.
+implementation:
+  distribution: scikit-learn
+citations:
+  - id: pearson1901pca
+    role: method
+    title: On lines and planes of closest fit to systems of points in space
+    authors:
+      - Pearson, Karl
+    year: 1901
+    journal: Philosophical Magazine
+    volume: "2"
+    issue: "11"
+    pages: 559-572
+    doi: 10.1080/14786440109462720
+parameters:
+  power_iterations:
+    ui: spin_box
+    type: int
+    default: 3
+    min: 1
+    max: 10
+    info: Accuracy passes for randomized PCA; lower values are faster.
+  random_state:
+    ui: spin_box
+    type: int
+    default: 42
+    min: 0
+    max: 2147483647
+    info: Random seed used by the low-rank solver.

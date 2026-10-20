@@ -1,0 +1,109 @@
+# C++ objects and libs
+*.slo
+*.lo
+*.o
+*.a
+*.la
+*.lai
+*.so
+*.so.*
+*.dll
+*.dylib
+
+# Qt-es
+object_script.*.Release
+object_script.*.Debug
+*_plugin_import.cpp
+/.qmake.cache
+/.qmake.stash
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.moc
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qmlc
+*.jsc
+Makefile*
+*build-*
+build/
+*.qm
+*.prl
+*.qmlls.ini
+
+# Qt unit tests
+target_wrapper.*
+
+# QtCreator
+*.autosave
+
+# QtCreator Qml
+*.qmlproject.user
+*.qmlproject.user.*
+
+# QtCreator CMake
+CMakeLists.txt.user*
+
+# QtCreator 4.8< compilation database
+compile_commands.json
+
+# QtCreator local machine specific files for imported projects
+*creator.user*
+
+*_qmlcache.qrc
+
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Local application projects: user data, media, and generated results
+/workspace_projects/
+
+# Native/CMake build artifacts
+/src/DiscoveryArea/canvas/native/build/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local-only development material. Release automation must live in
+# /automation and packaging definitions in /packaging instead.
+aqtinstall.log
+/docs/*
+!/docs/architecture.md
+/AGENTS.md
+/tests/
+/automation/tests/
+/scripts
+.DS_Store
+src/EmbeddingsArea/models
+
+
+# Legacy
+*_legacy.*
+
+# Private release checkout, local reports, and signing material
+/.private-release/
+/output/
+/tmp/
+*.p12
+*.pfx
+*.p8
+*.key
+*.keychain
+*.keychain-db
+*.mobileprovision
+*.provisionprofile

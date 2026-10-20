@@ -1,0 +1,58 @@
+{
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "eidora-mark.svg",
+          "name": "EIDORA mark",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.15
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "name": "Original teal surface",
+      "layers": [
+        {
+          "image-name": "eidora-background.svg",
+          "name": "Original teal gradient and highlights",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  },
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.09020,0.21961,0.21569,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.09020,0.21961,0.21569,1.00000"
+      }
+    }
+  ]
+}

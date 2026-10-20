@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "EIDORA is a free software application for research. Please cite if you use it."
+title: "EIDORA Desktop"
+type: software
+authors:
+  - family-names: Ohm
+    given-names: Tillmann
+url: "https://eidora.org"
+license: MIT

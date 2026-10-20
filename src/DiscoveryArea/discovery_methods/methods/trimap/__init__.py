@@ -1,0 +1,1 @@
+"""TriMAP discovery method."""

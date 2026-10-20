@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dialog_media_type</class>
+ <widget class="QDialog" name="dialog_media_type">
+  <property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <property name="windowTitle"><string>Mixed Media Source</string></property>
+  <layout class="QVBoxLayout" name="layout_media_type">
+   <item><widget class="QLabel" name="label_media_type_prompt">
+    <property name="text"><string>This source contains several media types. Choose one type to import:</string></property>
+   </widget></item>
+   <item><widget class="QComboBox" name="combo_media_type">
+    <property name="sizeAdjustPolicy"><enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum></property>
+    <property name="minimumContentsLength"><number>12</number></property>
+   </widget></item>
+   <item><widget class="QDialogButtonBox" name="button_box_media_type">
+    <property name="standardButtons"><set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set></property>
+   </widget></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

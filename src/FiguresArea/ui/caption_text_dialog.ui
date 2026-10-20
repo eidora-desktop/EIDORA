@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dialog_caption_text</class>
+ <widget class="QDialog" name="dialog_caption_text"><property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>560</width>
+    <height>360</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Edit caption</string>
+  </property>
+  <layout class="QVBoxLayout" name="layout_caption_dialog">
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QWidget" name="panel_caption_toolbar" native="true"><property name="surfaceRole" stdset="0"><string>panel</string></property>
+     <layout class="QHBoxLayout" name="layout_caption_toolbar">
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item><widget class="QPushButton" name="button_insert_snapshot_caption"><property name="text"><string>Insert Snapshot Methods</string></property><property name="toolTip"><string>Append methods, settings, and citations from the saved snapshots used by this figure.</string></property></widget></item>
+      <item>
+       <widget class="QToolButton" name="button_caption_bold">
+        <property name="text">
+         <string>B</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="button_caption_italic">
+        <property name="text">
+         <string>I</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QToolButton" name="button_caption_underline">
+        <property name="text">
+         <string>U</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="spacer_caption_toolbar">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>40</width>
+          <height>20</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QTextEdit" name="text_caption_editor">
+     <property name="acceptRichText">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="button_box_caption_text">
+     <property name="standardButtons">
+      <set>QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>button_box_caption_text</sender>
+   <signal>accepted()</signal>
+   <receiver>dialog_caption_text</receiver>
+   <slot>accept()</slot>
+  </connection>
+  <connection>
+   <sender>button_box_caption_text</sender>
+   <signal>rejected()</signal>
+   <receiver>dialog_caption_text</receiver>
+   <slot>reject()</slot>
+  </connection>
+ </connections>
+</ui>

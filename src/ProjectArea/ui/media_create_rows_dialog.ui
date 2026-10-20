@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dialog_media_create_rows</class>
+ <widget class="QDialog" name="dialog_media_create_rows">
+  <property name="windowTitle"><string>Create Metadata Rows?</string></property>
+  <property name="minimumWidth"><number>440</number></property>
+  <property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <layout class="QVBoxLayout" name="layout_dialog">
+   <item><widget class="QLabel" name="label_explanation">
+    <property name="text"><string>There are no metadata rows to link to yet.
+
+Do you want to create one row per available asset from this source?</string></property>
+    <property name="wordWrap"><bool>true</bool></property>
+   </widget></item>
+   <item><widget class="QDialogButtonBox" name="button_box"><property name="standardButtons"><set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set></property></widget></item>
+  </layout>
+ </widget><resources/><connections/>
+</ui>
