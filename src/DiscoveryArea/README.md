@@ -45,6 +45,3 @@ Hover tooltips show up to 300 characters per metadata value, with an ellipsis
 for longer values. Text wraps within a maximum 360 px section, including URLs
 and identifiers without spaces. Short tooltips remain compact; thumbnail size
 and placement are independent. Full metadata stays unchanged.
-
-Synthetic examples: [light theme](../../.github/assets/discovery-tooltips-light.png)
-and [dark theme](../../.github/assets/discovery-tooltips-dark.png).
