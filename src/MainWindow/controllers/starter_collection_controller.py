@@ -1,4 +1,4 @@
-"""Responsive first-launch setup before the ordinary project chooser."""
+"""Responsive, explicitly requested creation of a bundled example project."""
 from concurrent.futures import ThreadPoolExecutor
 from queue import Empty, SimpleQueue
 import sys
@@ -12,8 +12,8 @@ from shared.qt.message_dialogs import show_error
 from shared.qt.ui_loader import load_ui
 
 
-def prepare_bundled_starter(service):
-    if not getattr(sys, 'frozen', False) or (service.workspace_root / '.starter-collection.json').exists():
+def prepare_bundled_starter(service, *, recreate=False):
+    if not recreate and (not getattr(sys, 'frozen', False) or (service.workspace_root / '.starter-collection.json').exists()):
         return
     dialog = load_ui('MainWindow', 'ui/starter_collection.ui', None)
     label = dialog.findChild(QtWidgets.QLabel, 'label_status')
@@ -27,7 +27,7 @@ def prepare_bundled_starter(service):
     def start():
         result.append(executor.submit(install_starter, service, bundled_resources(),
                                      progress=lambda value,text: updates.put((value,text)),
-                                     cancelled=cancel.is_set))
+                                     cancelled=cancel.is_set, **({"recreate": True} if recreate else {})))
     admission = manager.submit(panel='Project', title='Prepare starter collection', start=start, cancel=cancel.set)
     def request_cancel():
         cancel.set()
@@ -84,4 +84,4 @@ def prepare_bundled_starter(service):
         dialog.removeEventFilter(close_filter)
         admission.finish()
     if error:
-        show_error(None, 'Starter Collection', error[0] + '\n\nYou can continue using EIDORA. Setup will retry on the next launch.')
+        show_error(None, 'Starter Collection', error[0] + '\n\nUse Create MET Example to try again.')

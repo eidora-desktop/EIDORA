@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>StorageDialog</class>
+ <widget class="QDialog" name="StorageDialog">
+  <property name="windowTitle"><string>Storage</string></property>
+  <property name="minimumSize"><size><width>640</width><height>520</height></size></property>
+  <layout class="QVBoxLayout" name="layout_storage">
+   <item><widget class="QLabel" name="label_explanation"><property name="wordWrap"><bool>true</bool></property><property name="text"><string>Projects are yours to keep. Manage downloaded resources here before uninstalling EIDORA to reclaim disk space.</string></property></widget></item>
+   <item><widget class="QGroupBox" name="group_projects"><property name="title"><string>Projects</string></property><layout class="QVBoxLayout" name="layout_projects">
+    <item><widget class="QLineEdit" name="edit_projects"><property name="readOnly"><bool>true</bool></property></widget></item>
+    <item><widget class="QLabel" name="label_projects_size"><property name="text"><string>Measuring…</string></property></widget></item>
+    <item><layout class="QHBoxLayout" name="layout_project_actions">
+     <item><widget class="QPushButton" name="button_show_projects"><property name="text"><string>Open Folder</string></property></widget></item>
+     <item><widget class="QPushButton" name="button_relocate_projects"><property name="text"><string>Relocate Projects…</string></property></widget></item>
+    </layout></item>
+   </layout></widget></item>
+   <item><widget class="QGroupBox" name="group_models"><property name="title"><string>Installed models</string></property><layout class="QVBoxLayout" name="layout_models">
+    <item><widget class="QLineEdit" name="edit_models"><property name="readOnly"><bool>true</bool></property></widget></item>
+    <item><widget class="QLabel" name="label_models_size"><property name="text"><string>Measuring…</string></property></widget></item>
+    <item><layout class="QHBoxLayout" name="layout_model_actions">
+     <item><widget class="QPushButton" name="button_show_models"><property name="text"><string>Open Folder</string></property></widget></item>
+     <item><widget class="QPushButton" name="button_relocate_models"><property name="text"><string>Relocate Models…</string></property></widget></item>
+    </layout></item>
+    <item><widget class="QCheckBox" name="check_models"><property name="text"><string>Remove EIDORA-downloaded models and unfinished downloads</string></property></widget></item>
+   </layout></widget></item>
+   <item><widget class="QGroupBox" name="group_cache"><property name="title"><string>Disposable application cache</string></property><layout class="QVBoxLayout" name="layout_cache">
+    <item><widget class="QLineEdit" name="edit_cache"><property name="readOnly"><bool>true</bool></property></widget></item>
+    <item><widget class="QLabel" name="label_cache_size"><property name="text"><string>Measuring…</string></property></widget></item>
+    <item><widget class="QCheckBox" name="check_cache"><property name="text"><string>Clear rebuildable font cache</string></property></widget></item>
+   </layout></widget></item>
+   <item><widget class="QLabel" name="label_previous"><property name="wordWrap"><bool>true</bool></property><property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property><property name="textInteractionFlags"><set>Qt::TextInteractionFlag::TextSelectableByMouse</set></property><property name="text"><string/></property></widget></item>
+   <item><widget class="QLabel" name="label_status"><property name="wordWrap"><bool>true</bool></property><property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property><property name="text"><string/></property></widget></item>
+   <item><widget class="QProgressBar" name="progress_storage"><property name="maximum"><number>0</number></property></widget></item>
+   <item><layout class="QHBoxLayout" name="layout_actions">
+    <item><widget class="QPushButton" name="button_clean"><property name="text"><string>Remove Selected Resources…</string></property></widget></item>
+    <item><widget class="QPushButton" name="button_cancel"><property name="text"><string>Cancel Operation</string></property></widget></item>
+    <item><widget class="QPushButton" name="button_close"><property name="text"><string>Close</string></property></widget></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

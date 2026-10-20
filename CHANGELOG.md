@@ -4,6 +4,16 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Added
+
+- Add Storage controls for inspecting disk usage, copying and verifying project
+  and model folders, and removing downloaded models and disposable caches.
+- Show project destinations during creation and allow choosing another folder.
+  New installed workspaces default to Documents/EIDORA/Projects; existing
+  workspaces remain in place until explicitly relocated.
+- Make MET example creation optional in the project chooser and preserve edited
+  examples when creating another copy.
+
 ### Fixed
 
 - Keep Discovery hover tooltips compact with a 360 px text-width limit, word
