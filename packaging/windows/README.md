@@ -43,27 +43,30 @@ Actions → Unsigned development bundles → Run workflow → target:
 | `windows` | EXE only |
 | `windows-msix` | MSIX only, without Inno Setup or signing credentials |
 | `windows-both` | EXE and MSIX from one application build |
-| `all` | All platforms; both unsigned Windows formats |
+| `all` | All platforms; Windows Store MSIX only |
 
-Official Windows releases use the private MSIX candidate workflow; source tags do
-not trigger builds. Public EXE builds are unsigned development artifacts only.
+Official Windows candidates are built unsigned on the public runner and verified
+under private release control; source tags do not trigger builds.
+Public EXE builds are unsigned development artifacts only.
 The optional local EXE signing tools remain available, but direct-download EXE
 distribution would require a separate certificate and release review.
 The MSIX **container** is always unsigned for submission, including when its payload
 contains the Authenticode-signed executable from a combined build. Microsoft signs
 the package during publication. No Store API credentials are needed.
 
-Download `eidora-store-windows-x64`. It contains the `.msix`, `SHA256SUMS`, and
-`msix-build-report.json`. This artifact is separate from `eidora-installers-*`,
-which feed the draft GitHub release. Do not publish the unsigned MSIX as a normal
-double-click installer. Archive the exact submission artifact and reports locally
-before their Actions retention period ends.
+Download `eidora-candidate-windows`. It contains the `.msix`, `SHA256SUMS`,
+`candidate.json`, the packaged self-test report, and dependency versions.
+Download `eidora-diagnostics-eidora-windows-x86_64` as well for
+`build-output/store/msix-build-report.json`. Both uploads expire after one day.
+Verify the candidate's source commit, workflow run, and hashes, and preserve the
+original submission bytes and reports locally. Do not attach the unsigned MSIX
+to a public GitHub release or present it as a normal double-click installer.
 
 For local packaging on Windows, install the project's release dependencies and
 the Windows SDK, then use the already-built application folder:
 
 ```powershell
-python automation/package_msix.py --bundle-dir build-output/dist --output-dir build-output/store --version 0.1.0
+python automation/package_msix.py --bundle-dir build-output/dist --output-dir build-output/store --version 0.2.0
 ```
 
 Use `--sdk-bin` to specify a particular SDK's **x64** tools directory. Otherwise
