@@ -159,6 +159,7 @@ _QT_PLUGIN_DIRECTORIES = {
     "platforms",
     "styles",
     "tls",
+    "xcbglintegrations",
 }
 
 
@@ -185,7 +186,8 @@ def _keep_qt_entry(entry):
 
     library_patterns = (
         r"(?:^|/)Qt6([A-Za-z0-9]+)\.dll$",
-        r"PySide6/Qt/lib/libQt6([A-Za-z0-9]+)\.so(?:\..*)?$",
+        # Apply the same library policy to PyInstaller's top-level aliases.
+        r"(?:^|/)libQt6([A-Za-z0-9]+)\.so(?:\..*)?$",
         r"PySide6/Qt/lib/libQt6([A-Za-z0-9]+)\.dylib$",
     )
     for pattern in library_patterns:
