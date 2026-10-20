@@ -31,8 +31,9 @@ when the reviewed release is published.
 
 ### Fixed
 
-- Retain the Qt X11 platform library in Linux bundles so the packaged application
-  can create its window.
+- Retain the Qt X11 platform library and its OpenGL integration plugins in Linux
+  bundles so the packaged application can create and render its window; remove
+  aliases for excluded Qt libraries.
 - Install and validate the complete Linux audio and X11 runtime before bundling,
   and exercise the packaged Linux application under an X11 display.
 - Preserve checksum-pinned icon source bytes on Windows checkout and align the
