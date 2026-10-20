@@ -40,3 +40,8 @@ clustering records referenced by group-set fields. Legacy snapshots show the
 available settings and explicit provenance gaps. `snapshot_provenance.py` owns
 assembly; `settings_provenance.py` reports applied transforms and filter settings
 without evaluating data or loading coordinates.
+
+Hover tooltips show up to 300 characters per metadata value, with an ellipsis
+for longer values. Text wraps within a maximum 360 px section, including URLs
+and identifiers without spaces. Short tooltips remain compact; thumbnail size
+and placement are independent. Full metadata stays unchanged.
