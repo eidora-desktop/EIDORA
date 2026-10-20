@@ -77,7 +77,7 @@ matplotlib==3.11.2
     # via eidora-desktop (pyproject.toml)
 narwhals==2.26.0
     # via scikit-learn
-numba==0.61.2 ; sys_platform == "darwin" and platform_machine == "x86_64"
+numba==0.68.0 ; sys_platform == "darwin" and platform_machine == "x86_64"
 numba==0.67.0 ; sys_platform != "darwin" or platform_machine != "x86_64"
     # via
     #   pacmap
