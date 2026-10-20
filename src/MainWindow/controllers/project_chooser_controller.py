@@ -147,6 +147,7 @@ class ProjectChooserController:
         project_service: ProjectService,
         *,
         remove_project_callback: Callable[[Project], bool] | None = None,
+        storage_read_only: bool = False,
     ) -> None:
         self.dialog = load_ui("MainWindow", "ui/project_chooser.ui", None)
         if not isinstance(self.dialog, QtWidgets.QDialog):
@@ -154,6 +155,8 @@ class ProjectChooserController:
         self.dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
         self._project_service = project_service
         self._remove_project_callback = remove_project_callback
+        self._storage_read_only = storage_read_only
+        self._connections = []
         self._selected_project: Project | None = None
         self._selection_status = ""
         self._projects_by_path: dict[Path, Project] = {}
@@ -173,6 +176,17 @@ class ProjectChooserController:
         self._button_import_project = self._find_required(
             QtWidgets.QPushButton, "button_import_project"
         )
+        self._button_storage = self._find_required(QtWidgets.QPushButton, "button_storage")
+        self._button_starter = self._find_required(QtWidgets.QPushButton, "button_starter")
+        from project.starter_collection import bundled_resources, read_manifest
+
+        manifest_path = bundled_resources()
+        try:
+            manifest = read_manifest(manifest_path)
+            starter_available = (manifest_path.parent / manifest["archive"]).is_file()
+        except (OSError, ValueError):
+            starter_available = False
+        self._button_starter.setVisible(starter_available)
         self._refresh_branding()
         self._palette_filter = _ChooserPaletteFilter(self.dialog, self._refresh_branding)
 
@@ -240,11 +254,9 @@ class ProjectChooserController:
     def dispose(self) -> None:
         self.dialog.removeEventFilter(self._palette_filter)
         self._palette_filter = None
-        self._button_new_project.clicked.disconnect()
-        self._button_import_project.clicked.disconnect()
-        self._button_open_project.clicked.disconnect()
-        self._list_projects.itemSelectionChanged.disconnect()
-        self._list_projects.itemDoubleClicked.disconnect()
+        for signal, slot in self._connections:
+            signal.disconnect(slot)
+        self._connections.clear()
 
     def _refresh_branding(self) -> None:
         dark = self.dialog.palette().color(QtGui.QPalette.ColorRole.Window).lightness() < 128
@@ -266,30 +278,57 @@ class ProjectChooserController:
         )
 
     def _wire(self) -> None:
-        self._button_new_project.clicked.connect(self._create_project)
-        self._button_import_project.clicked.connect(self._import_existing_project)
-        self._button_open_project.clicked.connect(self._open_selected_project)
-        self._list_projects.itemSelectionChanged.connect(self._update_open_button)
-        self._list_projects.itemDoubleClicked.connect(
-            lambda _item: self._open_selected_project()
-        )
+        self._connections = [
+            (self._button_new_project.clicked, self._create_project),
+            (self._button_import_project.clicked, self._import_existing_project),
+            (self._button_open_project.clicked, self._open_selected_project),
+            (self._list_projects.itemSelectionChanged, self._update_open_button),
+            (self._list_projects.itemDoubleClicked, lambda _item: self._open_selected_project()),
+            (self._button_storage.clicked, self._open_storage),
+            (self._button_starter.clicked, self._create_starter),
+        ]
+        for signal, slot in self._connections:
+            signal.connect(slot)
 
     def _create_project(self) -> None:
-        project_name, accepted = QtWidgets.QInputDialog.getText(
-            self.dialog,
-            "New Project",
-            "Project name:",
-            text="Untitled Project",
-        )
-        if not accepted:
+        from MainWindow.controllers.new_project_dialog_controller import choose_new_project
+
+        selection = choose_new_project(self._project_service)
+        if selection is None:
             return
+        project_name, parent = selection
         try:
-            project = self._project_service.create_empty_project(project_name)
+            project = self._project_service.create_empty_project(project_name, parent=parent)
         except Exception as exc:
             show_error(self.dialog, "New Project Failed", str(exc))
             self.refresh()
             return
         self._accept_project(project, f"Created project {project.name}")
+
+    def _open_storage(self) -> None:
+        from MainWindow.controllers.storage_dialog_controller import StorageDialogController
+
+        controller = StorageDialogController(self._project_service, read_only=self._storage_read_only)
+        controller.exec()
+        self.refresh()
+
+    def _create_starter(self) -> None:
+        from MainWindow.controllers.starter_collection_controller import prepare_bundled_starter
+        from project.starter_collection import bundled_resources, read_manifest
+        from MainWindow.controllers.storage_dialog_controller import format_bytes
+
+        manifest = read_manifest(bundled_resources())
+        answer = QtWidgets.QMessageBox.question(
+            self.dialog, "Create MET Example Project",
+            f"Create a new MET example project ({format_bytes(manifest['extracted_bytes'])}) inside:\n"
+            f"{self._project_service.workspace_root}\n\n"
+            "Existing projects are preserved. This project remains after uninstalling EIDORA.",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.Yes,
+        )
+        if answer == QtWidgets.QMessageBox.StandardButton.Yes:
+            prepare_bundled_starter(self._project_service, recreate=True)
+            self.refresh()
 
     def _import_existing_project(self) -> None:
         project_path = QtWidgets.QFileDialog.getExistingDirectory(

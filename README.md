@@ -69,6 +69,7 @@ area. `src/app.py` is the application entry point.
 | [DiscoveryArea](src/DiscoveryArea/README.md) | Projections, canvas interactions, filters, and snapshots |
 | [FiguresArea](src/FiguresArea/README.md) | Figure composition, animation, and export |
 | [project](src/project/README.md) | Project identity, layout, opening, and bundles |
+| [application_storage](docs/storage.md) | Storage locations, verified relocation, and explicit resource cleanup |
 | [shared](src/shared/README.md) | Infrastructure used across application areas |
 | [automation](automation/README.md) | Source validation and build scripts |
 | [packaging](packaging/README.md) | Dependency pins, resource manifests, and installer configuration |

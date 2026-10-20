@@ -22,3 +22,9 @@ the last snapshot is removed while Figures is open.
 
 The `ui/` forms own the shell, project chooser, and About dialog. Match widget
 contracts when editing them.
+
+The chooser also offers explicit MET example creation, a New Project dialog with
+a visible destination, and Storage inspection/maintenance. Storage controllers
+submit filesystem work through a background manager and poll results on the GUI
+thread. Maintenance is disabled while a project is open. See
+[storage behavior](../../docs/storage.md).

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>NewProjectDialog</class>
+ <widget class="QDialog" name="NewProjectDialog">
+  <property name="windowTitle"><string>New Project</string></property>
+  <property name="minimumSize"><size><width>540</width><height>220</height></size></property>
+  <layout class="QVBoxLayout" name="layout_dialog">
+   <item><widget class="QLabel" name="label_name"><property name="text"><string>Project name</string></property></widget></item>
+   <item><widget class="QLineEdit" name="edit_name"><property name="text"><string>Untitled Project</string></property></widget></item>
+   <item><widget class="QLabel" name="label_location"><property name="text"><string>Create project inside</string></property></widget></item>
+   <item><layout class="QHBoxLayout" name="layout_location">
+    <item><widget class="QLineEdit" name="edit_location"><property name="readOnly"><bool>true</bool></property></widget></item>
+    <item><widget class="QPushButton" name="button_browse"><property name="text"><string>Choose Folder…</string></property></widget></item>
+   </layout></item>
+   <item><widget class="QLabel" name="label_destination"><property name="wordWrap"><bool>true</bool></property><property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property><property name="text"><string/></property></widget></item>
+   <item><widget class="QDialogButtonBox" name="buttons"><property name="standardButtons"><set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set></property></widget></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

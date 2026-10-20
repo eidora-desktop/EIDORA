@@ -48,8 +48,30 @@ def default_workspace_root() -> Path:
     configured_root = get_env(WORKSPACE_ROOT_ENV_VAR).strip()
     if configured_root:
         return Path(configured_root).expanduser()
+    from application_storage.repository import StoragePreferences
+
+    saved = StoragePreferences().read().get("workspace_root")
+    if saved:
+        return Path(saved).expanduser()
     if is_source_checkout():
         return application_root() / "workspace_projects"
+    legacy = legacy_workspace_root()
+    if legacy.is_dir() and any(legacy.iterdir()):
+        # Keep existing work discoverable until the user explicitly relocates it.
+        return legacy
+    return suggested_workspace_root()
+
+
+def suggested_workspace_root() -> Path:
+    from PySide6 import QtCore
+
+    documents = QtCore.QStandardPaths.writableLocation(
+        QtCore.QStandardPaths.StandardLocation.DocumentsLocation
+    )
+    return (Path(documents) if documents else user_home() / "Documents") / "EIDORA" / "Projects"
+
+
+def legacy_workspace_root() -> Path:
     if getattr(sys, "frozen", False):
         from shared.windows_package import current_package_full_name
 
@@ -58,6 +80,32 @@ def default_workspace_root() -> Path:
             # and the starter receipt must outlive the application package.
             return user_home() / "EIDORA" / "workspace_projects"
     return application_data_root() / "workspace_projects"
+
+
+def models_root() -> Path:
+    from application_storage.repository import StoragePreferences
+
+    saved = StoragePreferences().read().get("models_root")
+    if saved:
+        return Path(saved).expanduser()
+    legacy = application_data_root() / "models"
+    if legacy.exists():
+        return legacy
+    from PySide6 import QtCore
+
+    local = QtCore.QStandardPaths.writableLocation(
+        QtCore.QStandardPaths.StandardLocation.AppLocalDataLocation
+    )
+    return (Path(local) if local else application_data_root()) / "models"
+
+
+def application_cache_root() -> Path:
+    from PySide6 import QtCore
+
+    location = QtCore.QStandardPaths.writableLocation(
+        QtCore.QStandardPaths.StandardLocation.GenericCacheLocation
+    )
+    return (Path(location) if location else user_home() / ".cache") / "EIDORA"
 
 
 def user_home() -> Path:
