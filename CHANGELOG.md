@@ -4,6 +4,12 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Added
+
+- Connect Check for Updates to eidora.org's platform-specific release catalog,
+  including recommended prototype releases, release notes, and website downloads.
+  Windows installation and updates remain managed by Microsoft Store.
+
 ### Fixed
 
 - Keep Discovery hover tooltips compact with a 360 px text-width limit, word

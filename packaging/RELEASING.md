@@ -56,6 +56,10 @@ and verify them promptly, then remove the temporary Actions artifacts.
 7. Review and publish that draft manually. Upload the original unsigned MSIX
    manually in Partner Center. Store credentials never enter GitHub Actions.
    Record the submitted Store version even if certification later fails.
+8. Prepare and review the website release catalog only for platforms that are
+   publicly available. Publish the website's download/history pages and
+   `updates.json` together. Advance Windows separately after Store availability
+   is confirmed. See [website updates](UPDATES.md).
 
 The draft includes validated signed/notarized DMGs, available Linux packages,
 SHA256SUMS, and source provenance. MSIX and diagnostics are excluded. Checksums describe integrity;

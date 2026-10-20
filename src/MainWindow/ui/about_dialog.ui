@@ -140,6 +140,43 @@
     </widget>
    </item>
    <item>
+    <widget class="QLabel" name="label_update_status">
+     <property name="textRole" stdset="0">
+      <string>primary</string>
+     </property>
+     <property name="textFormat">
+      <enum>Qt::TextFormat::PlainText</enum>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignmentFlag::AlignCenter</set>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="layout_update_links">
+     <item>
+      <widget class="QPushButton" name="button_view_downloads">
+       <property name="text">
+        <string>Downloads</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="button_release_notes">
+       <property name="text">
+        <string>Release Notes</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
     <widget class="QDialogButtonBox" name="button_box">
      <property name="standardButtons">
       <set>QDialogButtonBox::StandardButton::Close</set>

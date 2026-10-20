@@ -4,6 +4,7 @@ import sys
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from MainWindow.controllers.update_panel_controller import UpdatePanelController
 from application_info.service import REPOSITORY_URL, WEBSITE_URL
 from eidora_version import __version__
 from shared.paths import application_data_root
@@ -34,6 +35,7 @@ class HelpPanelController:
         self._dialog = None
         self._palette_filter = None
         self._native_menu = None
+        self._update_panel = None
         self._about = QtGui.QAction("About EIDORA…", window)
         self._about.setMenuRole(QtGui.QAction.MenuRole.AboutRole)
         self._about.triggered.connect(self.show_about)
@@ -60,12 +62,14 @@ class HelpPanelController:
         self._show_dialog()
 
     def check_updates(self) -> None:
-        self._show_dialog()
+        self._show_dialog(check_updates=True)
 
-    def _show_dialog(self) -> None:
+    def _show_dialog(self, *, check_updates: bool = False) -> None:
         if self._dialog is not None:
             self._dialog.raise_()
             self._dialog.activateWindow()
+            if check_updates and self._update_panel is not None:
+                self._update_panel.check()
             return
         dialog = load_ui("MainWindow", "ui/about_dialog.ui")
         self._dialog = dialog
@@ -77,9 +81,14 @@ class HelpPanelController:
         directory_edit.setReadOnly(True)
         self._refresh_about_theme(dialog)
         self._palette_filter = _AboutPaletteFilter(dialog, self._refresh_about_theme)
+        self._update_panel = UpdatePanelController(dialog)
         try:
+            if check_updates:
+                self._update_panel.check()
             dialog.exec()
         finally:
+            self._update_panel.dispose()
+            self._update_panel = None
             dialog.removeEventFilter(self._palette_filter)
             self._palette_filter = None
             self._dialog = None
