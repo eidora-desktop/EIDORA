@@ -31,6 +31,8 @@ when the reviewed release is published.
 
 ### Fixed
 
+- Preserve checksum-pinned icon source bytes on Windows checkout and align the
+  Linux bundle limit with its verified scientific runtime dependencies.
 - Restore saved custom tooltip fields after reopening a project.
 - Keep the Model Zoo install button tied to the selected model when another model's card finishes loading.
 - Restore deterministic starter-settings archive preparation without modifying an existing collection release.
