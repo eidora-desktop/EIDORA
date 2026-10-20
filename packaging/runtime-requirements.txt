@@ -50,7 +50,7 @@ httpcore==1.0.9
     # via httpx
 httpx==0.28.1
     # via huggingface-hub
-huggingface-hub==1.31.0
+huggingface-hub==2.2.0
     # via
     #   eidora-desktop (pyproject.toml)
     #   tokenizers
