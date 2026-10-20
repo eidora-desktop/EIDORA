@@ -20,6 +20,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Prevent the main window from blinking during project startup when Discovery
+  initializes its Qt Quick widget host.
 - Keep Discovery hover tooltips compact with a 360 px text-width limit, word
   wrapping for long values and identifiers, and a 300-character preview per value.
 
