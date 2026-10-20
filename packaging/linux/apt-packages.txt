@@ -1,0 +1,15 @@
+libgl1-mesa-dev
+libegl1-mesa-dev
+libopengl0
+libxkbcommon-dev
+libxkbcommon-x11-dev
+libpulse0
+libtbb12
+libxcb-cursor0
+libxcb-icccm4
+libxcb-image0
+libxcb-keysyms1
+libxcb-render-util0
+libxcb-shape0
+libxcb-util1
+xvfb

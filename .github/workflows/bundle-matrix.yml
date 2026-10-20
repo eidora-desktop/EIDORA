@@ -92,7 +92,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libgl1-mesa-dev libegl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-dev
+          xargs -a packaging/linux/apt-packages.txt sudo apt-get install --yes --no-install-recommends
+          python automation/check_qt_runtime.py
 
       - name: Install matching Qt SDK
         if: runner.os != 'Windows'
@@ -145,8 +146,18 @@ jobs:
         run: python automation/resource_inventory.py --output build-output/resource-inventory.json
 
       - name: Run packaged application self-test
+        if: runner.os != 'Linux'
         run: >-
           python automation/run_bundle_self_test.py
+          --bundle-dir build-output/dist
+          --report build-output/release-self-test.json
+
+      - name: Run packaged Linux application with X11
+        if: runner.os == 'Linux'
+        env:
+          QT_QPA_PLATFORM: xcb
+        run: >-
+          xvfb-run -a python automation/run_bundle_self_test.py
           --bundle-dir build-output/dist
           --report build-output/release-self-test.json
 
