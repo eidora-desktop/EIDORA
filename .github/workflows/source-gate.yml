@@ -32,14 +32,14 @@ jobs:
       - name: Install Qt runtime libraries
         run: |
           sudo apt-get update
-          # Offscreen rendering still loads QtGui's native graphics libraries.
-          sudo apt-get install --yes --no-install-recommends libegl1 libgl1 libopengl0 libxkbcommon0
+          # Use the same native runtime dependencies as the packaged Linux build.
+          xargs -a packaging/linux/apt-packages.txt sudo apt-get install --yes --no-install-recommends
 
       - name: Install runtime dependencies
         run: |
           python -m pip install --only-binary=numba,llvmlite -r packaging/runtime-requirements.txt
           python -m pip check
-          python -c "from PySide6 import QtCore, QtGui, QtSvg"
+          python automation/check_qt_runtime.py
 
       - name: Validate tracked source and resources
         env:

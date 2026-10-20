@@ -31,6 +31,8 @@ when the reviewed release is published.
 
 ### Fixed
 
+- Install and validate the complete Linux audio and X11 runtime before bundling,
+  and exercise the packaged Linux application under an X11 display.
 - Preserve checksum-pinned icon source bytes on Windows checkout and align the
   Linux bundle limit with its verified scientific runtime dependencies.
 - Restore saved custom tooltip fields after reopening a project.
