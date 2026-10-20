@@ -3,7 +3,8 @@
 `controllers/main_controller.py` composes the application areas, routes navigation,
 and connects project changes between them. Project operations use `ProjectService`.
 `project_chooser_controller.py` owns the standalone startup project list; `help_panel_controller.py`
-owns About and release-check UI. `navigation.py` is Qt-facing navigation data.
+owns About, and `update_panel_controller.py` binds explicit website update checks
+inside it. `navigation.py` is Qt-facing navigation data.
 
 Normal startup constructs Project Area first and shows the main window immediately.
 Metadata, Embeddings, Discovery, and Figures are initialized incrementally after
