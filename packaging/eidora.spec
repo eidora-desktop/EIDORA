@@ -145,6 +145,8 @@ _QT_FRAMEWORKS = {
     "QtSvg",
     "QtUiTools",
     "QtWidgets",
+    # libqxcb.so needs this library to create the Linux application window.
+    "QtXcbQpa",
 }
 
 _QT_PLUGIN_DIRECTORIES = {
