@@ -6,9 +6,9 @@ and connects project changes between them. Project operations use `ProjectServic
 owns About, and `update_panel_controller.py` binds explicit website update checks
 inside it. `navigation.py` is Qt-facing navigation data.
 
-Normal startup constructs Project Area first and shows the main window immediately.
-Metadata, Embeddings, Discovery, and Figures are initialized incrementally after
-the window is visible. Keep Project Area imports and construction lightweight.
+Normal startup constructs all workspaces before showing the main window.
+This lets Qt select the graphics surface before the window becomes visible;
+adding Discovery's first Quick widget afterward can recreate the window and blink.
 
 Keep feature behavior in its area. When switching to Discovery, explicitly
 activate its Quick host; a hidden native window may otherwise miss its first frame.
