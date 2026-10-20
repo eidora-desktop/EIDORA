@@ -89,6 +89,7 @@ class MainWindowController:
         """Build one chooser instance; kept separate for focused UI testing."""
         return ProjectChooserController(
             self._project_service,
+            storage_read_only=self._project is not None,
             remove_project_callback=lambda project: self._delete_project(
                 project,
                 confirm=False,

@@ -59,8 +59,6 @@ def main(argv: list[str] | None = None) -> int:
     set_dialog_window_owner(app, None)
     quit_on_last_window_closed = app.quitOnLastWindowClosed()
     app.setQuitOnLastWindowClosed(False)
-    from MainWindow.controllers.starter_collection_controller import prepare_bundled_starter
-    prepare_bundled_starter(project_service)
     chooser = ProjectChooserController(project_service)
     try:
         accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted

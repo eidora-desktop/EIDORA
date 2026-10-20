@@ -57,7 +57,7 @@ def workspace_lock(workspace):
 
 
 def install_starter(service: ProjectService, manifest_path: Path, *, progress=lambda value, text: None,
-                    cancelled=lambda: False):
+                    cancelled=lambda: False, recreate=False):
     workspace = service.workspace_root
     receipt = workspace / '.starter-collection.json'
     journal = workspace / '.starter-collection-pending.json'
@@ -66,7 +66,7 @@ def install_starter(service: ProjectService, manifest_path: Path, *, progress=la
         if cancelled():
             raise InterruptedError('Starter installation cancelled.')
     with workspace_lock(workspace):
-        if receipt.exists():
+        if receipt.exists() and not recreate:
             return None
         manifest = read_manifest(manifest_path)
         origin = {'collection_id': manifest['collection_id'], 'version': manifest['version'], 'sha256': manifest['sha256']}

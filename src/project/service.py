@@ -43,8 +43,17 @@ class ProjectService:
     def workspace_root(self) -> Path:
         return self._workspace_root
 
-    def create_empty_project(self, name: str) -> Project:
-        project = self._create_project_folder(name)
+    def use_workspace(self, root: Path) -> None:
+        """Activate an explicitly selected, already prepared workspace."""
+        self._workspace_root = Path(root)
+        self._workspace_root.mkdir(parents=True, exist_ok=True)
+        self._recent_projects_file = self._workspace_root / ".recent_projects.json"
+
+    def available_project_path(self, name: str, *, parent: Path | None = None) -> Path:
+        return self._next_available_project_path(self._sanitize_name(name), parent=parent)
+
+    def create_empty_project(self, name: str, *, parent: Path | None = None) -> Project:
+        project = self._create_project_folder(name, parent=parent)
         self._metadata_service(project).initialize_empty()
         self._record_recent_project(project)
         return project
@@ -212,8 +221,8 @@ class ProjectService:
             raise ValueError("Project bundle must be a valid ZIP file.") from exc
         return project
 
-    def _create_project_folder(self, name: str) -> Project:
-        project_root = self._next_available_project_path(self._sanitize_name(name))
+    def _create_project_folder(self, name: str, *, parent: Path | None = None) -> Project:
+        project_root = self._next_available_project_path(self._sanitize_name(name), parent=parent)
         self._ensure_project_directories(project_root)
         write_project_manifest(project_root, project_root.name)
         return Project(
@@ -299,11 +308,12 @@ class ProjectService:
     def _metadata_service(self, project: Project) -> MetadataService:
         return MetadataService(self._metadata_repository(project))
 
-    def _next_available_project_path(self, base_name: str) -> Path:
-        candidate = self._workspace_root / base_name
+    def _next_available_project_path(self, base_name: str, *, parent: Path | None = None) -> Path:
+        parent = self._workspace_root if parent is None else Path(parent).expanduser().resolve()
+        candidate = parent / base_name
         suffix = 1
         while candidate.exists():
-            candidate = self._workspace_root / f"{base_name}_{suffix}"
+            candidate = parent / f"{base_name}_{suffix}"
             suffix += 1
         return candidate
 

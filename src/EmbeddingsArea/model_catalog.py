@@ -264,13 +264,12 @@ class ModelCatalog:
             _download_huggingface_model(repo_id, staging, cancel_event=cancel_event, progress_callback=progress_callback)
             _raise_if_cancelled(cancel_event)
             manifest = staging / MODEL_MANIFEST
-            if TEMPORARILY_ALLOW_UNVALIDATED_MODEL_DOWNLOADS:
-                (staging / MODEL_DOWNLOAD_RECEIPT).write_text(
-                    json.dumps({"id": repo_id, "label": entry.label, "modalities": entry.modality_labels}),
-                    encoding="utf-8",
-                )
-            else:
+            if not TEMPORARILY_ALLOW_UNVALIDATED_MODEL_DOWNLOADS:
                 _validate_installed_package(staging, manifest)
+            (staging / MODEL_DOWNLOAD_RECEIPT).write_text(
+                json.dumps({"id": repo_id, "label": entry.label, "modalities": entry.modality_labels}),
+                encoding="utf-8",
+            )
             _report_progress(progress_callback, 90)
             if backup.exists():
                 shutil.rmtree(backup, ignore_errors=True)
@@ -962,16 +961,9 @@ def _is_removable_model(model: EmbeddingModelDescriptor) -> bool:
 
 
 def _app_local_models_root() -> Path:
-    try:
-        from PySide6 import QtCore
+    from shared.paths import models_root
 
-        app_data = QtCore.QStandardPaths.writableLocation(
-            QtCore.QStandardPaths.StandardLocation.AppDataLocation
-        )
-    except Exception:
-        app_data = ""
-    root = Path(app_data) if app_data else Path.home() / ".eidora"
-    return root / "models"
+    return models_root()
 
 
 def _validate_eidora_repo_id(repo_id: str) -> None:

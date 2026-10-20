@@ -44,6 +44,7 @@ src/
   DiscoveryArea/         Discovery generation, canvas, filters, snapshots
   FiguresArea/            Figure setup, rendering, animation, export
   project/                Project domain, storage, item identity
+  application_storage/    Storage preferences, verified relocation, resource cleanup
   shared/                 Cross-area helpers with no product ownership
 ```
 

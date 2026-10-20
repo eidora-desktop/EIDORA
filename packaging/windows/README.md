@@ -79,10 +79,12 @@ EXE/DMG/Linux icon exports are unchanged.
 ## Project storage
 
 Installed Store builds detect their identity through `GetCurrentPackageFullName`.
-Their default workspace is `%USERPROFILE%\EIDORA\workspace_projects`, including
-recent-project records and the starter receipt. It survives package removal.
+New installs use the platform Documents folder's `EIDORA\Projects` directory.
+Existing `%USERPROFILE%\EIDORA\workspace_projects` workspaces remain in use until
+explicit relocation. Both locations, including recent-project records and the
+starter receipt, survive package removal.
 Models and disposable caches remain in application-data storage and may be removed
-on uninstall. Source and EXE defaults are unchanged. An explicit
+on uninstall. New EXE installs use the same Documents default. An explicit
 `EIDORA_WORKSPACE_ROOT` still takes precedence; choose a durable location outside
 AppData and the installation folder for a Store override.
 
@@ -90,6 +92,7 @@ Existing projects are not moved or copied automatically. Use the existing projec
 opening/import workflows. EXE and Store editions can coexist; close one before
 opening the same project in the other. External media links must remain accessible
 on the test computer. The project workspace is not a backup.
+See [storage and cleanup](../../docs/storage.md) for explicit relocation and removal.
 
 ## Validate on Windows before submission
 

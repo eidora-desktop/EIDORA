@@ -84,6 +84,7 @@ venv/
 aqtinstall.log
 /docs/*
 !/docs/architecture.md
+!/docs/storage.md
 /AGENTS.md
 /tests/
 /automation/tests/
