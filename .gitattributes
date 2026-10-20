@@ -1,0 +1,2 @@
+# Keep checksum-pinned icon sources identical on Windows, macOS, and Linux.
+* text=auto eol=lf
