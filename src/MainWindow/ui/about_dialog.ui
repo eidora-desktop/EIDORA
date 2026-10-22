@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>460</width>
-    <height>360</height>
+    <height>440</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -141,20 +141,20 @@
    </item>
    <item>
     <widget class="QLabel" name="label_update_status">
-     <property name="textRole" stdset="0">
-      <string>primary</string>
+     <property name="text">
+      <string/>
      </property>
      <property name="textFormat">
       <enum>Qt::TextFormat::PlainText</enum>
      </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
      <property name="alignment">
       <set>Qt::AlignmentFlag::AlignCenter</set>
      </property>
-     <property name="text">
-      <string/>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+     <property name="textRole" stdset="0">
+      <string>primary</string>
      </property>
     </widget>
    </item>
@@ -162,6 +162,12 @@
     <layout class="QHBoxLayout" name="layout_update_links">
      <item>
       <widget class="QPushButton" name="button_view_downloads">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
        <property name="text">
         <string>Downloads</string>
        </property>
@@ -169,6 +175,12 @@
      </item>
      <item>
       <widget class="QPushButton" name="button_release_notes">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
        <property name="text">
         <string>Release Notes</string>
        </property>
