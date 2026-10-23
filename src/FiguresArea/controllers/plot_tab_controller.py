@@ -11,6 +11,10 @@ from pathlib import Path
 import sqlite3
 from typing import Any, TYPE_CHECKING
 
+from shared.plot_fonts import initialize_plot_fonts
+
+initialize_plot_fonts()
+
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_agg import FigureCanvasAgg

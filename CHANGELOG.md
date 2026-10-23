@@ -32,6 +32,9 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Avoid the first Figures plot freezing the UI during system font discovery.
+  Load Matplotlib's bundled fonts and directly locate a standard-font wishlist;
+  show only available families while preserving missing saved font choices.
 - Prevent the main window from blinking during project startup when Discovery
   initializes its Qt Quick widget host.
 - Keep Discovery hover tooltips compact with a 360 px text-width limit, word
