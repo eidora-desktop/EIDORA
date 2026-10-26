@@ -17,6 +17,15 @@ def bundled_resources():
     return root / 'starter-collection.json'
 
 
+def is_example_collection(root: Path) -> bool:
+    """Recognize installed examples without inspecting their editable contents."""
+    try:
+        origin = json.loads((root / '.starter-origin.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    return isinstance(origin, dict) and origin.get('collection_id') == 'MET_Example'
+
+
 def read_manifest(path):
     value = json.loads(Path(path).read_text(encoding='utf-8'))
     if (value.get('schema_version') != 1 or value.get('collection_id') != 'MET_Example'

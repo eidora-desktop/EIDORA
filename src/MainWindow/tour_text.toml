@@ -1,0 +1,108 @@
+# Edit the tour titles and descriptions here. No Python changes are needed.
+# Keep the [section_names], title/description keys, and quote marks intact.
+# Descriptions can span multiple lines between the triple quotes.
+# Keep text short so the card fits beside its highlighted panel.
+# Save, then close and reopen Help → Take a Tour… to preview your edits.
+# Step order and panel targets are defined separately in tour_steps.py.
+
+[workspace_bar]
+title = "Main Navigation"
+description = """
+EIDORA’s interface follows your workflow across five connected workspaces. Move between them in the main navigation bar.
+"""
+
+[project_media_sources]
+title = "Media Sources"
+description = """
+Add the folders and files containing your media, and manage them here.
+"""
+
+[project_thumbnails]
+title = "Thumbnails"
+description = """
+Create small previews of your media for fast visual browsing in Discovery.
+"""
+
+[metadata_items]
+title = "Metadata Table"
+description = """
+Bring existing metadata into EIDORA and manage it in a searchable, editable table.
+"""
+
+[metadata_groups]
+title = "Custom Groups"
+description = """
+Groups you create and results from clustering are displayed here.
+"""
+
+[embeddings_models]
+title = "Models & Model Zoo"
+description = """
+Install embedding models from the Model Zoo and run them locally on your collection data.
+"""
+
+[embeddings_vectors]
+title = "Vector Data & Clustering"
+description = """
+Find your embedding results here, manage vector data, and run clustering to group similar items.
+"""
+
+[discovery_canvas]
+title = "Main Canvas"
+description = """
+This is the main canvas area for exploring your collection visually and interacting with it. Pan, zoom, and select items to discover patterns and neighborhoods.
+"""
+
+[discovery_projection]
+title = "Projections"
+description = """
+Create and manage 2D projections that turn your vector data into a visual similarity map of your collection.
+"""
+
+[discovery_transform]
+title = "Transform"
+description = """
+Fine-tune how your projection is arranged on the canvas.
+"""
+
+[discovery_filters]
+title = "Filters"
+description = """
+Build and apply filters to narrow down which items in your collection are shown on the canvas.
+"""
+
+[discovery_slicer]
+title = "Slicer"
+description = """
+Slide through metadata values with a rolling window to show slices of your collection.
+"""
+
+[discovery_snapshots]
+title = "Snapshots"
+description = """
+Save your current view as a snapshot to revisit later and use to create figure plots.
+"""
+
+[discovery_appearance]
+title = "Appearance"
+description = """
+Adjust how items look on the canvas, using colors and sizes to communicate information.
+"""
+
+[figures_snapshots]
+title = "Snapshots for Figures"
+description = """
+Drag & drop your saved Discovery snapshots to create figures and animations.
+"""
+
+[figures_canvas]
+title = "Main Figure Plots"
+description = """
+This is your work area for creating figures, presentations, and animations. Each opens in a separate tab.
+"""
+
+[figures_settings]
+title = "Figure Settings"
+description = """
+Adjust the layout and appearance of your open figure, then export the finished result.
+"""

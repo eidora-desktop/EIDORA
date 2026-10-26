@@ -36,6 +36,10 @@ class HelpPanelController:
         self._palette_filter = None
         self._native_menu = None
         self._update_panel = None
+        self.tour_action = QtGui.QAction("Take a Tour…", window)
+        self.tour_action.setMenuRole(QtGui.QAction.MenuRole.NoRole)
+        self.tour_action.setEnabled(False)
+        self.tour_action.setToolTip("The tour will be available when all workspaces have finished loading.")
         self._about = QtGui.QAction("About EIDORA…", window)
         self._about.setMenuRole(QtGui.QAction.MenuRole.AboutRole)
         self._about.triggered.connect(self.show_about)
@@ -46,6 +50,8 @@ class HelpPanelController:
         if button is None:
             raise RuntimeError("main_window.ui is missing button_help")
         menu = QtWidgets.QMenu(button)
+        menu.setToolTipsVisible(True)
+        menu.addAction(self.tour_action)
         menu.addAction(self._about)
         menu.addAction(self._updates)
         button.setMenu(menu)

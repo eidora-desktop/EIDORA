@@ -43,6 +43,12 @@ class ProjectService:
     def workspace_root(self) -> Path:
         return self._workspace_root
 
+    @staticmethod
+    def is_example_collection(project: Project | None) -> bool:
+        from project.starter_collection import is_example_collection
+
+        return project is not None and is_example_collection(project.root)
+
     def use_workspace(self, root: Path) -> None:
         """Activate an explicitly selected, already prepared workspace."""
         self._workspace_root = Path(root)
