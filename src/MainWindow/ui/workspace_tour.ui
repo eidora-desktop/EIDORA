@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>WorkspaceTourCard</class>
+ <widget class="QFrame" name="WorkspaceTourCard">
+  <property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <property name="styleSheet"><string notr="true">QFrame#WorkspaceTourCard { border: 4px solid #ef4444; border-radius: 10px; }
+QPushButton#button_next { padding: 6px 16px; font-weight: bold; }
+QPushButton#button_back { padding: 6px 12px; }</string></property>
+  <layout class="QVBoxLayout" name="layout_card">
+   <property name="spacing"><number>12</number></property>
+   <property name="leftMargin"><number>18</number></property>
+   <property name="topMargin"><number>16</number></property>
+   <property name="rightMargin"><number>18</number></property>
+   <property name="bottomMargin"><number>16</number></property>
+   <item><layout class="QHBoxLayout" name="layout_header">
+    <item><widget class="QLabel" name="label_progress">
+     <property name="textRole" stdset="0"><string>secondary</string></property>
+     <property name="text"><string>1 of 17</string></property>
+    </widget></item>
+    <item><spacer name="spacer_header"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>10</width><height>0</height></size></property></spacer></item>
+    <item><widget class="QToolButton" name="button_close">
+     <property name="text"><string>End tour</string></property>
+     <property name="toolTip"><string>End tour (Escape)</string></property>
+     <property name="autoRaise"><bool>true</bool></property>
+    </widget></item>
+   </layout></item>
+   <item><widget class="QLabel" name="label_workspace">
+    <property name="textRole" stdset="0"><string>secondary</string></property>
+    <property name="text"><string>WORKSPACES</string></property>
+   </widget></item>
+   <item><widget class="QLabel" name="label_title">
+    <property name="textRole" stdset="0"><string>primary</string></property>
+    <property name="font"><font><pointsize>15</pointsize><bold>true</bold></font></property>
+    <property name="text"><string>Five workspaces, one collection</string></property>
+    <property name="wordWrap"><bool>true</bool></property>
+   </widget></item>
+   <item><widget class="QLabel" name="label_description">
+    <property name="textRole" stdset="0"><string>primary</string></property>
+    <property name="text"><string>Explore your collection, one panel at a time.</string></property>
+    <property name="wordWrap"><bool>true</bool></property>
+   </widget></item>
+   <item><layout class="QHBoxLayout" name="layout_actions">
+    <item><widget class="QPushButton" name="button_back"><property name="text"><string>Back</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+    <item><spacer name="spacer_actions"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>10</width><height>0</height></size></property></spacer></item>
+    <item><widget class="QPushButton" name="button_next"><property name="text"><string>Next</string></property><property name="default"><bool>true</bool></property></widget></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

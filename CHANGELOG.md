@@ -6,6 +6,13 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Added
 
+- Add Help → Take a Tour… with a spotlight walkthrough of the five workspaces
+  and their panels. Explanations sit beside red highlights, with Back, Next,
+  and Finish controls. Empty workspaces are temporarily available during the
+  tour, and the MET example opens it once for new users. Titles and descriptions
+  can be edited in `src/MainWindow/tour_text.toml` and reload when the tour opens.
+  Discovery starts with Canvas, then Projections; Figures starts with its canvas,
+  followed by Snapshots and Figure Settings.
 - Support optional ONNX `preparation.resize_rounding: truncate` for image and
   video models that discard fractional resize dimensions. Omitted settings keep
   the existing `round` behavior; preparation contract implementation 2 documents

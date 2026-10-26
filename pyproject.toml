@@ -53,6 +53,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 shared = ["resources/video-audit/*.mkv"]
 project = ["resources/*.json"]
+MainWindow = ["tour_text.toml"]
 DiscoveryArea = ["palettes.json", "palettes.LICENSE.txt"]
 "*" = ["**/*.qrc", "**/*.svg", "**/*.png", "**/*.ico", "**/*.ui", "**/*.yaml", "**/*.onnx", "**/*.qml", "**/*.qsb", "**/qmldir", "**/*.so", "**/*.dylib", "**/*.dll"]
 
