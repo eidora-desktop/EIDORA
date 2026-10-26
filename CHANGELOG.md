@@ -4,6 +4,12 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Update Pillow, certifi, and filelock to patched releases for image-processing,
+  certificate-trust, and file-locking vulnerabilities. Require patched minimum
+  versions for source installations as well as pinned application bundles.
+
 ## 0.2.0 — Prepared, not published
 
 This minor prototype release adds Methods and Citations reporting, a guided
