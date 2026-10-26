@@ -133,8 +133,8 @@ pyside6==6.11.1 ; sys_platform != "win32"
 pyside6-addons==6.10.1 ; sys_platform == "win32"
 pyside6-addons==6.11.1 ; sys_platform != "win32"
     # via pyside6
-pyside6-essentials==6.10.1 ; sys_platform == "win32"
-pyside6-essentials==6.11.1 ; sys_platform != "win32"
+pyside6-essentials==6.12.0 ; sys_platform == "win32"
+pyside6-essentials==6.12.0 ; sys_platform != "win32"
     # via
     #   pyside6
     #   pyside6-addons
