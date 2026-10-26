@@ -1,4 +1,4 @@
-"""Responsive, explicitly requested creation of a bundled example project."""
+"""Responsive first-launch or explicitly requested bundled example creation."""
 from concurrent.futures import ThreadPoolExecutor
 from queue import Empty, SimpleQueue
 import sys
@@ -48,7 +48,9 @@ def prepare_bundled_starter(service, *, recreate=False):
     close_filter = CloseFilter(dialog)
     dialog.installEventFilter(close_filter)
     error = []
+    installed_project = None
     def poll():
+        nonlocal installed_project
         while True:
             try:
                 value,text = updates.get_nowait()
@@ -61,7 +63,7 @@ def prepare_bundled_starter(service, *, recreate=False):
                 button.setEnabled(False)
         if result and result[0].done():
             try:
-                result[0].result()
+                installed_project = result[0].result()
             except InterruptedError:
                 pass
             except Exception as exc:
@@ -85,3 +87,4 @@ def prepare_bundled_starter(service, *, recreate=False):
         admission.finish()
     if error:
         show_error(None, 'Starter Collection', error[0] + '\n\nUse Create MET Example to try again.')
+    return installed_project
