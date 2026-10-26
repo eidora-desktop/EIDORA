@@ -6,6 +6,9 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Restore automatic MET example creation and opening on first packaged launch,
+  followed by the welcome tour. Keep release self-tests from consuming the
+  user's onboarding preference.
 - Update Pillow, certifi, and filelock to patched releases for image-processing,
   certificate-trust, and file-locking vulnerabilities. Require patched minimum
   versions for source installations as well as pinned application bundles.

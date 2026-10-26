@@ -46,7 +46,9 @@ with Canvas, then Projections, Transform, Filters, Slicer, Snapshots, and Appear
 During the tour, the shell temporarily permits navigation into empty workspaces.
 Closing it restores the normal availability checks and returns to Project if
 the displayed workspace is unavailable. Opening the MET example automatically
-starts the tour after the window and all controllers are ready. `tour_repository.py`
+starts the tour after the window and all controllers are ready. On first packaged
+startup, the cancellable starter setup creates and opens this example directly;
+subsequent launches keep the project chooser. `tour_repository.py`
 stores whether a tour has been shown in the user's application-data folder,
 independently of projects. Manual tours and cancellation count as having seen
 onboarding; Help always allows replay. Pending launches stop on project changes

@@ -186,9 +186,13 @@ changing the source pin; never disable verification. Remove an obsolete archive
 from `build/starter` before fetching a corrected pin locally.
 
 Packaged startup installs the starter once per workspace, including custom
-`EIDORA_WORKSPACE_ROOT` locations, before the chooser. Setup is cancellable and
+`EIDORA_WORKSPACE_ROOT` locations, and opens the newly created example directly.
+The welcome tour starts once the window and workspaces are ready. Later launches,
+or cancelled/failed setup, show the chooser. Setup is cancellable and
 keeps partial extraction hidden. A workspace receipt prevents upgrades or removal
 of the user's copy from automatically installing another. Existing project names
 are preserved; a collision receives the usual numeric suffix. Source-checkout
 startup does not seed the development workspace. Windows, both macOS architectures,
-and Linux builds run the same archive, chooser, and snapshot self-test offline.
+and Linux builds run the same setup, welcome-tour, chooser, and snapshot self-test
+offline. The self-test uses temporary tour preferences so validation cannot mark
+the user's real onboarding as completed.

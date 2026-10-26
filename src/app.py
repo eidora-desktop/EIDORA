@@ -59,16 +59,23 @@ def main(argv: list[str] | None = None) -> int:
     set_dialog_window_owner(app, None)
     quit_on_last_window_closed = app.quitOnLastWindowClosed()
     app.setQuitOnLastWindowClosed(False)
-    chooser = ProjectChooserController(project_service)
     try:
-        accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
-        project = chooser.selected_project
+        project = None
+        if getattr(sys, "frozen", False):
+            from MainWindow.controllers.starter_collection_controller import prepare_bundled_starter
+
+            project = prepare_bundled_starter(project_service)
+        if project is None:
+            chooser = ProjectChooserController(project_service)
+            try:
+                accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
+                project = chooser.selected_project if accepted else None
+            finally:
+                chooser.dispose()
     except BaseException:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
         raise
-    finally:
-        chooser.dispose()
-    if not accepted or project is None:
+    if project is None:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
         return 0
 
