@@ -6,6 +6,11 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Added
 
+- Support optional ONNX `preparation.resize_rounding: truncate` for image and
+  video models that discard fractional resize dimensions. Omitted settings keep
+  the existing `round` behavior; preparation contract implementation 2 documents
+  and validates both choices. Existing unfinished ONNX runs require re-preparation;
+  completed embedding datasets remain unchanged.
 - Add Storage controls for inspecting disk usage, copying and verifying project
   and model folders, and removing downloaded models and disposable caches.
 - Show project destinations during creation and allow choosing another folder.

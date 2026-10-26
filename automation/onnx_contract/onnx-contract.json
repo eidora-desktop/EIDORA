@@ -15,12 +15,12 @@
   ],
   "implementation_sha256": {
     "src/EmbeddingsArea/model_package.py": "0d22f0573a6b4226df8f5696c487e32ad34cb023ea3b9eb65f4ad6aa131b51d6",
-    "src/EmbeddingsArea/preparation_contract.py": "7d00565f2ad0e4473f070aee6f67bc88fc20e7800c2e3a487ac5870c095ee1fc",
+    "src/EmbeddingsArea/preparation_contract.py": "f7c7b78af39180a435302ece8015b223965f2f4b04115a414cbd52f93cee5dc2",
     "src/EmbeddingsArea/runtime/adapters/base.py": "5db5eb06c302222c4b291a5761645014963c05a423d2784bec52a62fa17904db",
     "src/EmbeddingsArea/runtime/adapters/onnx.py": "888dea93f84c36456653e8763bc526213634f6edcd5da667b918736156e72a93",
     "src/EmbeddingsArea/runtime/contracts.py": "910ac06f5d59c2b3b30a8ad41bb6bc03a1b1b217fbc12263e3a3622fce806c88",
     "src/EmbeddingsArea/runtime/package_validation.py": "0bb667d501e6f3e88adfcff01d06ff1a0ff97ae04c8e1f2986274a7604e034ad",
-    "src/EmbeddingsArea/runtime/preparers.py": "ba648879baa7103a389c0d0687d698c1c6b1c9fce8c9b67e06830c747f20c47f",
+    "src/EmbeddingsArea/runtime/preparers.py": "23dee6c518c1e301a3a531920cf1c30483de2c91d91019559c3e2b33ef12f96c",
     "src/shared/bibtex.py": "dddcc064e69464a35d9fa0e9035d6fb747ea0042076b439364b072e111afa06e"
   },
   "operations": {
@@ -161,6 +161,25 @@
         "video"
       ]
     },
+    "resize_rounding": {
+      "choices": [
+        "round",
+        "truncate"
+      ],
+      "default": "round",
+      "enabled_when": {
+        "resize": [
+          "fill_crop",
+          "fit_pad",
+          "short_edge_crop"
+        ]
+      },
+      "kind": "choice",
+      "modalities": [
+        "image",
+        "video"
+      ]
+    },
     "short_edge": {
       "enabled_when": {
         "resize": [
@@ -208,13 +227,13 @@
       ]
     }
   },
-  "preparation_version": 1,
+  "preparation_version": 2,
   "schema_version": 3,
   "semantics": {
     "audio_resampling": "PyAV fltp resampler; channel selection before resampling",
     "crop_offsets": "integer floor; nine-position grid",
     "interpolation": "Pillow RGB resize filters",
-    "resize_rounding": "Python round (ties to even)",
+    "resize_rounding": "round: Python round (ties to even; default); truncate: discard fractional pixels using exact integer ratios",
     "video_sampling": "first frame at or after start+k*duration/frame_count; endpoint excluded"
   }
 }
