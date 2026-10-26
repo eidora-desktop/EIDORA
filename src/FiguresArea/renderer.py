@@ -9,6 +9,10 @@ import re
 import tempfile
 from typing import Any
 
+from shared.plot_fonts import initialize_plot_fonts
+
+initialize_plot_fonts()
+
 from matplotlib.colors import to_rgba
 from matplotlib.figure import Figure
 from matplotlib import font_manager

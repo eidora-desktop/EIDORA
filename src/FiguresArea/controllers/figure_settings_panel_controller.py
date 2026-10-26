@@ -8,6 +8,7 @@ from typing import Protocol
 from PySide6 import QtCore, QtWidgets
 
 from FiguresArea.domain import FigurePlotSettings
+from shared.plot_fonts import BUNDLED_FONT_FAMILIES, initialize_plot_fonts
 from shared.qt.panel_controller import UiPanelController
 
 
@@ -50,6 +51,7 @@ class FigureSettingsPanelController(UiPanelController):
 
     def _wire(self) -> None:
         self._active_plot_tab: FigureSettingsTarget | None = None
+        self._available_fonts = BUNDLED_FONT_FAMILIES
         self._figure_setting_widgets: dict[str, QtWidgets.QWidget] = {}
         self._save_preset_callback: Callable[[str, dict], bool] | None = None
         self._load_preset_callback: Callable[[str], dict | None] | None = None
@@ -106,6 +108,8 @@ class FigureSettingsPanelController(UiPanelController):
 
     def set_active_plot_tab(self, plot_tab: FigureSettingsTarget | None) -> None:
         self._active_plot_tab = plot_tab
+        if plot_tab is not None:
+            self._available_fonts = initialize_plot_fonts()
         self._sync_figure_settings_from_active_tab()
         trees = [
             self._widget.findChild(QtWidgets.QTreeWidget, "tree_figure_parameters"),
@@ -466,6 +470,10 @@ class FigureSettingsPanelController(UiPanelController):
         item = QtWidgets.QTreeWidgetItem(parent, [label, ""])
         combo = QtWidgets.QComboBox(tree)
         combo.setObjectName(f"combo_figure_{key}")
+        if key.endswith("_font"):
+            combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(12)
+            combo.currentIndexChanged.connect(lambda _index, control=combo: self._update_font_tooltip(control))
         for value, text in items:
             combo.addItem(text, value)
         tree.setItemWidget(item, 1, combo)
@@ -545,10 +553,26 @@ class FigureSettingsPanelController(UiPanelController):
             elif isinstance(widget, QtWidgets.QCheckBox):
                 widget.setChecked(bool(value))
             elif isinstance(widget, QtWidgets.QComboBox):
+                if key.endswith("_font"):
+                    widget.clear()
+                    for family in self._available_fonts:
+                        widget.addItem(family, family)
+                    missing = str(value) not in self._available_fonts
+                    if missing:
+                        widget.addItem(f"{value} (unavailable)", value)
                 index = widget.findData(value)
                 widget.setCurrentIndex(index if index >= 0 else 0)
+                if key.endswith("_font"):
+                    self._update_font_tooltip(widget)
         finally:
             widget.blockSignals(previous)
+
+    def _update_font_tooltip(self, combo: QtWidgets.QComboBox) -> None:
+        family = combo.currentData()
+        combo.setToolTip(
+            f"{family} is unavailable. Rendering uses DejaVu Sans; the saved font choice is preserved."
+            if family and family not in self._available_fonts else ""
+        )
 
     def _apply_figure_settings(self) -> bool:
         if self._active_plot_tab is None:
@@ -847,6 +871,7 @@ class FigureSettingsPanelController(UiPanelController):
 
     @staticmethod
     def _matplotlib_export_options() -> list[tuple[str, list[str]]]:
+        initialize_plot_fonts()
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
         supported = {
@@ -866,6 +891,7 @@ class FigureSettingsPanelController(UiPanelController):
     def _default_export_format(options: list[tuple[str, list[str]]]) -> str:
         if any("pdf" in formats for _label, formats in options):
             return "pdf"
+        initialize_plot_fonts()
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
         default = str(FigureCanvas.get_default_filetype() or "").lower().lstrip(".")
@@ -975,12 +1001,5 @@ class FigureSettingsPanelController(UiPanelController):
         widget = self._figure_setting_widgets.get(key)
         return str(widget.currentData()) if isinstance(widget, QtWidgets.QComboBox) else default
 
-    @staticmethod
-    def _font_items() -> list[tuple[str, str]]:
-        return [
-            ("DejaVu Sans", "DejaVu Sans"),
-            ("Arial", "Arial"),
-            ("Helvetica", "Helvetica"),
-            ("Times New Roman", "Times New Roman"),
-            ("Courier New", "Courier New"),
-        ]
+    def _font_items(self) -> list[tuple[str, str]]:
+        return [(family, family) for family in self._available_fonts]

@@ -14,6 +14,21 @@ thumbnail refresh action; per-frame edits refresh affected thumbnails.
 
 Export formats must also pass the packaged application self-test.
 
+Plot fonts initialize on the first plot, without a system-wide font scan.
+`shared/plot_fonts.py` owns the standard-font wishlist and registers only existing
+font files: known macOS locations, matching Windows font registry entries, or a
+bounded, family-filtered fontconfig query on Linux. Matplotlib 3.11 or newer is
+required. DejaVu Sans, DejaVu Serif, DejaVu Sans Mono, and STIXGeneral remain
+available from Matplotlib; installed wishlist fonts are added to the title and
+caption selectors with their real family names and available styles. The catalog
+is cached for the session; restart after installing fonts.
+Matplotlib uses automatic text hinting so installed faces with incompatible
+native hinting instructions still render at figure sizes.
+
+Unavailable fonts are omitted from new choices. A saved unavailable family stays
+selected as “unavailable”, with a tooltip explaining the DejaVu Sans fallback;
+applying unrelated settings preserves the original family name.
+
 Each snapshot row has a **cite** button opening the shared methods report, with
 copyable caption text and Markdown/BibTeX export. Plot cells retain the source
 snapshot report in their saved render state. Caption editors offer **Insert

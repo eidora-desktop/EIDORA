@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from shared.plot_fonts import initialize_plot_fonts
+
+initialize_plot_fonts()
+
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from PySide6 import QtCore, QtGui, QtWidgets
 
