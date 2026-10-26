@@ -4,6 +4,19 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.0 — Prepared, not published
+
+This minor prototype release adds Methods and Citations reporting, a guided
+workspace tour, storage management, and platform-specific update checks.
+
+Prototype software. Use at your own risk. Stability and backward compatibility are not guaranteed.
+
+ONNX model packages require BibTeX; packages without it must be repackaged.
+Preparation contract implementation 2 requires unfinished ONNX runs to be
+prepared again; completed embedding datasets and existing saved runs remain
+readable. Existing workspaces stay in place unless explicitly relocated.
+Set the actual publication date when the reviewed release is published.
+
 ### Added
 
 - Add Help → Take a Tour… with a spotlight walkthrough of the five workspaces
@@ -25,27 +38,9 @@ Release-relevant changes are tracked here. Version selection follows the [versio
   workspaces remain in place until explicitly relocated.
 - Make MET example creation optional in the project chooser and preserve edited
   examples when creating another copy.
-
 - Connect Check for Updates to eidora.org's platform-specific release catalog,
   including recommended prototype releases, release notes, and website downloads.
   Windows installation and updates remain managed by Microsoft Store.
-
-### Fixed
-
-- Avoid the first Figures plot freezing the UI during system font discovery.
-  Load Matplotlib's bundled fonts and directly locate a standard-font wishlist;
-  show only available families while preserving missing saved font choices.
-- Prevent the main window from blinking during project startup when Discovery
-  initializes its Qt Quick widget host.
-- Keep Discovery hover tooltips compact with a 360 px text-width limit, word
-  wrapping for long values and identifiers, and a 300-character preview per value.
-
-## 0.2.0 — Prepared, not published
-
-This minor prototype release adds Methods and Citations reporting and requires
-BibTeX in ONNX model packages. Existing model packages without BibTeX must be
-repackaged; existing saved runs remain readable. Set the actual publication date
-when the reviewed release is published.
 
 ### Changed
 
@@ -67,6 +62,14 @@ when the reviewed release is published.
 
 ### Fixed
 
+- Avoid the first Figures plot freezing the UI during system font discovery.
+  Load Matplotlib's bundled fonts and directly locate a standard-font wishlist;
+  show only available families while preserving missing saved font choices.
+- Prevent the main window from blinking during project startup when Discovery
+  initializes its Qt Quick widget host.
+- Keep Discovery hover tooltips compact with a 360 px text-width limit, word
+  wrapping for long values and identifiers, and a 300-character preview per value.
+- Give the About dialog update area more room and keep its links compact.
 - Retain the Qt X11 platform library and its OpenGL integration plugins in Linux
   bundles so the packaged application can create and render its window; remove
   aliases for excluded Qt libraries.
