@@ -1,4 +1,4 @@
-# Global preparation options — schema 3, implementation 1
+# Global preparation options — schema 3, implementation 2
 
 The executable catalog is `EmbeddingsArea/preparation_contract.py`. Its JSON
 snapshot is `onnx-contract.json`. EIDORA runs preparation in its isolated
@@ -8,6 +8,7 @@ parameters needed for their workflow and declare recommended defaults.
 | ID | Modalities | Type / global limits | Meaning / condition |
 | --- | --- | --- | --- |
 | resize | image, video | stretch, fill_crop, fit_pad, short_edge_crop | Geometry before fixed-size tensor creation |
+| resize_rounding | image, video | round, truncate | Integer resize dimensions; default round when omitted; active for fill_crop, fit_pad, short_edge_crop |
 | interpolation | image, video | nearest, bilinear, bicubic, lanczos | Pillow RGB resize filter |
 | crop_position | image, video | top_left, top, top_right, left, center, right, bottom_left, bottom, bottom_right | Active for fill_crop and short_edge_crop; default center |
 | short_edge | image, video | integer 1–16,384 | Active for short_edge_crop; must be at least max(final width, final height) |
@@ -28,9 +29,26 @@ fail preparation rather than changing meaning silently.
 Stretch directly resizes to W×H. Fill/crop preserves aspect, scales by
 max(W/w,H/h), then crops. Fit/pad scales by min(W/w,H/h) and centers the image
 on a background canvas. Short-edge/crop scales by short_edge/min(w,h), then crops
-to the independent final W×H. All resize dimensions use Python round (ties to
-even); crop positions use 0, floor(remainder/2), or remainder on each axis.
+to the independent final W×H. `preparation.resize_rounding` defaults to `round`
+(Python round, ties to even). Explicit `truncate` discards fractional pixels
+using exact integer ratios, avoiding floating-point errors at integer boundaries.
+Fit/pad retains a minimum of one pixel on each axis. Stretch always uses the
+fixed W×H and ignores this setting. Crop positions still use 0,
+floor(remainder/2), or remainder on each axis, independently of resize rounding.
 An intermediate float-image footprint above 256 MiB is rejected.
+
+For a reference pipeline that truncates resize dimensions, declare:
+
+```yaml
+preparation:
+  # Other required preparation fields remain unchanged.
+  resize_rounding: truncate
+```
+
+For example, 640×480 with `short_edge: 224` becomes 298×224 with truncation,
+instead of the default 299×224. Packages without the field retain round behavior.
+Compare the complete prepared tensors against the reference model with matching
+Pillow versions; this setting changes only resize dimensions.
 
 Image preparation: first page/frame → EXIF orientation → alpha composite/RGB →
 geometry/interpolation → float32 `(pixel*rescale-mean)/std` → layout → batch.

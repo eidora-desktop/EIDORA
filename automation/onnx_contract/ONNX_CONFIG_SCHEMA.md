@@ -42,10 +42,24 @@ Input sources: image `pixels`; text `token_ids`, `attention_mask`,
 
 | Modality | Fields |
 | --- | --- |
-| Image | width, height, layout (NCHW/NHWC), resize, interpolation, rescale, mean[3], std[3], optional alpha_background[3], crop_position, short_edge |
+| Image | width, height, layout (NCHW/NHWC), resize, interpolation, rescale, mean[3], std[3], optional alpha_background[3], crop_position, short_edge, resize_rounding |
 | Text | tokenizer_path, max_length, padding_side, truncation_side, add_special_tokens; optional prefix/suffix |
 | Audio | sample_rate, sample_count, channels; optional excerpt/start_seconds |
-| Video | width, height, frame_count, duration_seconds, layout (BTCHW/BCTHW/BTHWC), resize, interpolation, rescale, mean[3], std[3]; optional alpha_background, crop_position, short_edge, excerpt/start_seconds |
+| Video | width, height, frame_count, duration_seconds, layout (BTCHW/BCTHW/BTHWC), resize, interpolation, rescale, mean[3], std[3]; optional alpha_background, crop_position, short_edge, resize_rounding, excerpt/start_seconds |
+
+`preparation.resize_rounding` is optional and accepts `round` or `truncate`.
+If omitted, EIDORA uses `round` (Python rounding, with ties to even), preserving
+existing resize behavior. Set `resize_rounding: truncate` to discard fractional
+pixels when calculating aspect-preserving resize dimensions. This applies to
+`fill_crop`, `fit_pad`, and `short_edge_crop`, including image/video components of
+multimodal packages. It does not affect `stretch`, crop offsets, interpolation,
+or normalization. For example, a 640×480 image with `short_edge: 224` resizes to
+299×224 with `round`, or 298×224 with `truncate`, before cropping.
+Unknown values are rejected. This option requires preparation implementation 2;
+the package schema remains version 3.
+Existing unfinished ONNX runs must be re-prepared because saved preparation
+signatures include the implementation version. Completed embedding datasets
+remain readable and unchanged.
 
 Dimensions/counts must be positive integers. Numeric values must be finite;
 standard deviations must be nonzero. Audio waveforms are [B,S] or [B,1,S],
@@ -93,6 +107,7 @@ preparation:
   height: 224
   layout: NCHW
   resize: short_edge_crop
+  resize_rounding: round  # Optional; use truncate when required by the reference preprocessing.
   short_edge: 256
   crop_position: center
   interpolation: bicubic
