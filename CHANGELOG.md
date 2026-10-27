@@ -4,24 +4,21 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.1 — Prepared, not published
+
+This patch prepares updated Linux x64 packages with developer attribution.
+It does not introduce project-format changes. Mac and Windows builds are not
+part of this patch release preparation.
+
+Prototype software. Use at your own risk. Stability and backward compatibility are not guaranteed.
+
 ### Fixed
 
 - Identify Tillmann Ohm as the Linux package maintainer and developer, include
   the EIDORA homepage and contact address, and ship AppStream metadata in both
   DEB and AppImage packages.
-- Correct Linux installed-size metadata by counting symbolic links themselves
-  instead of counting their library targets again, and include the full payload.
-- Derive Microsoft Store package versions from the EIDORA release, adding one
-  only to the major component (`0.2.0` → `1.2.0.0`). Keep installer filenames
-  and Windows executable version properties on the actual application version.
-- Restore automatic MET example creation and opening on first packaged launch,
-  followed by the welcome tour. Keep release self-tests from consuming the
-  user's onboarding preference.
-- Update Pillow, certifi, and filelock to patched releases for image-processing,
-  certificate-trust, and file-locking vulnerabilities. Require patched minimum
-  versions for source installations as well as pinned application bundles.
 
-## 0.2.0 — Prepared, not published
+## 0.2.0 — 2026-10-27
 
 This minor prototype release adds Methods and Citations reporting, a guided
 workspace tour, storage management, and platform-specific update checks.
@@ -32,7 +29,8 @@ ONNX model packages require BibTeX; packages without it must be repackaged.
 Preparation contract implementation 2 requires unfinished ONNX runs to be
 prepared again; completed embedding datasets and existing saved runs remain
 readable. Existing workspaces stay in place unless explicitly relocated.
-Set the actual publication date when the reviewed release is published.
+Published as [v0.2.0](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.0)
+for macOS and Linux. Windows Store packaging was prepared separately.
 
 ### Added
 
@@ -79,6 +77,17 @@ Set the actual publication date when the reviewed release is published.
 
 ### Fixed
 
+- Correct Linux installed-size metadata by counting symbolic links themselves
+  instead of counting their library targets again, and include the full payload.
+- Derive Microsoft Store package versions from the EIDORA release, adding one
+  only to the major component (`0.2.0` → `1.2.0.0`). Keep installer filenames
+  and Windows executable version properties on the actual application version.
+- Restore automatic MET example creation and opening on first packaged launch,
+  followed by the welcome tour. Keep release self-tests from consuming the
+  user's onboarding preference.
+- Update Pillow, certifi, and filelock to patched releases for image-processing,
+  certificate-trust, and file-locking vulnerabilities. Require patched minimum
+  versions for source installations as well as pinned application bundles.
 - Avoid the first Figures plot freezing the UI during system font discovery.
   Load Matplotlib's bundled fonts and directly locate a standard-font wishlist;
   show only available families while preserving missing saved font choices.

@@ -9,8 +9,8 @@ Validate the metadata on Linux with:
 
 ```sh
 appstreamcli validate --no-net packaging/linux/org.eidora.EIDORA.metainfo.xml
-dpkg-deb --field EIDORA-0.2.0-linux-x86_64.deb Maintainer Homepage Version
-dpkg-deb --contents EIDORA-0.2.0-linux-x86_64.deb
+dpkg-deb --field EIDORA-0.2.1-linux-x86_64.deb Maintainer Homepage Version
+dpkg-deb --contents EIDORA-0.2.1-linux-x86_64.deb
 ```
 
 Check the installed app in the target distribution's software center as well.
