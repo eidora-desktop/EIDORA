@@ -148,7 +148,7 @@ class WorkspaceTourController(QtCore.QObject):
         while parent is not None:
             rect = rect.intersected(QtCore.QRect(parent.mapToGlobal(QtCore.QPoint()), parent.size()))
             parent = parent.parentWidget()
-        rect.translate(-self._dialog.pos())
+        rect.translate(-self._dialog.mapToGlobal(QtCore.QPoint()))
         return rect
 
     def _present(self) -> None:
