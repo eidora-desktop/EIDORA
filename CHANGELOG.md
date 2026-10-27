@@ -4,6 +4,14 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Added
+
+- Navigate the workspace tour with Tab or arrow keys on all platforms; Shift+Tab goes back.
+
+### Fixed
+
+- Keep the Linux X11 workspace-tour overlay aligned with the application beside desktop docks, while preserving macOS transient-window behavior.
+
 ## 0.2.1 — Prepared, not published
 
 This patch prepares updated Linux x64 packages with developer attribution.

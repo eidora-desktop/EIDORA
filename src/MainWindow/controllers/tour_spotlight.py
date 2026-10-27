@@ -43,8 +43,14 @@ class TourSpotlight(QtWidgets.QDialog):
     """A native transient surface covers the Quick canvas as well as Qt widgets."""
 
     def __init__(self, owner: QtWidgets.QMainWindow) -> None:
-        super().__init__(None, QtCore.Qt.WindowType.Tool | QtCore.Qt.WindowType.FramelessWindowHint
-                         | QtCore.Qt.WindowType.NoDropShadowWindowHint)
+        flags = (QtCore.Qt.WindowType.Tool | QtCore.Qt.WindowType.FramelessWindowHint
+                 | QtCore.Qt.WindowType.NoDropShadowWindowHint)
+        if QtGui.QGuiApplication.platformName() == "xcb":
+            # This is an overlay, not a window for the WM to place around docks.
+            # Keep Cocoa's transient-window behavior unchanged. The controller
+            # explicitly activates keyboard focus and hides on app deactivation.
+            flags |= QtCore.Qt.WindowType.X11BypassWindowManagerHint
+        super().__init__(None, flags)
         self.setObjectName("WorkspaceTourSpotlight")
         self.setWindowTitle("Workspace Tour")
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground)
