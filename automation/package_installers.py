@@ -112,6 +112,7 @@ def _linux(
     executable = source / "EIDORA"
     if not executable.is_file():
         raise RuntimeError(f"Linux application bundle is missing: {source}")
+    metainfo = Path(__file__).resolve().parents[1] / "packaging/linux/org.eidora.EIDORA.metainfo.xml"
 
     artifacts: list[Path] = []
     with tempfile.TemporaryDirectory(prefix="eidora-linux-") as temporary:
@@ -129,6 +130,9 @@ def _linux(
             "Exec=/usr/bin/eidora\nIcon=eidora_icon\nCategories=Graphics;Science;\nTerminal=false\n"
         )
         (applications / "eidora.desktop").write_text(desktop_text, encoding="utf-8")
+        metadata_dir = package_root / "usr/share/metainfo"
+        metadata_dir.mkdir(parents=True)
+        shutil.copy2(metainfo, metadata_dir / metainfo.name)
         shutil.copytree(
             icon_dir / "hicolor",
             package_root / "usr" / "share" / "icons" / "hicolor",
@@ -140,7 +144,8 @@ def _linux(
         (debian / "control").write_text(
             "Package: eidora\n"
             f"Version: {version}\nArchitecture: amd64\n"
-            "Maintainer: EIDORA\nSection: science\nPriority: optional\n"
+            "Maintainer: Tillmann Ohm <info@eidora.org>\n"
+            "Homepage: https://eidora.org\nSection: science\nPriority: optional\n"
             f"Installed-Size: {installed_size}\n"
             "Description: EIDORA desktop application\n",
             encoding="utf-8",
@@ -159,6 +164,9 @@ def _linux(
         )
         app_run.chmod(0o755)
         (appdir / "eidora.desktop").write_text(desktop_text.replace("Exec=/usr/bin/eidora", "Exec=EIDORA"), encoding="utf-8")
+        metadata_dir = appdir / "usr/share/metainfo"
+        metadata_dir.mkdir(parents=True)
+        shutil.copy2(metainfo, metadata_dir / metainfo.name)
         shutil.copytree(
             icon_dir / "hicolor",
             appdir / "usr" / "share" / "icons" / "hicolor",
