@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -38,7 +39,17 @@ def package_version(value: str) -> tuple[int, ...]:
     return parts
 
 
-def load_config(path: Path) -> dict:
+def store_version(app_version: str) -> str:
+    """Keep the release's minor/patch, offsetting only the Store major by one."""
+    if not isinstance(app_version, str) or not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", app_version):
+        raise ValueError("Application version must be MAJOR.MINOR.PATCH without leading zeroes")
+    major, minor, patch = (int(part) for part in app_version.split("."))
+    value = f"{major + 1}.{minor}.{patch}.0"
+    package_version(value)
+    return value
+
+
+def load_config(path: Path, app_version: str) -> dict:
     config = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError("Store configuration must be a JSON object")
@@ -52,10 +63,13 @@ def load_config(path: Path) -> dict:
         raise ValueError("Invalid Store identity_name")
     if not config["publisher"].startswith("CN="):
         raise ValueError("Store publisher must be the Partner Center distinguished name (CN=...)")
-    version = package_version(config.get("package_version"))
+    if "package_version" in config:
+        raise ValueError("Remove package_version from Store configuration; it is derived from the application version")
+    config["package_version"] = store_version(app_version)
+    version = package_version(config["package_version"])
     previous = config.get("last_submitted_version")
     if previous is not None and version <= package_version(previous):
-        raise ValueError("package_version must exceed last_submitted_version; update the submission ledger")
+        raise ValueError("Derived package_version must exceed last_submitted_version; prepare a newer application release")
     return config
 
 
@@ -159,13 +173,15 @@ def verify_payload(package: Path, staging: Path) -> int:
 
 
 def build(bundle: Path, output: Path, config: dict, app_version: str, commit: str, sdk_bin: Path | None = None) -> Path:
+    if config.get("package_version") != store_version(app_version):
+        raise ValueError("Store package version does not match the application release")
     source = bundle / "EIDORA" if (bundle / "EIDORA").is_dir() else bundle
     if not (source / "EIDORA.exe").is_file() or not (source / "_internal").is_dir():
         raise ValueError(f"Complete Windows application bundle is missing: {source}")
     makeappx = sdk_tool("makeappx.exe", sdk_bin)
     makepri = sdk_tool("makepri.exe", makeappx.parent)
     output.mkdir(parents=True, exist_ok=True)
-    artifact = output / f"EIDORA-{config['package_version']}-windows-x64-store.msix"
+    artifact = output / f"EIDORA-{app_version}-windows-x64-store.msix"
     with tempfile.TemporaryDirectory(prefix="eidora-msix-", dir=output) as temporary:
         work = Path(temporary)
         staging = work / "payload"
@@ -206,14 +222,18 @@ def main() -> int:
     parser.add_argument("--sdk-bin", type=Path)
     args = parser.parse_args()
     try:
-        config = load_config(args.config)
+        app_version = runpy.run_path(str(ROOT / "src/eidora_version.py"))["__version__"]
+        if args.version is not None and args.version != app_version:
+            raise ValueError("--version must match src/eidora_version.py")
+        config = load_config(args.config, app_version)
         if args.validate_config_only:
-            print("Store configuration validated; confirm identity and submission history in Partner Center.")
+            print(f"EIDORA {app_version}: Store package {config['package_version']}. "
+                  "Confirm identity and submission history in Partner Center.")
             return 0
         if args.bundle_dir is None or args.output_dir is None or not args.version:
             raise ValueError("--bundle-dir, --output-dir and --version are required for packaging")
         commit = args.commit or subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-        print(build(args.bundle_dir.resolve(), args.output_dir.resolve(), config, args.version, commit, args.sdk_bin))
+        print(build(args.bundle_dir.resolve(), args.output_dir.resolve(), config, app_version, commit, args.sdk_bin))
     except (OSError, ValueError, RuntimeError, KeyError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         print(f"MSIX packaging failed: {error}", file=sys.stderr)
         return 1

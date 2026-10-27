@@ -95,7 +95,10 @@ Releases continue without a fixed final version. EIDORA remains a prototype;
 public availability does not change this status. Release descriptions must state: **"Prototype software.
 Use at your own risk. Stability and backward compatibility are not guaranteed."**
 `src/eidora_version.py` remains the sole application-version source; package
-metadata and release automation derive their versions from it.
+metadata and release automation derive their versions from it. Only the Microsoft
+Store package identity offsets the major component by one and appends `.0`
+(`0.2.0` → `1.2.0.0`); app UI, reports, installer filenames, and executable
+version properties retain the actual EIDORA release version.
 
 | Release change | Example | EIDORA policy |
 | --- | --- | --- |

@@ -226,6 +226,30 @@ analysis.datas = [
 ]
 pyz = PYZ(analysis.pure)
 
+windows_version_info = None
+if sys.platform == "win32":
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo, StringFileInfo, StringStruct, StringTable,
+        VarFileInfo, VarStruct, VSVersionInfo,
+    )
+
+    # File properties describe EIDORA itself; only the MSIX identity is offset.
+    version_tuple = tuple(int(part) for part in __version__.split(".")) + (0,)
+    windows_version_info = VSVersionInfo(
+        ffi=FixedFileInfo(filevers=version_tuple, prodvers=version_tuple, fileType=1),
+        kids=[
+            StringFileInfo([StringTable("040904B0", [
+                StringStruct("FileDescription", "EIDORA"),
+                StringStruct("FileVersion", __version__),
+                StringStruct("InternalName", "EIDORA"),
+                StringStruct("OriginalFilename", "EIDORA.exe"),
+                StringStruct("ProductName", "EIDORA"),
+                StringStruct("ProductVersion", __version__),
+            ])]),
+            VarFileInfo([VarStruct("Translation", [0x0409, 1200])]),
+        ],
+    )
+
 executable = EXE(
     pyz,
     analysis.scripts,
@@ -243,6 +267,7 @@ executable = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=APP_ICON,
+    version=windows_version_info,
 )
 collection = COLLECT(
     executable,
