@@ -17,6 +17,18 @@ Check the installed app in the target distribution's software center as well.
 Developer attribution is descriptive metadata, not identity verification.
 Some software centers still show an unknown publisher for local DEBs.
 
+## Desktop appearance validation
+
+Keep the `platformthemes` plugins collected by PyInstaller's QtGui hook and
+their dependencies in the Linux bundle. EIDORA also supplies a fallback palette
+when a desktop reports dark mode but provides light widget colors.
+
+Before publishing, launch the installed DEB and AppImage in a desktop session
+in both light and dark mode, then switch modes with the app open. Check labels,
+semantic icons, lists/tables, inputs, disabled controls, and newly opened dialogs.
+The Discovery plot has its own background setting and may remain white.
+The Xvfb packaged self-test does not replace this desktop appearance check.
+
 ## Planned APT repository
 
 The proposed repository URL is `https://eidora.org/apt/`, with suite `stable`,

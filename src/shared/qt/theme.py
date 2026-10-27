@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import sys
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -113,6 +114,8 @@ class ThemeController(QtCore.QObject):
     def __init__(self, app: QtWidgets.QApplication) -> None:
         super().__init__(app)
         self._app = app
+        self._platform_palette = QtGui.QPalette(app.palette())
+        self._setting_palette = False
         platform_window = app.palette().color(QtGui.QPalette.ColorRole.Window)
         self._fallback = "dark" if platform_window.lightness() < 128 else "light"
         self.mode: str | None = None
@@ -126,21 +129,42 @@ class ThemeController(QtCore.QObject):
         self._system_changed(style_hints.colorScheme())
 
     def _system_changed(self, scheme: QtCore.Qt.ColorScheme) -> None:
+        self._color_scheme = scheme
         mode = {QtCore.Qt.ColorScheme.Dark: "dark", QtCore.Qt.ColorScheme.Light: "light"}.get(scheme, self._fallback)
         self.apply(mode)
 
-    def _application_palette_changed(self, _palette: QtGui.QPalette) -> None:
+    def _application_palette_changed(self, palette: QtGui.QPalette) -> None:
+        if self._setting_palette:
+            return
+        self._platform_palette = QtGui.QPalette(palette)
+        if sys.platform == "linux" and self._color_scheme == QtCore.Qt.ColorScheme.Unknown:
+            window = palette.color(QtGui.QPalette.ColorRole.Window)
+            self._fallback = "dark" if window.lightness() < 128 else "light"
         # Qt repolishes stylesheets after emitting paletteChanged; reapply only
         # once that finishes so cached native palettes cannot undo our colors.
         self._palette_refresh.start(0)
 
     def _refresh_palette(self) -> None:
-        self.apply(self.mode or self._fallback)
+        if sys.platform == "linux" and self._color_scheme == QtCore.Qt.ColorScheme.Unknown:
+            self.apply(self._fallback)
+        else:
+            self.apply(self.mode or self._fallback)
 
     def apply(self, mode: str) -> None:
         if mode not in THEMES:
             raise ValueError(f"Unknown theme mode: {mode}")
         self.mode = mode
+        if sys.platform == "linux":
+            # Linux can report a dark preference while still supplying a light
+            # widget palette. Keep the native palette separately so returning
+            # to light mode restores it instead of reusing our dark override.
+            palette = _linux_palette(self._platform_palette, mode)
+            if self._app.palette() != palette:
+                self._setting_palette = True
+                try:
+                    self._app.setPalette(palette)
+                finally:
+                    self._setting_palette = False
         _apply_interaction_style(self._app, THEMES[mode])
         for root in self._app.topLevelWidgets():
             self.apply_to(root)
@@ -202,6 +226,54 @@ class ThemeController(QtCore.QObject):
             widget.setPalette(palette)
             widget.setAutoFillBackground(True)
             widget.update()
+
+
+def _linux_palette(native: QtGui.QPalette, mode: str) -> QtGui.QPalette:
+    """Fill the Linux appearance/palette gap without replacing matching themes."""
+    role = QtGui.QPalette.ColorRole
+    dark = mode == "dark"
+    backgrounds_match = all(
+        (native.color(item).lightness() < 128) == dark
+        for item in (role.Window, role.Base)
+    )
+    foregrounds_match = all(
+        (native.color(item).lightness() >= 128) == dark
+        for item in (role.WindowText, role.Text, role.ButtonText)
+    )
+    if backgrounds_match and foregrounds_match:
+        return QtGui.QPalette(native)
+
+    colors = THEMES[mode]
+    palette = QtGui.QPalette(native)
+    values = {
+        role.Window: colors.window,
+        role.WindowText: colors.text,
+        role.Base: colors.area if dark else "#FFFFFF",
+        role.AlternateBase: colors.panel,
+        role.Text: colors.text,
+        role.Button: colors.group,
+        role.ButtonText: colors.text,
+        role.ToolTipBase: colors.group,
+        role.ToolTipText: colors.text,
+        role.PlaceholderText: colors.secondary_text,
+        role.BrightText: "#FFFFFF",
+        role.Highlight: colors.selection_background,
+        role.HighlightedText: colors.text,
+        role.Accent: colors.selection_background,
+        role.Light: colors.inset_highlight,
+        role.Midlight: colors.group,
+        role.Mid: colors.grid_line,
+        role.Dark: colors.inset_shadow,
+        role.Shadow: colors.inset_shadow,
+        role.Link: "#8AB4F8" if dark else "#174EA6",
+        role.LinkVisited: "#C5A3FF" if dark else "#681DA8",
+    }
+    for item, color in values.items():
+        palette.setColor(item, QtGui.QColor(color))
+    for item in (role.WindowText, role.Text, role.ButtonText, role.HighlightedText):
+        palette.setColor(QtGui.QPalette.ColorGroup.Disabled, item,
+                         QtGui.QColor(colors.secondary_text))
+    return palette
 
 
 def install_theme(app: QtWidgets.QApplication) -> ThemeController:

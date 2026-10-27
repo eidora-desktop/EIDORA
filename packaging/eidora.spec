@@ -203,6 +203,10 @@ def _keep_qt_entry(entry):
     plugin_marker = "PySide6/Qt/plugins/"
     if plugin_marker in destination:
         plugin_directory = destination.split(plugin_marker, 1)[1].split("/", 1)[0]
+        # QtGui's PyInstaller hook collects these with their dependencies.
+        # Linux desktop palette integration must survive our size filter.
+        if sys.platform == "linux" and plugin_directory == "platformthemes":
+            return True
         if plugin_directory not in _QT_PLUGIN_DIRECTORIES:
             return False
     return True

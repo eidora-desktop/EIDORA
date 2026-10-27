@@ -216,6 +216,10 @@ Designer surfaces declare a dynamic string property (`stdset="0"`):
 uses `window`, area pages use `area`, visible panels/dialogs/cards use `panel`,
 and control groups use `group`. The derived `view` role uses the native
 `QPalette.Base` color so a surface can match list, tree, and table backgrounds.
+On Linux, the controller supplies a complete fallback palette only when the
+desktop palette disagrees with the requested appearance. It retains the native
+palette for restoration and accepts later native palette updates. macOS and
+Windows keep their native application palettes unchanged.
 Layout wrappers remain unmarked so they inherit the surrounding surface.
 Object names do not select colors.
 Surface palettes also expose the current background to custom painters. Native

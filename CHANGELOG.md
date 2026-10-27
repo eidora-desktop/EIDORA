@@ -10,6 +10,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Restore readable Linux dark-mode text, icons, inputs, and item views when the desktop reports a dark preference with a light Qt palette; retain Linux platform-theme plugins in packaged builds without changing macOS theme handling.
 - Keep the Linux X11 workspace-tour overlay aligned with the application beside desktop docks, while preserving macOS transient-window behavior.
 
 ## 0.2.1 — Prepared, not published
