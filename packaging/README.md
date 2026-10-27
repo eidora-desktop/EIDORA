@@ -44,6 +44,12 @@ round each file/link to KiB, and include payload directories, launchers, and ico
 Exclude `DEBIAN` control files, following
 [Debian Policy](https://www.debian.org/doc/debian-policy/ch-controlfields.html#installed-size).
 
+Linux packages identify Tillmann Ohm (`info@eidora.org`) as maintainer and ship
+`linux/org.eidora.EIDORA.metainfo.xml` in `/usr/share/metainfo`. Both DEB and
+AppImage include the metadata. This supplies developer attribution to compatible
+software centers; it does not grant a verified-publisher badge. See the
+[Linux distribution guide](linux/README.md) for repository trust and validation.
+
 Bundle size limits are project-defined guards on uncompressed application files,
 not platform or GitHub limits. Both macOS targets allow 700 MiB to accommodate the
 pinned runtime dependencies (the Apple Silicon CI build measured 667.3 MiB).

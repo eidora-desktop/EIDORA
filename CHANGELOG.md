@@ -6,6 +6,9 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Identify Tillmann Ohm as the Linux package maintainer and developer, include
+  the EIDORA homepage and contact address, and ship AppStream metadata in both
+  DEB and AppImage packages.
 - Correct Linux installed-size metadata by counting symbolic links themselves
   instead of counting their library targets again, and include the full payload.
 - Derive Microsoft Store package versions from the EIDORA release, adding one
