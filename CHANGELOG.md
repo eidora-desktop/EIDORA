@@ -11,7 +11,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 ### Fixed
 
 - Accept macOS arrow-key events in workspace-tour navigation, including Qt's keypad flag.
-
+- Align Discovery filter and slicer bottom insets with the existing panel spacing across native widget styles.
 - Keep the Linux X11 workspace-tour overlay aligned with the application beside desktop docks, while preserving macOS transient-window behavior.
 
 ## 0.2.1 — Prepared, not published
