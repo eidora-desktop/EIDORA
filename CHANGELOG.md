@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Align Discovery filter and slicer bottom insets with the existing panel spacing across native widget styles.
+
 ## 0.2.1 — Prepared, not published
 
 This patch prepares updated Linux x64 packages with developer attribution.
