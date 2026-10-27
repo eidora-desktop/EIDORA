@@ -229,7 +229,8 @@ class WorkspaceTourController(QtCore.QObject):
                     return True
                 if not self._application_active or not self._dialog.isVisible():
                     return False
-                modifiers = event.modifiers()
+                # macOS marks ordinary arrow keys as keypad keys too.
+                modifiers = event.modifiers() & ~QtCore.Qt.KeyboardModifier.KeypadModifier
                 forward = modifiers == QtCore.Qt.KeyboardModifier.NoModifier and key in (
                     QtCore.Qt.Key.Key_Tab, QtCore.Qt.Key.Key_Right, QtCore.Qt.Key.Key_Down,
                 )
