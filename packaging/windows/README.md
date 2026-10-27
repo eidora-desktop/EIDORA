@@ -21,14 +21,22 @@ The identity fields must match the account owner’s Partner Center reservation.
 Do not invent them. MSIX, combined Windows, and `all` development builds fail early
 when these values are missing; EXE-only development builds remain usable.
 
-`package_version` is independent of EIDORA's public 0.x application version. Start
-at `1.0.0.0` only if no equal or higher version has already been uploaded. Set
-`last_submitted_version` to the highest version uploaded to this reservation, or
-`null` for the first submission. Before each subsequent Store build, choose a
-higher package version, normally incrementing its third component. The fourth
-component remains zero. Update this ledger after upload, even if certification
-fails. Local validation cannot query Partner Center; confirm its submission history
-before upload. Test rebuilds may reuse a version until it is submitted.
+EIDORA's release version comes from `src/eidora_version.py`. App UI, reports,
+installer filenames, and Windows executable FileVersion/ProductVersion use that
+version. Only the MSIX manifest identity uses `(major + 1).minor.patch.0`:
+`0.2.0` maps to `1.2.0.0`, `0.2.1` to `1.2.1.0`, and `1.0.0` to `2.0.0.0`.
+The major offset remains in place after 1.0 so Store updates stay ordered.
+Windows Settings and Store-managed package information may show this package
+version. Packaging records both versions in `msix-build-report.json`.
+
+Do not set `package_version` in `store.json`; packaging derives it automatically.
+Set `last_submitted_version` to the highest package version uploaded to this
+reservation, or `null` before the first submission. Update this ledger after
+upload, even if certification fails. A subsequent submission needs a newer
+EIDORA release whose derived package version exceeds that ledger. The fourth
+component remains zero. Local validation cannot query Partner Center; confirm
+its submission history before upload. Test rebuilds may reuse a version until
+it is submitted.
 
 ```powershell
 python automation/package_msix.py --validate-config-only
@@ -108,7 +116,7 @@ Use an interactive desktop session for installed tests and WACK.
 1. Preserve the original unsigned submission package. Generate a signed copy:
 
    ```powershell
-   ./automation/prepare_msix_test.ps1 -Package C:\QA\EIDORA-1.0.0.0-windows-x64-store.msix -OutputDirectory C:\QA\test-copy
+   ./automation/prepare_msix_test.ps1 -Package C:\QA\EIDORA-0.2.0-windows-x64-store.msix -OutputDirectory C:\QA\test-copy
    ```
 
    This generates a 30-day certificate matching the publisher, signs a separate
@@ -124,7 +132,7 @@ Use an interactive desktop session for installed tests and WACK.
 3. In a **non-elevated** interactive PowerShell, validate the installed copy:
 
    ```powershell
-   ./automation/validate_msix.ps1 -SubmissionPackage C:\QA\EIDORA-1.0.0.0-windows-x64-store.msix -TestPackage C:\QA\test-copy\EIDORA-test-only.msix -ReportDirectory C:\QA\reports\win10-22h2
+   ./automation/validate_msix.ps1 -SubmissionPackage C:\QA\EIDORA-0.2.0-windows-x64-store.msix -TestPackage C:\QA\test-copy\EIDORA-test-only.msix -ReportDirectory C:\QA\reports\win10-22h2
    ```
 
    Use a new report directory each time. The script checks trust, signature, matching
@@ -143,12 +151,10 @@ Use an interactive desktop session for installed tests and WACK.
      the package installation directory. Exercise normal application-data caches.
    - With the previous Store version installed, create and save a project, install
      the candidate without removing the old version, and reopen that project.
-     For the first `1.0.0.0` release there is no valid lower Store version: test
-     upgrade mechanics from it to a **test-only** `1.0.1.0` package built from the
-     same application bundle using a separate `--config` and output directory.
-     Record that distinction, never submit the synthetic package, and restore the
-     VM snapshot afterward. Later releases must test the actual previous-to-candidate
-     upgrade, not a synthetic version.
+     For the first Store submission, if no previous package was uploaded, record
+     upgrade testing as not applicable and test fresh installation/removal.
+     Later releases must test the actual previous-to-candidate upgrade. Do not
+     override the derived Store version to manufacture a synthetic release.
    - Remove the candidate with `Remove-AppxPackage`, verify workspace files and
      `.starter-collection.json` remain, reinstall, and reopen the saved project.
      Deleting the starter project must not cause it to be seeded again.

@@ -6,6 +6,9 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Derive Microsoft Store package versions from the EIDORA release, adding one
+  only to the major component (`0.2.0` → `1.2.0.0`). Keep installer filenames
+  and Windows executable version properties on the actual application version.
 - Restore automatic MET example creation and opening on first packaged launch,
   followed by the welcome tour. Keep release self-tests from consuming the
   user's onboarding preference.
