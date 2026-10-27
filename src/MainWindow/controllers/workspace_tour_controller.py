@@ -217,14 +217,34 @@ class WorkspaceTourController(QtCore.QObject):
             QtCore.QEvent.Type.EnabledChange,
         ):
             self._schedule_position()
-        elif kind == QtCore.QEvent.Type.KeyPress and event.key() == QtCore.Qt.Key.Key_Escape:
+        elif kind == QtCore.QEvent.Type.KeyPress:
             target = watched.window() if isinstance(watched, QtWidgets.QWidget) else watched
             # Keyboard focus can also be inside Discovery's native QQuickWindow.
             while isinstance(target, QtGui.QWindow) and target.parent() is not None:
                 target = target.parent()
             if target in (self._window, self._dialog, self._window.windowHandle(), self._dialog.windowHandle()):
-                self.close()
-                return True
+                key = event.key()
+                if key == QtCore.Qt.Key.Key_Escape:
+                    self.close()
+                    return True
+                if not self._application_active or not self._dialog.isVisible():
+                    return False
+                modifiers = event.modifiers()
+                forward = modifiers == QtCore.Qt.KeyboardModifier.NoModifier and key in (
+                    QtCore.Qt.Key.Key_Tab, QtCore.Qt.Key.Key_Right, QtCore.Qt.Key.Key_Down,
+                )
+                backward = (
+                    modifiers == QtCore.Qt.KeyboardModifier.NoModifier
+                    and key in (QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Backtab)
+                ) or (
+                    modifiers == QtCore.Qt.KeyboardModifier.ShiftModifier
+                    and key in (QtCore.Qt.Key.Key_Tab, QtCore.Qt.Key.Key_Backtab)
+                )
+                if forward or backward:
+                    # A held key must not skip steps or finish the tour.
+                    if not event.isAutoRepeat():
+                        (self.next_step if forward else self.previous_step)()
+                    return True
         return False
 
     def _stop(self, reason: str) -> None:
