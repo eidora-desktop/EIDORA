@@ -38,6 +38,12 @@ documents, and Windows/Linux artwork remains independent.
 - `runtime-requirements.txt` and `release-tools.txt` pin dependencies and build tools.
 - `resource-manifest.toml` lists runtime resources and dynamically loaded modules.
 
+Linux DEB `Installed-Size` describes the uncompressed installed payload, not the
+download size. Count symbolic links themselves without following their targets,
+round each file/link to KiB, and include payload directories, launchers, and icons.
+Exclude `DEBIAN` control files, following
+[Debian Policy](https://www.debian.org/doc/debian-policy/ch-controlfields.html#installed-size).
+
 Bundle size limits are project-defined guards on uncompressed application files,
 not platform or GitHub limits. Both macOS targets allow 700 MiB to accommodate the
 pinned runtime dependencies (the Apple Silicon CI build measured 667.3 MiB).

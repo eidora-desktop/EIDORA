@@ -6,6 +6,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Correct Linux installed-size metadata by counting symbolic links themselves
+  instead of counting their library targets again, and include the full payload.
 - Derive Microsoft Store package versions from the EIDORA release, adding one
   only to the major component (`0.2.0` → `1.2.0.0`). Keep installer filenames
   and Windows executable version properties on the actual application version.

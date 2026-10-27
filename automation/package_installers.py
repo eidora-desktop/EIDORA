@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,20 @@ def _windows(bundle_dir: Path, output_dir: Path, version: str, icon_dir: Path) -
     return [output_dir / f"EIDORA-{version}-windows-x86_64-setup.exe"]
 
 
+def _debian_installed_size(package_root: Path) -> int:
+    """Estimate payload size in KiB without following symlinks (Debian Policy 5.6.20)."""
+    size = 0
+    for path in package_root.rglob("*"):
+        if path.relative_to(package_root).parts[0] == "DEBIAN":
+            continue  # Package control files are not installed payload.
+        info = path.lstat()
+        if stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode):
+            size += (info.st_size + 1023) // 1024
+        else:
+            size += 1
+    return size
+
+
 def _linux(
     bundle_dir: Path,
     output_dir: Path,
@@ -121,7 +136,7 @@ def _linux(
         )
         debian = package_root / "DEBIAN"
         debian.mkdir()
-        installed_size = sum(path.stat().st_size for path in application_root.rglob("*") if path.is_file()) // 1024
+        installed_size = _debian_installed_size(package_root)
         (debian / "control").write_text(
             "Package: eidora\n"
             f"Version: {version}\nArchitecture: amd64\n"
