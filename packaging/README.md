@@ -124,11 +124,12 @@ There is no obligation to reach `1.0.0`, and every intermediate minor version
 does not need a release. Minor components can continue beyond nine, for example
 `0.9.0` → `0.10.0`, without declaring a stable release.
 
-The next prepared prototype is `0.2.0`: Methods/Citations reporting adds features,
-and the ONNX package contract now requires BibTeX. This requires a minor increment
-from the `0.1.0` baseline. It is not a published release until platform validation,
-signing where applicable, and maintainer review are complete. Future releases
-follow the same highest-required-increment policy.
+Prototype `0.2.0` was published for macOS and Linux on 2026-10-27 as
+[`v0.2.0`](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.0).
+The next prepared patch is `0.2.1`, covering Linux developer attribution and
+package metadata. Rebuild Linux with the new source version; do not replace the
+published `0.2.0` files. Mac and Windows packages are outside this patch's build
+scope. Record the `0.2.1` publication date and tag only when it is released.
 
 Prototype status does not remove release checks: verify core workflows and
 packaged builds, and document known limitations and compatibility changes.
