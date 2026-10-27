@@ -4,9 +4,14 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Added
+
+- Navigate the workspace tour with Tab or arrow keys on all platforms; Shift+Tab goes back.
+
 ### Fixed
 
 - Align Discovery filter and slicer bottom insets with the existing panel spacing across native widget styles.
+- Keep the Linux X11 workspace-tour overlay aligned with the application beside desktop docks, while preserving macOS transient-window behavior.
 
 ## 0.2.1 — Prepared, not published
 
