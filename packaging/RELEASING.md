@@ -9,10 +9,12 @@ repository is not a submodule and is not needed to contribute or run EIDORA.
 
 1. Fork, make a focused change, and provide reproducible validation steps.
 2. Open a pull request against `main`; the maintainer approves external CI runs.
-3. Pass `Validate public checkout`, obtain the required code-owner review, and
-   resolve conversations. New changes invalidate previous approvals.
+3. Pass `Validate public checkout`, keep the branch current with `main`, and
+   resolve review conversations. The maintainer reviews the final diff and tests;
+   GitHub does not require a second approval while there is only one writer.
 4. The maintainer validates reviewed changes with private regression suites and
-   merges. Passing CI or merging never starts signing or publishing.
+   selects squash auto-merge for the approved PR. External contributors have no
+   write/merge access. Passing CI or merging never starts signing or publishing.
 
 The `Unsigned development bundles` workflow is manual, read-only, and has no
 signing credentials. Its downloads are development artifacts, not official

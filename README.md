@@ -99,8 +99,8 @@ the intended behavior and scope before investing in the implementation.
 
 Keep pull requests focused and easy to review. Preserve current project workflows
 and include a reproducible check for changed behavior. Obsolete formats and APIs
-do not require compatibility shims. For UI work,
-include screenshots and the interaction steps you verified. A useful pull request
+do not require compatibility shims. For UI work, describe light/dark visual results
+and the interaction steps you verified; keep screenshots local. A useful pull request
 description explains the problem, the resulting behavior, and how it was tested.
 
 Follow [CONTRIBUTING.md](CONTRIBUTING.md) and the [architecture guide](docs/architecture.md).

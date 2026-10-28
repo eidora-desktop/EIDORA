@@ -17,8 +17,9 @@ These rules apply to human and assisted contributions.
   contract and validate large-dataset responsiveness for rendering changes.
 - Include reproducible validation steps for changed behavior. Use synthetic
   fixtures and temporary projects, never personal collections or credentials.
-- Test UI changes in light and dark themes; include screenshots and reproduction
-  steps in the PR. Describe platform-specific checks and any checks not run.
+- Test UI changes in light and dark themes; include reproduction steps and describe
+  the visual results in the PR. Keep screenshots local; do not upload or commit
+  them. Describe platform-specific checks and any checks not run.
 - Add release-relevant notes under `Unreleased` in `CHANGELOG.md`. Do not bump the
   application version or create official tags as part of an ordinary change.
 - Do not include unrelated formatting, generated build output, local reports,
@@ -49,11 +50,22 @@ than weakening checks or requesting privileged CI access.
 
 ## Review and official distribution
 
-Code-owner review is required, including changes to workflows, dependencies,
-packaging, and CODEOWNERS itself. New commits dismiss earlier approvals. Resolve
-review conversations before merge. The maintainer can merge their own reviewed
-maintenance PR through the narrowly configured owner exception when there is no
-second maintainer; external contributors receive no such exception.
+The maintainer reviews contributions, including workflows, dependencies,
+packaging, and CODEOWNERS. Only the maintainer has write/merge access. GitHub
+requires a PR, passing Source Gate, an up-to-date branch, and resolved review
+conversations; it does not require a second approval while there is one writer.
+CODEOWNERS routes review requests to the maintainer.
+
+After reviewing a change and its validation, the maintainer may select squash
+auto-merge for that PR. GitHub merges only when its requirements pass, then
+deletes the remote branch. Auto-merge is never enabled automatically for incoming
+contributions or dependency updates. External contributors cannot enable it or
+merge. Revisit the review policy before granting another person write access.
+
+Maintainer development uses one local review before committing, pushing, and
+queuing the approved change for merge. Changed source must be validated and
+reviewed again; failed checks block merging. Retrying the same approved change
+does not require another approval. Merging does not build or publish a release.
 
 Public builds are unsigned development artifacts. Official release candidates
 are created separately from a reviewed full commit SHA, using private release
