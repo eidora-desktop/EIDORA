@@ -16,11 +16,12 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 - Align Discovery filter and slicer bottom insets with the existing panel spacing across native widget styles.
 - Keep the Linux X11 workspace-tour overlay aligned with the application beside desktop docks, while preserving macOS transient-window behavior.
 
-## 0.2.1 — Prepared, not published
+## 0.2.1 — 2026-10-27
 
-This patch prepares updated Linux x64 packages with developer attribution.
-It does not introduce project-format changes. Mac and Windows builds are not
-part of this patch release preparation.
+This Linux-only patch adds developer attribution and package metadata.
+It does not introduce project-format changes. Published as [v0.2.1](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.1)
+from `443fde7bdc009e507f0e738565103c96d6f34726`. Mac downloads remain at 0.2.0;
+this release contains no Windows build.
 
 Prototype software. Use at your own risk. Stability and backward compatibility are not guaranteed.
 
