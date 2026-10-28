@@ -1,70 +1,67 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from datetime import date
 import re
-from urllib.parse import urlparse
+
+from application_info.domain import Release
 
 REPOSITORY_URL = "https://github.com/eidora-desktop/EIDORA"
-RELEASES_URL = f"{REPOSITORY_URL}/releases"
-LATEST_RELEASE_API = "https://api.github.com/repos/eidora-desktop/EIDORA/releases/latest"
 WEBSITE_URL = "https://eidora.org"
-
-
-@dataclass(frozen=True)
-class Download:
-    name: str
-    url: str
-
-
-@dataclass(frozen=True)
-class Release:
-    version: str
-    notes: str
-    downloads: tuple[Download, ...]
-    newer: bool
+DOWNLOADS_URL = f"{WEBSITE_URL}/download/"
+RELEASES_URL = f"{WEBSITE_URL}/releases/"
+UPDATE_CATALOG_URL = f"{WEBSITE_URL}/updates.json"
 
 
 def _version(value: str) -> tuple[int, int, int]:
-    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?", value)
-    if match is None:
-        raise ValueError("The release has an unsupported version number.")
-    return tuple(int(part) for part in match.groups())
+    if not isinstance(value, str) or not re.fullmatch(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)", value):
+        raise ValueError("The update catalog has an unsupported version number.")
+    return tuple(int(part) for part in value.split("."))
 
 
-def parse_release(payload: dict, current_version: str, system: str, machine: str) -> Release:
-    """Read stable releases and select only official installers for this runtime."""
-    if not isinstance(payload, dict) or payload.get("draft") or payload.get("prerelease"):
-        raise ValueError("No published stable release is available.")
-    tag = payload.get("tag_name", "")
-    if not isinstance(tag, str):
-        raise ValueError("The release has no valid version number.")
-    version = tag.removeprefix("v")
-    newer = _version(version) > _version(current_version)
+def platform_key(system: str, machine: str) -> str:
     architecture = {"amd64": "x86_64", "aarch64": "arm64"}.get(machine.lower(), machine.lower())
-    suffixes = {
-        ("darwin", "arm64"): ("macos-arm64.dmg",),
-        ("darwin", "x86_64"): ("macos-x86_64.dmg",),
-        ("win32", "x86_64"): ("windows-x86_64-setup.exe",),
-        ("linux", "x86_64"): ("linux-x86_64.deb", "linux-x86_64.AppImage"),
-    }.get((system, architecture), ())
-    assets = payload.get("assets", [])
-    if not isinstance(assets, list):
-        raise ValueError("The release download list is invalid.")
-    downloads = []
-    for suffix in suffixes:
-        expected_name = f"EIDORA-{version}-{suffix}"
-        for asset in assets:
-            if not isinstance(asset, dict) or asset.get("name") != expected_name:
-                continue
-            url = asset.get("browser_download_url", "")
-            if not isinstance(url, str):
-                continue
-            parsed = urlparse(url)
-            if (parsed.scheme == "https" and parsed.netloc == "github.com"
-                    and url.startswith(f"{RELEASES_URL}/download/") and not parsed.fragment):
-                downloads.append(Download(expected_name, url))
-                break
-    notes = payload.get("body") or "No release notes were provided."
-    if not isinstance(notes, str):
+    key = {
+        ("darwin", "arm64"): "macos-arm64",
+        ("darwin", "x86_64"): "macos-x86_64",
+        ("win32", "x86_64"): "windows-x86_64",
+        ("linux", "x86_64"): "linux-x86_64",
+    }.get((system, architecture))
+    if key is None:
+        raise ValueError("No update channel is available for this operating system and architecture.")
+    return key
+
+
+def parse_release(payload: dict, current_version: str, system: str, machine: str) -> Release | None:
+    """Read the website's explicitly recommended, published platform release."""
+    if not isinstance(payload, dict) or type(payload.get("schema_version")) is not int or payload["schema_version"] != 1:
+        raise ValueError("The update catalog format is unsupported.")
+    latest, releases = payload.get("latest"), payload.get("releases")
+    key = platform_key(system, machine)
+    if not isinstance(latest, dict) or not isinstance(releases, dict) or key not in latest:
+        raise ValueError("The update catalog is incomplete.")
+    version = latest[key]
+    if version is None:
+        return None
+    newer = _version(version) > _version(current_version)
+    record = releases.get(version)
+    if not isinstance(record, dict):
+        raise ValueError("The recommended release is missing from the update catalog.")
+    channel, published_at, notes = record.get("channel"), record.get("published_at"), record.get("notes")
+    if channel not in ("prototype", "preview", "stable"):
+        raise ValueError("The release channel is invalid.")
+    if not isinstance(published_at, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", published_at):
+        raise ValueError("The release date is invalid.")
+    try:
+        date.fromisoformat(published_at)
+    except ValueError as exc:
+        raise ValueError("The release date is invalid.") from exc
+    if not isinstance(notes, str) or not notes.strip():
         raise ValueError("The release notes are invalid.")
-    return Release(version, notes, tuple(downloads), newer)
+    platforms = record.get("platforms")
+    if not isinstance(platforms, dict) or not isinstance(platforms.get(key), dict) or not platforms[key]:
+        raise ValueError("The recommended release is not available for this platform.")
+    return Release(
+        version=version, channel=channel, published_at=published_at, notes=notes,
+        newer=newer, download_url=f"{DOWNLOADS_URL}#{key}",
+        notes_url=f"{RELEASES_URL}#v{version}",
+    )

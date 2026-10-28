@@ -18,6 +18,11 @@ truncation/prefixes and temporal excerpts run in EIDORA's background worker.
 Pooling, model-specific feature extraction and output normalization run in ONNX.
 Return one finite float32 [batch, dimensions] vector per item.
 
+Image and video preparation may declare `resize_rounding: truncate` when the
+reference model discards fractional resize dimensions. Omitting this field uses
+`round`, preserving existing behavior. See the schema for the exact scope and
+defaults, and verify the complete prepared tensors against the reference model.
+
 Every package must explicitly declare CPUExecutionProvider. Advertise CUDA or
 CoreML only after validation with the selected Desktop runtime on suitable
 hardware. EIDORA offers declared, installed providers allowed on the platform.

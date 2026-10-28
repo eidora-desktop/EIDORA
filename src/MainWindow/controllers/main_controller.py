@@ -7,7 +7,9 @@ from PySide6 import QtCore, QtWidgets
 
 from MainWindow.controllers.help_panel_controller import HelpPanelController
 from MainWindow.controllers.project_chooser_controller import ProjectChooserController
+from MainWindow.controllers.workspace_tour_controller import WorkspaceTourController
 from MainWindow.navigation import NavigationItem
+from MainWindow.tour_repository import TourPreferences
 from project.service import ProjectService
 from shared.qt.activity import ActivityManager
 from shared.qt.message_dialogs import show_error
@@ -28,6 +30,7 @@ class MainWindowController:
         project_service: ProjectService | None = None,
         *,
         defer_secondary_areas: bool = False,
+        tour_preferences: TourPreferences | None = None,
     ) -> None:
         self.window = load_ui("MainWindow", "ui/main_window.ui")
         self._base_window_title = self.window.windowTitle() or "EIDORA"
@@ -50,7 +53,19 @@ class MainWindowController:
         self._deferred_load_timer.timeout.connect(self._load_next_deferred_area)
         self._chooser_open = False
         self._shutdown = False
+        self._is_example_collection = False
+        self._tour_preferences = tour_preferences or TourPreferences()
+        self._welcome_tour_shown = self._tour_preferences.was_shown()
+        self._welcome_tour_timer = QtCore.QTimer(self.window)
+        self._welcome_tour_timer.setSingleShot(True)
+        self._welcome_tour_timer.timeout.connect(self._start_welcome_tour)
         self._help_controller = HelpPanelController(self.window)
+        self._tour_controller = WorkspaceTourController(
+            self.window, self._help_controller.tour_action, self._navigation_items,
+            self._show_area, self._show_status,
+        )
+        self._tour_controller.active_changed.connect(self._update_tour_navigation)
+        self._tour_controller.started.connect(self._remember_tour_shown)
         self._build_areas()
         self.set_project(project)
         self._show_area(0)
@@ -62,6 +77,7 @@ class MainWindowController:
 
     def show(self) -> None:
         self.window.show()
+        self._welcome_tour_timer.start(0)
         if self._defer_secondary_areas and len(self._areas) < len(self._navigation_items):
             self._show_status("Loading remaining workspaces…")
             self._deferred_load_timer.start(50)
@@ -70,6 +86,7 @@ class MainWindowController:
         """Show the short-lived chooser without changing state on cancellation."""
         if self._chooser_open:
             return False
+        self._tour_controller.close()
         self._chooser_open = True
         chooser = self._create_project_chooser()
         try:
@@ -89,6 +106,7 @@ class MainWindowController:
         """Build one chooser instance; kept separate for focused UI testing."""
         return ProjectChooserController(
             self._project_service,
+            storage_read_only=self._project is not None,
             remove_project_callback=lambda project: self._delete_project(
                 project,
                 confirm=False,
@@ -96,6 +114,9 @@ class MainWindowController:
         )
 
     def set_project(self, project: Project | None) -> None:
+        self._welcome_tour_timer.stop()
+        self._tour_controller.close()
+        self._is_example_collection = ProjectService.is_example_collection(project)
         message = f"Loading project {project.name}…" if project is not None else "Updating project…"
         with self._activity.busy(message):
             self._project = project
@@ -110,12 +131,47 @@ class MainWindowController:
                 area.set_project(project)
             self._refresh_discovery_availability()
             self._refresh_figures_availability()
+        self._welcome_tour_timer.start(0)
+
+    def _start_welcome_tour(self) -> None:
+        if (
+            self._shutdown or self._welcome_tour_shown or not self._is_example_collection
+            or self._chooser_open or not self.window.isVisible() or self.window.isMinimized()
+            or QtWidgets.QApplication.activeModalWidget() is not None
+            or not self._help_controller.tour_action.isEnabled() or self._tour_controller.is_active
+        ):
+            return
+        self._tour_controller.start()
+
+    def _remember_tour_shown(self) -> None:
+        # Count presentation, including cancellation, so onboarding never forces
+        # a user to finish before it stops launching. Manual tours count too.
+        self._welcome_tour_timer.stop()
+        if self._welcome_tour_shown:
+            return
+        self._welcome_tour_shown = True
+        try:
+            self._tour_preferences.mark_shown()
+        except OSError:
+            from logging import getLogger
+
+            getLogger(__name__).warning("Could not save workspace tour preference", exc_info=True)
+
+    def _update_tour_navigation(self, active: bool) -> None:
+        self._set_project_navigation_enabled(self._project is not None)
+        current = self._stack.currentIndex()
+        if not active and current >= 0 and not self._navigation_items[current].button.isEnabled():
+            self._show_area(0)
 
     def shutdown(self) -> None:
         if self._shutdown:
             return
         self._shutdown = True
         self._deferred_load_timer.stop()
+        self._welcome_tour_timer.stop()
+        self._tour_controller.shutdown()
+        self._tour_controller.active_changed.disconnect(self._update_tour_navigation)
+        self._tour_controller.started.disconnect(self._remember_tour_shown)
         self._help_controller.shutdown()
         for area in self._areas:
             area.shutdown()
@@ -257,6 +313,7 @@ class MainWindowController:
 
         self._wire_area_dependencies(*self._areas)
         self._show_status("All workspaces ready")
+        self._welcome_tour_timer.start(0)
 
     @staticmethod
     def _deferred_controller_type(index: int):
@@ -412,22 +469,22 @@ class MainWindowController:
         self._show_area(0)
         QtCore.QTimer.singleShot(0, project_area.open_thumbnail_creation_dialog)
 
-    def _show_area(self, index: int) -> None:
+    def _show_area(self, index: int) -> bool:
         if not 0 <= index < len(self._navigation_items):
-            return
-        if index > 0 and self._project is None:
+            return False
+        if index > 0 and self._project is None and not self._tour_controller.is_active:
             self._show_area(0)
             self._show_status("Open or create a project first")
-            return
+            return False
         if index >= len(self._areas):
             self._show_status(f"Loading {self._navigation_items[index].title}…")
-            return
-        if index == 3 and not self._discovery_has_items:
+            return False
+        if index == 3 and not self._discovery_has_items and not self._tour_controller.is_active:
             self._show_status("Import metadata or run an analysis on assets to enable Discovery")
-            return
-        if index == 4 and not self._figures_has_snapshots:
+            return False
+        if index == 4 and not self._figures_has_snapshots and not self._tour_controller.is_active:
             self._show_status("Create a snapshot to enable Figures")
-            return
+            return False
         self._stack.setCurrentIndex(index)
         if index == 4:
             self._match_figures_sidebar_width()
@@ -439,6 +496,7 @@ class MainWindowController:
         if callable(activate):
             QtCore.QTimer.singleShot(0, activate)
         self._show_status(f"Showing {self._navigation_items[index].title}")
+        return True
 
     def _match_figures_sidebar_width(self) -> None:
         discovery = self._areas[3].widget.findChild(
@@ -476,17 +534,19 @@ class MainWindowController:
             callback()
 
     def _set_project_navigation_enabled(self, enabled: bool) -> None:
+        touring = self._tour_controller.is_active
         for index, item in enumerate(self._navigation_items):
-            available = index == 0 or (enabled and index < len(self._areas))
+            available = index == 0 or ((enabled or touring) and index < len(self._areas))
             if index == 3:
-                available = available and self._discovery_has_items
-                item.button.setToolTip("Discovery" if self._discovery_has_items else
+                available = available and (self._discovery_has_items or touring)
+                item.button.setToolTip("Discovery" if self._discovery_has_items or touring else
                                        "Import metadata or run an analysis on assets to enable Discovery")
             if index == 4:
-                available = available and self._figures_has_snapshots
-                item.button.setToolTip("Figures" if self._figures_has_snapshots else
+                available = available and (self._figures_has_snapshots or touring)
+                item.button.setToolTip("Figures" if self._figures_has_snapshots or touring else
                                        "Create a snapshot to enable Figures")
             item.button.setEnabled(available)
+        self._tour_controller.update_availability(not self._shutdown and len(self._areas) == len(self._navigation_items))
 
     def _refresh_figures_availability(self) -> None:
         from DiscoveryArea.presets_repository import PresetRepository
@@ -495,7 +555,7 @@ class MainWindowController:
             self._project and PresetRepository(self._project.paths.snapshot_presets).has_entries()
         )
         self._set_project_navigation_enabled(self._project is not None)
-        if not self._figures_has_snapshots and self._stack.currentIndex() == 4:
+        if not self._figures_has_snapshots and self._stack.currentIndex() == 4 and not self._tour_controller.is_active:
             self._show_area(0)
 
     def _refresh_discovery_availability(self) -> None:
@@ -507,7 +567,7 @@ class MainWindowController:
             self._project and MetadataRepository.has_items(self._project.paths.metadata_database)
         )
         self._set_project_navigation_enabled(self._project is not None)
-        if not self._discovery_has_items and self._stack.currentIndex() == 3:
+        if not self._discovery_has_items and self._stack.currentIndex() == 3 and not self._tour_controller.is_active:
             self._show_area(0)
 
     def _export_project(self, project: Project) -> None:

@@ -18,21 +18,25 @@ Build steps, in order:
 
 Windows Store builds use `package_msix.py` after the same application bundle and
 self-test. Select `windows-msix` to skip EXE packaging and signing entirely, or
-`windows-both` to produce both formats from one build. `all` produces both unsigned formats in the public development workflow.
-Official private builds select MSIX only; version tags trigger no workflow. Store identity validation runs before dependencies are installed.
-See [Windows Store packaging](../packaging/windows/README.md). Store artifacts
-are uploaded separately and are not included in the public GitHub release.
+`windows-both` to produce both formats from one build. `all` selects Windows
+Store MSIX only, alongside both Mac architectures and Linux. Version tags trigger
+no workflow. Store identity validation runs before dependencies are installed.
+`record_unsigned_candidate.py` records each target's files, checksums, source
+commit, and workflow provenance in its `eidora-candidate-<target>` upload.
+See [Windows Store packaging](../packaging/windows/README.md). The MSIX remains
+a submission candidate and is not included in the public GitHub release.
 
 Application and automation regression suites are kept privately by the maintainer.
 Public Source Gate validates source boundaries, UI references, resource declarations,
 dependency consistency, and compilation. Packaged self-test commands remain public
 because they are part of reproducible build validation.
 
-On a minimal Ubuntu runner, install `libegl1`, `libgl1`, `libopengl0`, and
-`libxkbcommon0` before using Qt tools. `QT_QPA_PLATFORM=offscreen` removes
-the display-server requirement but does not remove QtGui's native library
-dependencies. Source gate installs these runtime libraries and checks the Qt
-imports before resource validation.
+On Ubuntu, install the packages in `packaging/linux/apt-packages.txt`, then run
+`python automation/check_qt_runtime.py`. Source Gate uses that same list and
+checks Qt imports and X11 plugin loading before resource validation.
+`QT_QPA_PLATFORM=offscreen` does not exercise the X11 window plugin or remove
+native library dependencies. The Linux bundle workflow runs its packaged
+self-test under X11 through `xvfb-run`.
 
 Use each script's `--help` for arguments. See [packaging](../packaging/README.md)
 for build configuration and requirements.

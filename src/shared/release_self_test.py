@@ -48,6 +48,7 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
         from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
         from EmbeddingsArea.exchange.formats import FORMATS
         from MainWindow.controllers import MainWindowController
+        from MainWindow.tour_repository import TourPreferences
         from project.service import ProjectService
 
         checkpoint("create-application")
@@ -55,6 +56,7 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
         application.setOrganizationName("EIDORA")
         application.setOrganizationDomain("eidora.app")
         application.setApplicationName("EIDORA Desktop")
+        application.setQuitOnLastWindowClosed(False)
         report["default_workspace_root"] = str(default_workspace_root())
 
         checkpoint("multimedia-player")
@@ -74,28 +76,33 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
         workspace = Path(temporary.name) / "workspace"
         project_service = ProjectService(workspace)
         project = project_service.create_empty_project("Release self test")
-        from project.starter_collection import install_starter, bundled_resources
+        from MainWindow.controllers.starter_collection_controller import prepare_bundled_starter
         from project.starter_ui_audit import choose_starter, check_starter_view
         # Source checkouts do not ship the release asset. Packaged checks must
         # always install it, including failing when a resource is missing.
         check_starter = bool(getattr(sys, "frozen", False))
         if check_starter:
             checkpoint("install-starter")
-            project = install_starter(project_service, bundled_resources())
+            project = prepare_bundled_starter(project_service)
             if project is None:
                 raise RuntimeError("Starter was not installed in a clean workspace.")
             choose_starter(project_service, project)
-            if install_starter(project_service, bundled_resources()) is not None:
+            if prepare_bundled_starter(project_service) is not None:
                 raise RuntimeError("Starter was installed twice.")
         checkpoint("create-main-window")
         controller = MainWindowController(
             project=project,
             project_service=project_service,
+            tour_preferences=TourPreferences(Path(temporary.name) / "tour.json"),
         )
         checkpoint("show-main-window")
         controller.show()
         QtCore.QCoreApplication.processEvents()
         if check_starter:
+            if not controller._tour_controller.is_active:
+                raise RuntimeError("The first-launch example tour did not start.")
+            report["welcome_tour_started"] = True
+            controller._tour_controller.close()
             checkpoint("restore-starter-snapshot")
             report["starter_collection"] = check_starter_view(controller, project)
         report["main_window_ready_seconds"] = round(time.perf_counter() - started_at, 3)

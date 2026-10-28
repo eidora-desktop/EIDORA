@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.eidora.EIDORA</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>EIDORA</name>
+  <summary>Explore embedding spaces and cultural data</summary>
+  <developer id="org.eidora">
+    <name>Tillmann Ohm</name>
+  </developer>
+  <description>
+    <p>EIDORA is a desktop research application for importing media and metadata,
+    computing embeddings, exploring projections and clusters, and exporting
+    figures. Analysis runs locally on your computer.</p>
+    <p>Prototype software. Use at your own risk. Stability and backward
+    compatibility are not guaranteed.</p>
+  </description>
+  <launchable type="desktop-id">eidora.desktop</launchable>
+  <url type="homepage">https://eidora.org</url>
+  <url type="bugtracker">https://github.com/eidora-desktop/EIDORA/issues</url>
+  <update_contact>info@eidora.org</update_contact>
+  <provides><binary>eidora</binary></provides>
+  <categories><category>Science</category><category>Graphics</category></categories>
+</component>

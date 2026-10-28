@@ -6,7 +6,7 @@ import json
 import math
 
 SCHEMA_VERSION = 3
-PREPARATION_VERSION = 1
+PREPARATION_VERSION = 2
 PROVIDERS = ("CPUExecutionProvider", "CUDAExecutionProvider", "CoreMLExecutionProvider")
 CROP_POSITIONS = ("top_left", "top", "top_right", "left", "center", "right", "bottom_left", "bottom", "bottom_right")
 
@@ -14,6 +14,7 @@ CROP_POSITIONS = ("top_left", "top", "top_right", "left", "center", "right", "bo
 # fields remain fixed model requirements. Conditions are owned here, not by YAML.
 OPTIONS = {
     "resize": dict(modalities=["image", "video"], kind="choice", choices=["stretch", "fill_crop", "fit_pad", "short_edge_crop"]),
+    "resize_rounding": dict(modalities=["image", "video"], kind="choice", choices=["round", "truncate"], default="round", enabled_when={"resize": ["fill_crop", "fit_pad", "short_edge_crop"]}),
     "interpolation": dict(modalities=["image", "video"], kind="choice", choices=["nearest", "bilinear", "bicubic", "lanczos"]),
     "crop_position": dict(modalities=["image", "video"], kind="choice", choices=list(CROP_POSITIONS), default="center", enabled_when={"resize": ["fill_crop", "short_edge_crop"]}),
     "short_edge": dict(modalities=["image", "video"], kind="integer", minimum=1, maximum=16384, enabled_when={"resize": ["short_edge_crop"]}),
@@ -39,7 +40,7 @@ def catalog_document():
                 bibtex={"required": True, "type": "string", "minimum_records": 1,
                         "required_fields": ["title"], "values": "self-contained literals"},
                 execution_providers=list(PROVIDERS), options=deepcopy(OPTIONS), operations=OPERATIONS,
-                semantics={"resize_rounding": "Python round (ties to even)", "crop_offsets": "integer floor; nine-position grid",
+                semantics={"resize_rounding": "round: Python round (ties to even; default); truncate: discard fractional pixels using exact integer ratios", "crop_offsets": "integer floor; nine-position grid",
                            "interpolation": "Pillow RGB resize filters", "video_sampling": "first frame at or after start+k*duration/frame_count; endpoint excluded",
                            "audio_resampling": "PyAV fltp resampler; channel selection before resampling"})
 

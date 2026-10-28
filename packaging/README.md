@@ -38,6 +38,18 @@ documents, and Windows/Linux artwork remains independent.
 - `runtime-requirements.txt` and `release-tools.txt` pin dependencies and build tools.
 - `resource-manifest.toml` lists runtime resources and dynamically loaded modules.
 
+Linux DEB `Installed-Size` describes the uncompressed installed payload, not the
+download size. Count symbolic links themselves without following their targets,
+round each file/link to KiB, and include payload directories, launchers, and icons.
+Exclude `DEBIAN` control files, following
+[Debian Policy](https://www.debian.org/doc/debian-policy/ch-controlfields.html#installed-size).
+
+Linux packages identify Tillmann Ohm (`info@eidora.org`) as maintainer and ship
+`linux/org.eidora.EIDORA.metainfo.xml` in `/usr/share/metainfo`. Both DEB and
+AppImage include the metadata. This supplies developer attribution to compatible
+software centers; it does not grant a verified-publisher badge. See the
+[Linux distribution guide](linux/README.md) for repository trust and validation.
+
 Bundle size limits are project-defined guards on uncompressed application files,
 not platform or GitHub limits. Both macOS targets allow 700 MiB to accommodate the
 pinned runtime dependencies (the Apple Silicon CI build measured 667.3 MiB).
@@ -95,7 +107,10 @@ Releases continue without a fixed final version. EIDORA remains a prototype;
 public availability does not change this status. Release descriptions must state: **"Prototype software.
 Use at your own risk. Stability and backward compatibility are not guaranteed."**
 `src/eidora_version.py` remains the sole application-version source; package
-metadata and release automation derive their versions from it.
+metadata and release automation derive their versions from it. Only the Microsoft
+Store package identity offsets the major component by one and appends `.0`
+(`0.2.0` → `1.2.0.0`); app UI, reports, installer filenames, and executable
+version properties retain the actual EIDORA release version.
 
 | Release change | Example | EIDORA policy |
 | --- | --- | --- |
@@ -109,11 +124,12 @@ There is no obligation to reach `1.0.0`, and every intermediate minor version
 does not need a release. Minor components can continue beyond nine, for example
 `0.9.0` → `0.10.0`, without declaring a stable release.
 
-The next prepared prototype is `0.2.0`: Methods/Citations reporting adds features,
-and the ONNX package contract now requires BibTeX. This requires a minor increment
-from the `0.1.0` baseline. It is not a published release until platform validation,
-signing where applicable, and maintainer review are complete. Future releases
-follow the same highest-required-increment policy.
+Prototype `0.2.0` was published for macOS and Linux on 2026-10-27 as
+[`v0.2.0`](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.0).
+The next prepared patch is `0.2.1`, covering Linux developer attribution and
+package metadata. Rebuild Linux with the new source version; do not replace the
+published `0.2.0` files. Mac and Windows packages are outside this patch's build
+scope. Record the `0.2.1` publication date and tag only when it is released.
 
 Prototype status does not remove release checks: verify core workflows and
 packaged builds, and document known limitations and compatibility changes.
@@ -186,9 +202,13 @@ changing the source pin; never disable verification. Remove an obsolete archive
 from `build/starter` before fetching a corrected pin locally.
 
 Packaged startup installs the starter once per workspace, including custom
-`EIDORA_WORKSPACE_ROOT` locations, before the chooser. Setup is cancellable and
+`EIDORA_WORKSPACE_ROOT` locations, and opens the newly created example directly.
+The welcome tour starts once the window and workspaces are ready. Later launches,
+or cancelled/failed setup, show the chooser. Setup is cancellable and
 keeps partial extraction hidden. A workspace receipt prevents upgrades or removal
 of the user's copy from automatically installing another. Existing project names
 are preserved; a collision receives the usual numeric suffix. Source-checkout
 startup does not seed the development workspace. Windows, both macOS architectures,
-and Linux builds run the same archive, chooser, and snapshot self-test offline.
+and Linux builds run the same setup, welcome-tour, chooser, and snapshot self-test
+offline. The self-test uses temporary tour preferences so validation cannot mark
+the user's real onboarding as completed.

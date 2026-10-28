@@ -36,7 +36,8 @@ python automation/resource_inventory.py
 
 PowerShell users can run the same Python commands without the `PYTHONPATH=src`
 prefix after the editable install. Visual QA remains a separate requirement.
-Ubuntu needs `libegl1`, `libgl1`, `libopengl0`, and `libxkbcommon0` for Qt imports.
+Ubuntu needs the native packages listed in `packaging/linux/apt-packages.txt`;
+run `python automation/check_qt_runtime.py` after installing them.
 The maintainer's application and automation test suites and agent instructions
 are kept privately. The maintainer runs those suites against reviewed changes;
 passing public CI alone does not certify application behavior.

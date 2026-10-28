@@ -17,6 +17,15 @@ def bundled_resources():
     return root / 'starter-collection.json'
 
 
+def is_example_collection(root: Path) -> bool:
+    """Recognize installed examples without inspecting their editable contents."""
+    try:
+        origin = json.loads((root / '.starter-origin.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return False
+    return isinstance(origin, dict) and origin.get('collection_id') == 'MET_Example'
+
+
 def read_manifest(path):
     value = json.loads(Path(path).read_text(encoding='utf-8'))
     if (value.get('schema_version') != 1 or value.get('collection_id') != 'MET_Example'
@@ -57,7 +66,7 @@ def workspace_lock(workspace):
 
 
 def install_starter(service: ProjectService, manifest_path: Path, *, progress=lambda value, text: None,
-                    cancelled=lambda: False):
+                    cancelled=lambda: False, recreate=False):
     workspace = service.workspace_root
     receipt = workspace / '.starter-collection.json'
     journal = workspace / '.starter-collection-pending.json'
@@ -66,7 +75,7 @@ def install_starter(service: ProjectService, manifest_path: Path, *, progress=la
         if cancelled():
             raise InterruptedError('Starter installation cancelled.')
     with workspace_lock(workspace):
-        if receipt.exists():
+        if receipt.exists() and not recreate:
             return None
         manifest = read_manifest(manifest_path)
         origin = {'collection_id': manifest['collection_id'], 'version': manifest['version'], 'sha256': manifest['sha256']}

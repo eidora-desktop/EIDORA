@@ -80,10 +80,20 @@ def _resize_image(image: Any, prep: dict[str, Any], image_module: Any) -> Any:
     mode = str(prep["resize"])
     if mode == "stretch":
         return image.resize((width, height), resampling)
-    if mode in {"fill_crop", "short_edge_crop"}:
-        scale = (int(prep["short_edge"]) / min(image.width, image.height)
-                 if mode == "short_edge_crop" else max(width / image.width, height / image.height))
+    if mode == "short_edge_crop":
+        numerator, denominator = int(prep["short_edge"]), min(image.width, image.height)
+    else:
+        choose_scale = min if mode == "fit_pad" else max
+        numerator, denominator = choose_scale(
+            (width, image.width), (height, image.height), key=lambda ratio: ratio[0] / ratio[1],
+        )
+    if prep.get("resize_rounding", "round") == "truncate":
+        # Exact ratios keep integer dimensions from losing a pixel to float error.
+        size = (image.width * numerator // denominator, image.height * numerator // denominator)
+    else:
+        scale = numerator / denominator
         size = (round(image.width * scale), round(image.height * scale))
+    if mode in {"fill_crop", "short_edge_crop"}:
         if size[0] < width or size[1] < height:
             raise RuntimeError("Resize does not cover the requested crop.")
         if size[0] * size[1] * 12 > 256 * 1024**2:
@@ -93,8 +103,7 @@ def _resize_image(image: Any, prep: dict[str, Any], image_module: Any) -> Any:
         row, column = divmod(CROP_POSITIONS.index(prep.get("crop_position", "center")), 3)
         left, top = ((resized.width - width) * column // 2, (resized.height - height) * row // 2)
         return resized.crop((left, top, left + width, top + height))
-    scale = min(width / image.width, height / image.height)
-    resized = image.resize((max(1, round(image.width * scale)), max(1, round(image.height * scale))), resampling)
+    resized = image.resize((max(1, size[0]), max(1, size[1])), resampling)
     canvas = image_module.new("RGB", (width, height), tuple(prep.get("alpha_background", [0, 0, 0])))
     canvas.paste(resized, ((width - resized.width) // 2, (height - resized.height) // 2))
     return canvas

@@ -41,6 +41,12 @@ Decode and prepare before inference with the selected Desktop interpreter. Match
 resizing, rounding, interpolation, alpha background, normalization, tokenization,
 resampling and excerpts against the source model. Defaults must reproduce the
 intended reference pipeline. Alternative exposed options are deliberate experiments.
+For image/video pipelines that truncate aspect-preserving resize dimensions,
+declare `preparation.resize_rounding: truncate` (per component for multimodal
+packages). Omission defaults to `round`; do not change existing packages unless
+their reference preprocessing requires it. Crop offsets and interpolation remain
+independent, so revalidate the complete input tensors and vectors. Use matching
+Pillow versions when comparing preprocessing.
 Do not normalize twice: new AlexNet exports expect externally normalized tensors;
 imported graphs that normalize internally use identity external normalization.
 

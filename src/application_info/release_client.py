@@ -4,12 +4,12 @@ import json
 
 from PySide6 import QtCore, QtNetwork
 
-from application_info.service import LATEST_RELEASE_API
+from application_info.service import UPDATE_CATALOG_URL
 from eidora_version import __version__
 
 
 class ReleaseClient(QtCore.QObject):
-    """Asynchronous, public GitHub release lookup; never downloads or installs code."""
+    """User-requested website catalog lookup; never downloads or installs code."""
 
     received = QtCore.Signal(object)
     failed = QtCore.Signal(str)
@@ -25,10 +25,14 @@ class ReleaseClient(QtCore.QObject):
     def check(self) -> None:
         if self._reply is not None:
             return
-        request = QtNetwork.QNetworkRequest(QtCore.QUrl(LATEST_RELEASE_API))
-        request.setRawHeader(b"Accept", b"application/vnd.github+json")
+        request = QtNetwork.QNetworkRequest(QtCore.QUrl(UPDATE_CATALOG_URL))
+        request.setRawHeader(b"Accept", b"application/json")
         request.setRawHeader(b"User-Agent", f"EIDORA/{__version__}".encode())
-        request.setRawHeader(b"X-GitHub-Api-Version", b"2022-11-28")
+        # Pages redirects the apex domain to the configured www domain.
+        request.setAttribute(
+            QtNetwork.QNetworkRequest.Attribute.RedirectPolicyAttribute,
+            QtNetwork.QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy,
+        )
         request.setTransferTimeout(15000)
         self._reply = self._manager.get(request)
         self._reply.finished.connect(self._finished)
@@ -54,11 +58,13 @@ class ReleaseClient(QtCore.QObject):
         try:
             status = reply.attribute(QtNetwork.QNetworkRequest.Attribute.HttpStatusCodeAttribute)
             if status == 404:
-                self.failed.emit("No public release is available, or the release repository is unavailable.")
+                self.failed.emit("Update information is not available on eidora.org yet.")
             elif status in (403, 429):
-                self.failed.emit("GitHub temporarily refused the update check. Please try again later.")
+                self.failed.emit("The website temporarily refused the update check. Please try again later.")
             elif reply.error() != QtNetwork.QNetworkReply.NetworkError.NoError:
                 self.failed.emit("Could not check for updates. Check your connection and try again.")
+            elif status != 200:
+                self.failed.emit("The website returned an unexpected response. Please try again later.")
             else:
                 try:
                     payload = json.loads(bytes(reply.readAll()))

@@ -59,26 +59,31 @@ def main(argv: list[str] | None = None) -> int:
     set_dialog_window_owner(app, None)
     quit_on_last_window_closed = app.quitOnLastWindowClosed()
     app.setQuitOnLastWindowClosed(False)
-    from MainWindow.controllers.starter_collection_controller import prepare_bundled_starter
-    prepare_bundled_starter(project_service)
-    chooser = ProjectChooserController(project_service)
     try:
-        accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
-        project = chooser.selected_project
+        project = None
+        if getattr(sys, "frozen", False):
+            from MainWindow.controllers.starter_collection_controller import prepare_bundled_starter
+
+            project = prepare_bundled_starter(project_service)
+        if project is None:
+            chooser = ProjectChooserController(project_service)
+            try:
+                accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
+                project = chooser.selected_project if accepted else None
+            finally:
+                chooser.dispose()
     except BaseException:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
         raise
-    finally:
-        chooser.dispose()
-    if not accepted or project is None:
+    if project is None:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
         return 0
 
-    # Construct and reveal the application only after the launcher has closed.
+    # Build every workspace before showing the window: adding the first
+    # QQuickWidget to a visible shell can recreate its native window and blink.
     controller = MainWindowController(
         project=project,
         project_service=project_service,
-        defer_secondary_areas=True,
     )
     app.aboutToQuit.connect(controller.shutdown)
     controller.show()

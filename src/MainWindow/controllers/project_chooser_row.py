@@ -95,6 +95,12 @@ class ProjectRowWidget(QtWidgets.QWidget):
         button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QtWidgets.QMenu(button)
         action_rename = menu.addAction("Rename…")
+        action_show = menu.addAction("Open Project Folder")
+        action_show.triggered.connect(
+            lambda _checked=False: QtGui.QDesktopServices.openUrl(
+                QtCore.QUrl.fromLocalFile(str(self._project_path))
+            )
+        )
         menu.addSeparator()
         action_remove = menu.addAction("Remove")
         action_rename.triggered.connect(

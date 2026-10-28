@@ -209,6 +209,9 @@ def _canvas_style_request_with_metadata(
 
 
 class _CanvasTooltipPopup(QtWidgets.QFrame):
+    _MAX_TEXT_WIDTH = 360
+    _MAX_VALUE_CHARACTERS = 300
+
     def __init__(self, parent: QtWidgets.QWidget) -> None:
         super().__init__(parent, QtCore.Qt.WindowType.ToolTip)
         content = load_ui("DiscoveryArea", "ui/canvas_tooltip.ui", None)
@@ -225,7 +228,7 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
             QtWidgets.QSizePolicy.Policy.Fixed,
         )
         self._text_label.setTextFormat(QtCore.Qt.TextFormat.RichText)
-        self._text_label.setWordWrap(False)
+        self._text_label.setWordWrap(True)
         self._text_label.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop
         )
@@ -242,6 +245,8 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
         self._thumbnail_label.hide()
         self._thumbnail_max_edge = 96
         self._thumbnail_alignment = ""
+        self._text_layout_key: tuple[tuple[str, ...], str] | None = None
+        self._text_height = 0
 
     def set_thumbnail_alignment(self, value: str) -> None:
         alignment = str(value or "bottom").strip().lower()
@@ -283,50 +288,118 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
         self._fit_to_content()
 
     def set_lines(self, lines: list[str]) -> None:
+        layout_key = (tuple(lines), self._text_label.font().toString())
+        if layout_key == self._text_layout_key:
+            return
         has_lines = any(str(line) for line in lines)
         self._text_panel.setVisible(has_lines)
         if has_lines:
-            self._text_label.setMinimumWidth(self._minimum_text_width(lines))
-            self._text_label.setText(self._lines_to_html(lines))
+            margins = self._text_panel.layout().contentsMargins()
+            width = min(
+                self._minimum_text_width(lines),
+                self._MAX_TEXT_WIDTH - margins.left() - margins.right(),
+            )
+            self._text_label.setFixedWidth(width)
+            self._text_label.setText(
+                self._lines_to_html(lines, font=self._text_label.font(), width=width)
+            )
+            self._text_height = self._text_label.heightForWidth(width)
         else:
             self._text_label.clear()
-            self._text_label.setMinimumWidth(0)
+            self._text_label.setFixedWidth(0)
+            self._text_height = 0
+        self._text_layout_key = layout_key
         self._fit_to_content()
 
     def _minimum_text_width(self, lines: list[str]) -> int:
-        metrics = QtGui.QFontMetrics(self._text_label.font())
-        width = 0
+        metrics = QtGui.QFontMetricsF(self._text_label.font())
+        label_width = value_width = plain_width = 0.0
         for line in lines:
             label, separator, value = str(line).partition("\t")
-            text = f"{label}: {value}" if separator else label
-            width = max(width, metrics.horizontalAdvance(text))
-        return max(1, width + 18)
+            if separator:
+                label_width = max(label_width, metrics.horizontalAdvance(label))
+                value_width = max(value_width, metrics.horizontalAdvance(self._truncate_value(value)))
+            else:
+                plain_width = max(plain_width, metrics.horizontalAdvance(self._truncate_value(label)))
+        return int(max(plain_width, label_width + value_width + 10)) + 22
+
+    @classmethod
+    def _truncate_value(cls, value: str) -> str:
+        if len(value) <= cls._MAX_VALUE_CHARACTERS:
+            return value
+        prefix = value[: cls._MAX_VALUE_CHARACTERS - 1]
+        # Prefer a nearby word boundary without discarding most of a long token.
+        if not value[len(prefix)].isspace():
+            for index in range(len(prefix) - 1, max(0, len(prefix) - 40) - 1, -1):
+                if prefix[index].isspace():
+                    prefix = prefix[:index]
+                    break
+        return prefix.rstrip() + "…"
 
     @staticmethod
-    def _lines_to_html(lines: list[str]) -> str:
+    def _wrapped_html(text: str, font: QtGui.QFont, width: int) -> str:
+        option = QtGui.QTextOption()
+        option.setWrapMode(QtGui.QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        wrapped: list[str] = []
+        for paragraph in text.split("\n"):
+            encoded = paragraph.encode("utf-16-le")
+            layout = QtGui.QTextLayout(paragraph, font)
+            layout.setTextOption(option)
+            layout.beginLayout()
+            parts: list[str] = []
+            while True:
+                line = layout.createLine()
+                if not line.isValid():
+                    break
+                line.setLineWidth(max(1, width))
+                # QTextLayout positions count UTF-16 units, including emoji pairs.
+                start = line.textStart() * 2
+                end = start + line.textLength() * 2
+                parts.append(html.escape(encoded[start:end].decode("utf-16-le")))
+            layout.endLayout()
+            wrapped.append("<br>".join(parts))
+        return "<br>".join(wrapped)
+
+    @classmethod
+    def _lines_to_html(
+        cls, lines: list[str], *, font: QtGui.QFont | None = None, width: int = 352
+    ) -> str:
+        font = font if font is not None else QtWidgets.QApplication.font()
+        # Explicit breaks also bound unspaced URLs/IDs in Qt's rich-text tables.
+        content_width = max(1, width - 18)
         if all("\t" not in str(line) for line in lines):
             return "".join(
-                f"<div style='white-space: nowrap; text-align: left; padding: 0 0 2px 0;'>{html.escape(str(line))}</div>"
+                "<div style='text-align: left; padding: 0 0 2px 0;'>"
+                f"{cls._wrapped_html(cls._truncate_value(str(line)), font, content_width)}</div>"
                 for line in lines
             )
+        metrics = QtGui.QFontMetricsF(font)
+        label_width = min(
+            int(max(metrics.horizontalAdvance(str(line).partition("\t")[0]) for line in lines)) + 2,
+            (cls._MAX_TEXT_WIDTH - 26) // 3,
+        )
+        value_width = max(1, content_width - label_width - 10)
         rows: list[str] = []
         for line in lines:
             label, separator, value = str(line).partition("\t")
             if separator:
                 rows.append(
                     "<tr>"
-                    f"<td align='left' style='white-space: nowrap; text-align: left; padding: 0 10px 2px 0;'>{html.escape(label)}</td>"
-                    f"<td align='left' style='white-space: nowrap; text-align: left; padding: 0 0 2px 0;'>{html.escape(value)}</td>"
+                    "<td align='left' valign='top' style='text-align: left; padding: 0 10px 2px 0;'>"
+                    f"{cls._wrapped_html(label, font, label_width)}</td>"
+                    "<td align='left' valign='top' style='text-align: left; padding: 0 0 2px 0;'>"
+                    f"{cls._wrapped_html(cls._truncate_value(value), font, value_width)}</td>"
                     "</tr>"
                 )
             else:
                 rows.append(
                     "<tr>"
-                    f"<td colspan='2' align='left' style='white-space: nowrap; text-align: left; padding: 0 0 2px 0;'>{html.escape(label)}</td>"
+                    "<td colspan='2' align='left' valign='top' style='text-align: left; padding: 0 0 2px 0;'>"
+                    f"{cls._wrapped_html(cls._truncate_value(label), font, content_width)}</td>"
                     "</tr>"
                 )
         return (
-            "<table cellspacing='0' cellpadding='0' style='white-space: nowrap;'>"
+            "<table cellspacing='0' cellpadding='0'>"
             + "".join(rows)
             + "</table>"
         )
@@ -358,9 +431,11 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
         text_visible = not self._text_panel.isHidden()
         if text_visible:
             text_margins = self._text_panel.layout().contentsMargins() if self._text_panel.layout() is not None else QtCore.QMargins()
-            text_size = self._text_label.sizeHint()
-            text_width = text_size.width() + text_margins.left() + text_margins.right()
-            text_height = text_size.height() + text_margins.top() + text_margins.bottom()
+            text_width = self._text_label.width() + text_margins.left() + text_margins.right()
+            text_height = (
+                self._text_height
+                + text_margins.top() + text_margins.bottom()
+            )
         else:
             text_width = 0
             text_height = 0
@@ -3293,7 +3368,7 @@ class DiscoveryAreaController:
                 value = (
                     ""
                     if values is None or values.size == 0
-                    else str(values[0])
+                    else _CanvasTooltipPopup._truncate_value(str(values[0]))
                 )
                 lines.append(f"{key}\t{value}" if show_label else value)
         return lines

@@ -19,6 +19,9 @@ def audit_export_runtimes(output_directory: Path) -> dict[str, list[str]]:
 
 
 def _audit_figure_exports(output_directory: Path) -> list[str]:
+    from shared.plot_fonts import initialize_plot_fonts
+
+    initialize_plot_fonts()
     from matplotlib.figure import Figure
 
     from FiguresArea.controllers.figure_settings_panel_controller import (

@@ -35,6 +35,7 @@ patterns = [
 [[groups]]
 name = "application-data"
 patterns = [
+  "src/MainWindow/tour_text.toml",
   "src/DiscoveryArea/palettes.json",
   "src/DiscoveryArea/palettes.LICENSE.txt",
 ]

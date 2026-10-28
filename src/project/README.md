@@ -22,7 +22,9 @@ external-media paths remain supported. Source IDs and item identities never
 change when a portable project moves.
 
 `starter_collection.py` owns checksum verification, safe extraction, validation,
-atomic publication, and the once-per-workspace receipt. OS-owned file locks
+atomic publication, and the once-per-workspace receipt. The chooser creates the
+example only on request; explicit repeat creation allocates a separate project.
+OS-owned file locks
 prevent concurrent installation and survive crashes without stale lock ownership.
 A publication journal recovers a completed rename if registration/receipt writing
 was interrupted. UI progress and cancellation belong to the MainWindow controller;
