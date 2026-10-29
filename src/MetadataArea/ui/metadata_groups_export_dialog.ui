@@ -161,6 +161,9 @@
           </item>
           <item>
            <widget class="QComboBox" name="combo_export_structure">
+            <property name="toolTip">
+             <string>Choose how group memberships are arranged in the export.</string>
+            </property>
             <item>
              <property name="text">
               <string>Table</string>
@@ -273,6 +276,9 @@
           </item>
           <item>
            <widget class="QLineEdit" name="edit_export_category_column_name">
+            <property name="toolTip">
+             <string>Name the column containing group labels in the export.</string>
+            </property>
             <property name="text">
              <string>group</string>
             </property>
@@ -359,6 +365,9 @@
                 </item>
                 <item>
                  <widget class="QComboBox" name="combo_export_group_identifier">
+                  <property name="toolTip">
+                   <string>Choose the identifier used for exported group members.</string>
+                  </property>
                   <item>
                    <property name="text">
                     <string>Internal metadata ID</string>
@@ -399,6 +408,9 @@
                 </item>
                 <item>
                  <widget class="QLineEdit" name="line_new_column_name">
+                  <property name="toolTip">
+                   <string>Name the metadata column that will receive the group memberships.</string>
+                  </property>
                   <property name="text">
                    <string>group</string>
                   </property>
@@ -492,6 +504,9 @@
      </item>
      <item>
       <widget class="QPushButton" name="button_write_metadata">
+       <property name="toolTip">
+        <string>Write the selected group memberships into project metadata.</string>
+       </property>
        <property name="enabled">
         <bool>false</bool>
        </property>

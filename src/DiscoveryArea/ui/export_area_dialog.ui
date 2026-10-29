@@ -7,9 +7,9 @@
   <layout class="QVBoxLayout" name="layout_export_area">
    <item><layout class="QFormLayout" name="form_export_area">
     <item row="0" column="0"><widget class="QLabel" name="label_area_export_format"><property name="text"><string>Format</string></property></widget></item>
-    <item row="0" column="1"><widget class="QComboBox" name="combo_area_export_format"/></item>
+    <item row="0" column="1"><widget class="QComboBox" name="combo_area_export_format"><property name="toolTip"><string>Choose the file format for the selected area members.</string></property></widget></item>
     <item row="1" column="0"><widget class="QLabel" name="label_area_export_metadata"><property name="text"><string>Content</string></property></widget></item>
-    <item row="1" column="1"><widget class="QCheckBox" name="checkbox_area_export_metadata"><property name="text"><string>Include project metadata</string></property></widget></item>
+    <item row="1" column="1"><widget class="QCheckBox" name="checkbox_area_export_metadata"><property name="toolTip"><string>Include metadata values alongside the exported item IDs.</string></property><property name="text"><string>Include project metadata</string></property></widget></item>
     <item row="2" column="0"><widget class="QLabel" name="label_area_export_file"><property name="text"><string>Output file</string></property></widget></item>
     <item row="2" column="1"><layout class="QHBoxLayout" name="layout_area_export_file"><item><widget class="QLineEdit" name="edit_area_export_file"/></item><item><widget class="QPushButton" name="button_browse_area_export_file"><property name="text"><string>Browse…</string></property></widget></item></layout></item>
    </layout></item>

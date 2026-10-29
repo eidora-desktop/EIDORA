@@ -146,6 +146,9 @@
         </item>
         <item>
          <widget class="QToolButton" name="button_media_sources_options">
+          <property name="toolTip">
+           <string>Open media source options.</string>
+          </property>
           <property name="minimumSize">
            <size>
             <width>22</width>

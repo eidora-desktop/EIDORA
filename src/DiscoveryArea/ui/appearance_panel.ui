@@ -80,6 +80,9 @@
      </item>
      <item>
       <widget class="QToolButton" name="button_appearance_options">
+       <property name="toolTip">
+        <string>Open appearance presets and options.</string>
+       </property>
        <property name="minimumSize">
         <size>
          <width>22</width>
@@ -397,6 +400,9 @@
                        </property>
                        <item>
                         <widget class="QToolButton" name="button_point_size_uniform">
+                         <property name="toolTip">
+                          <string>Use the same size for every point.</string>
+                         </property>
                          <property name="sizePolicy">
                           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                            <horstretch>0</horstretch>
@@ -416,6 +422,9 @@
                        </item>
                        <item>
                         <widget class="QToolButton" name="button_point_size_mapped">
+                         <property name="toolTip">
+                          <string>Set point sizes from a numeric metadata field.</string>
+                         </property>
                          <property name="sizePolicy">
                           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                            <horstretch>0</horstretch>
@@ -479,6 +488,9 @@
                   </property>
                   <item alignment="Qt::AlignmentFlag::AlignLeft">
                    <widget class="QSpinBox" name="spin_point_size">
+                    <property name="toolTip">
+                     <string>Set the size of all points.</string>
+                    </property>
                     <property name="minimum">
                      <number>1</number>
                     </property>
@@ -564,6 +576,9 @@
                      </item>
                      <item>
                       <widget class="QSpinBox" name="spin_point_size_min">
+                       <property name="toolTip">
+                        <string>Smallest point size in the mapped range.</string>
+                       </property>
                        <property name="minimum">
                         <number>1</number>
                        </property>
@@ -597,6 +612,9 @@
                      </item>
                      <item>
                       <widget class="QSpinBox" name="spin_point_size_max">
+                       <property name="toolTip">
+                        <string>Largest point size in the mapped range.</string>
+                       </property>
                        <property name="minimum">
                         <number>1</number>
                        </property>
@@ -754,6 +772,9 @@
                     </property>
                     <item>
                      <widget class="QToolButton" name="button_fill_color_uniform">
+                      <property name="toolTip">
+                       <string>Use one color for all points.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -773,6 +794,9 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_fill_color_mapped">
+                      <property name="toolTip">
+                       <string>Color points by a metadata field.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -789,6 +813,9 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_fill_color_conditional">
+                      <property name="toolTip">
+                       <string>Color points using custom field and value rules.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -901,6 +928,9 @@
                      </item>
                      <item>
                       <widget class="QLineEdit" name="line_point_color_value">
+                       <property name="toolTip">
+                        <string>Enter the point color as a hexadecimal value, such as #3B82F6.</string>
+                       </property>
                        <property name="sizePolicy">
                         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                          <horstretch>0</horstretch>
@@ -970,6 +1000,9 @@
                    <layout class="QHBoxLayout" name="layout_point_color_mode">
                     <item>
                      <widget class="QRadioButton" name="radio_points_categorical">
+                      <property name="toolTip">
+                       <string>Assign a separate color to each category.</string>
+                      </property>
                       <property name="text">
                        <string>categorical</string>
                       </property>
@@ -980,6 +1013,9 @@
                     </item>
                     <item>
                      <widget class="QRadioButton" name="radio_points_continuous">
+                      <property name="toolTip">
+                       <string>Map numeric values to a color gradient.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -1014,6 +1050,9 @@
                       </property>
                       <item>
                        <widget class="QTableWidget" name="table_point_colors">
+                        <property name="toolTip">
+                         <string>Click a color swatch to change its point color.</string>
+                        </property>
                         <property name="minimumSize">
                          <size>
                           <width>0</width>
@@ -1100,6 +1139,9 @@
                          </property>
                          <item>
                           <widget class="QToolButton" name="button_point_gradient_start_color">
+                           <property name="toolTip">
+                            <string>Choose the color for the low end of the gradient.</string>
+                           </property>
                            <property name="sizePolicy">
                             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                              <horstretch>0</horstretch>
@@ -1157,6 +1199,9 @@
                          </item>
                          <item>
                           <widget class="QToolButton" name="button_point_gradient_end_color">
+                           <property name="toolTip">
+                            <string>Choose the color for the high end of the gradient.</string>
+                           </property>
                            <property name="sizePolicy">
                             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                              <horstretch>0</horstretch>
@@ -1221,6 +1266,9 @@
                   </property>
                   <item>
                    <widget class="QTableWidget" name="table_fill_color_conditions">
+                    <property name="toolTip">
+                     <string>Click a color swatch to edit it; right-click a rule for options.</string>
+                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>0</width>
@@ -1409,6 +1457,9 @@
               </item>
               <item>
                <widget class="QSpinBox" name="spin_point_opacity">
+                <property name="toolTip">
+                 <string>Set point opacity; 0% is transparent and 100% is opaque.</string>
+                </property>
                 <property name="suffix">
                  <string>%</string>
                 </property>
@@ -1569,6 +1620,9 @@
                     </property>
                     <item>
                      <widget class="QToolButton" name="button_border_width_uniform">
+                      <property name="toolTip">
+                       <string>Use the same border width for every point.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -1588,6 +1642,9 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_border_width_mapped">
+                      <property name="toolTip">
+                       <string>Set border widths from a numeric metadata field.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -1642,6 +1699,9 @@
                   </property>
                   <item>
                    <widget class="QSpinBox" name="spin_border_width">
+                    <property name="toolTip">
+                     <string>Set the border width for all points.</string>
+                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -1727,6 +1787,9 @@
                      </item>
                      <item>
                       <widget class="QSpinBox" name="spin_border_width_min">
+                       <property name="toolTip">
+                        <string>Smallest border width in the mapped range.</string>
+                       </property>
                        <property name="maximum">
                         <number>30</number>
                        </property>
@@ -1754,6 +1817,9 @@
                      </item>
                      <item>
                       <widget class="QSpinBox" name="spin_border_width_max">
+                       <property name="toolTip">
+                        <string>Largest border width in the mapped range.</string>
+                       </property>
                        <property name="minimum">
                         <number>1</number>
                        </property>
@@ -1905,6 +1971,9 @@
                     </property>
                     <item>
                      <widget class="QToolButton" name="button_border_color_uniform">
+                      <property name="toolTip">
+                       <string>Use one border color for all points.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -1924,6 +1993,9 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_border_color_mapped">
+                      <property name="toolTip">
+                       <string>Color point borders by a metadata field.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -1940,6 +2012,9 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_border_color_conditional">
+                      <property name="toolTip">
+                       <string>Color point borders using custom field and value rules.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -2046,6 +2121,9 @@
                      </item>
                      <item>
                       <widget class="QLineEdit" name="line_border_color_value">
+                       <property name="toolTip">
+                        <string>Enter the border color as a hexadecimal value, such as #3B82F6.</string>
+                       </property>
                        <property name="sizePolicy">
                         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                          <horstretch>0</horstretch>
@@ -2115,6 +2193,9 @@
                    <layout class="QHBoxLayout" name="layout_border_color_mode">
                     <item>
                      <widget class="QRadioButton" name="radio_borders_categorical">
+                      <property name="toolTip">
+                       <string>Assign a separate border color to each category.</string>
+                      </property>
                       <property name="text">
                        <string>categorical</string>
                       </property>
@@ -2125,6 +2206,9 @@
                     </item>
                     <item>
                      <widget class="QRadioButton" name="radio_borders_continuous">
+                      <property name="toolTip">
+                       <string>Map numeric values to a border-color gradient.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -2159,6 +2243,9 @@
                       </property>
                       <item>
                        <widget class="QTableWidget" name="table_border_colors">
+                        <property name="toolTip">
+                         <string>Click a color swatch to change its border color.</string>
+                        </property>
                         <property name="minimumSize">
                          <size>
                           <width>0</width>
@@ -2245,6 +2332,9 @@
                          </property>
                          <item>
                           <widget class="QToolButton" name="button_border_gradient_start_color">
+                           <property name="toolTip">
+                            <string>Choose the border color for the low end of the gradient.</string>
+                           </property>
                            <property name="minimumSize">
                             <size>
                              <width>22</width>
@@ -2296,6 +2386,9 @@
                          </item>
                          <item>
                           <widget class="QToolButton" name="button_border_gradient_end_color">
+                           <property name="toolTip">
+                            <string>Choose the border color for the high end of the gradient.</string>
+                           </property>
                            <property name="minimumSize">
                             <size>
                              <width>22</width>
@@ -2354,6 +2447,9 @@
                   </property>
                   <item>
                    <widget class="QTableWidget" name="table_border_color_conditions">
+                    <property name="toolTip">
+                     <string>Click a color swatch to edit it; right-click a rule for options.</string>
+                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>0</width>
@@ -2528,6 +2624,9 @@
               </item>
               <item>
                <widget class="QSpinBox" name="spin_border_opacity">
+                <property name="toolTip">
+                 <string>Set border opacity; 0% is transparent and 100% is opaque.</string>
+                </property>
                 <property name="suffix">
                  <string>%</string>
                 </property>
@@ -2769,6 +2868,9 @@
                  </item>
                  <item>
                   <widget class="QComboBox" name="combo_preview_fill_color">
+                   <property name="toolTip">
+                    <string>Choose which point color supplies the preview background, or disable the fill.</string>
+                   </property>
                    <property name="sizePolicy">
                     <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                      <horstretch>0</horstretch>
@@ -2853,6 +2955,9 @@
                  </item>
                  <item>
                   <widget class="QSpinBox" name="spin_preview_fill_opacity">
+                   <property name="toolTip">
+                    <string>Set the opacity of the preview background fill.</string>
+                   </property>
                    <property name="suffix">
                     <string>%</string>
                    </property>
@@ -2950,6 +3055,9 @@
                     </item>
                     <item>
                      <widget class="QSpinBox" name="spin_body_opacity">
+                      <property name="toolTip">
+                       <string>Set the opacity of the preview image.</string>
+                      </property>
                       <property name="suffix">
                        <string>%</string>
                       </property>
@@ -3145,6 +3253,9 @@
                  </item>
                  <item>
                   <widget class="QComboBox" name="combo_preview_border_color">
+                   <property name="toolTip">
+                    <string>Choose which point color supplies the preview frame, or disable the frame.</string>
+                   </property>
                    <property name="sizePolicy">
                     <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                      <horstretch>0</horstretch>
@@ -3253,6 +3364,9 @@
                     </item>
                     <item>
                      <widget class="QSpinBox" name="spin_frame_width">
+                      <property name="toolTip">
+                       <string>Set the width of the preview frame.</string>
+                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
@@ -3353,6 +3467,9 @@
                     </item>
                     <item>
                      <widget class="QSpinBox" name="spin_frame_opacity">
+                      <property name="toolTip">
+                       <string>Set the opacity of the preview frame.</string>
+                      </property>
                       <property name="suffix">
                        <string>%</string>
                       </property>

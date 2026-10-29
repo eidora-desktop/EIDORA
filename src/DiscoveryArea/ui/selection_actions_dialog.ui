@@ -338,6 +338,9 @@
           </item>
           <item>
            <widget class="QSlider" name="slider_source_media_position">
+            <property name="toolTip">
+             <string>Seek to a position in the source video.</string>
+            </property>
             <property name="minimumSize">
              <size>
               <width>120</width>
@@ -498,10 +501,17 @@
            <number>0</number>
           </property>
           <item>
-           <widget class="QComboBox" name="combo_embeddings"/>
+           <widget class="QComboBox" name="combo_embeddings">
+            <property name="toolTip">
+             <string>Choose the vector data used to find similar items.</string>
+            </property>
+           </widget>
           </item>
           <item>
            <widget class="QComboBox" name="combo_neighbor_metric">
+            <property name="toolTip">
+             <string>Choose how similarity or distance between vectors is measured.</string>
+            </property>
             <item>
              <property name="text">
               <string>Cosine Similarity</string>
@@ -516,6 +526,9 @@
           </item>
           <item>
            <widget class="QCheckBox" name="checkbox_neighbors_visible_only">
+            <property name="toolTip">
+             <string>Limit the neighbor search to items currently visible on the canvas.</string>
+            </property>
             <property name="text">
              <string>Visible items only</string>
             </property>
@@ -590,6 +603,9 @@
           </property>
           <item alignment="Qt::AlignmentFlag::AlignRight">
            <widget class="QComboBox" name="combo_neighbor_thumbnail_source">
+            <property name="toolTip">
+             <string>Choose the thumbnail set for neighbor previews.</string>
+            </property>
             <property name="sizePolicy">
              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
               <horstretch>0</horstretch>
@@ -688,6 +704,9 @@
                 </property>
                 <item row="0" column="0">
                  <widget class="QRadioButton" name="radio_topk">
+                  <property name="toolTip">
+                   <string>Save a fixed number of nearest neighbors as a group.</string>
+                  </property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                     <horstretch>0</horstretch>
@@ -707,6 +726,9 @@
                 </item>
                 <item row="0" column="1">
                  <widget class="QSpinBox" name="spin_save_topk">
+                  <property name="toolTip">
+                   <string>Set how many nearest neighbors to include in the saved group.</string>
+                  </property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                     <horstretch>0</horstretch>
@@ -729,6 +751,9 @@
                 </item>
                 <item row="1" column="0">
                  <widget class="QRadioButton" name="radio_radius">
+                  <property name="toolTip">
+                   <string>Save neighbors that meet a distance or similarity threshold.</string>
+                  </property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                     <horstretch>0</horstretch>
@@ -745,6 +770,9 @@
                 </item>
                 <item row="1" column="1">
                  <widget class="QDoubleSpinBox" name="spin_save_radius">
+                  <property name="toolTip">
+                   <string>Minimum cosine similarity or maximum Euclidean distance for the saved group.</string>
+                  </property>
                   <property name="enabled">
                    <bool>false</bool>
                   </property>
@@ -813,6 +841,9 @@
                    </item>
                    <item>
                     <widget class="QLineEdit" name="line_nn_group">
+                     <property name="toolTip">
+                      <string>Enter the label for the saved neighbor group.</string>
+                     </property>
                      <property name="placeholderText">
                       <string>metadata field name</string>
                      </property>

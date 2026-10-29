@@ -386,6 +386,7 @@ class MainWindowController:
             if result.metadata_changed:
                 self._refresh_discovery_availability()
                 self._queue_media_refresh(1, "metadata", metadata_area.refresh)
+            if result.metadata_changed or result.links_changed:
                 self._queue_media_refresh(3, "metadata", discovery_area.refresh_metadata)
 
         project_area.set_media_operation_callback(refresh_after_media_operation)

@@ -84,6 +84,10 @@ QToolButton:hover:enabled, QToolButton:pressed:enabled, QToolButton:checked:enab
     color: {text};
     border-color: {control_border};
 }}
+QPushButton:focus:enabled, QToolButton:focus:enabled {{
+    border-color: {text};
+    border-style: dotted;
+}}
 QAbstractItemView::item:selected:enabled, QAbstractItemView::item:hover:enabled {{
     background-color: {selection_background};
     color: {text};

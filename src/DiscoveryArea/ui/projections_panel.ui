@@ -146,6 +146,9 @@
            </item>
            <item>
             <widget class="QToolButton" name="button_discovery_options">
+             <property name="toolTip">
+              <string>Open projection import, export, and other options.</string>
+             </property>
              <property name="minimumSize">
               <size>
                <width>22</width>
@@ -201,6 +204,9 @@
          </property>
          <item>
           <widget class="QListWidget" name="list_projections">
+           <property name="toolTip">
+            <string>Select Random or a saved projection to display it on the canvas.</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -241,6 +247,9 @@
          </item>
          <item alignment="Qt::AlignmentFlag::AlignHCenter">
           <widget class="QPushButton" name="button_add_new_projection">
+           <property name="toolTip">
+            <string>Create a new 2D projection from vector data.</string>
+           </property>
            <property name="text">
             <string>add new</string>
            </property>

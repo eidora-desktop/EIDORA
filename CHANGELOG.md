@@ -6,11 +6,22 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Added
 
+- Add short Designer tooltips for non-obvious controls across the application,
+  including appearance, filters, media linking, vector exchange, and figures.
+
+- Add keyboard and context-menu access to Discovery layer settings, accessible
+  names and tab order for canvas controls, and distinct button focus borders in
+  both themes.
+
 - Navigate the workspace tour with Tab or arrow keys on all platforms; Shift+Tab goes back.
 
 ### Fixed
 
+- Refresh Discovery's Random view after linking media to existing metadata, so linked items appear without reopening the project or restarting the app.
+
 - Default the Discovery canvas to gray (#7D7D7E) in dark mode and white in light mode, preserving custom background colors across theme changes and restoring the background choice with projects and snapshots.
+
+- Open projects and validate starter collections on Windows UNC paths, including Parallels shared folders, without SQLite URI authority errors.
 
 - Accept macOS arrow-key events in workspace-tour navigation, including Qt's keypad flag.
 

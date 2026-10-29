@@ -178,6 +178,9 @@
          </item>
          <item row="1" column="2">
           <widget class="QPushButton" name="button_sidecar_file">
+           <property name="toolTip">
+            <string>Add or remove a schema file describing the vector data.</string>
+           </property>
            <property name="text">
             <string>Add…</string>
            </property>
@@ -185,6 +188,9 @@
          </item>
          <item row="0" column="2">
           <widget class="QPushButton" name="button_identifier_file">
+           <property name="toolTip">
+            <string>Add or remove a separate file of vector identifiers.</string>
+           </property>
            <property name="text">
             <string>Add…</string>
            </property>
@@ -212,6 +218,9 @@
          </item>
         </layout>
         <widget class="QComboBox" name="combo_identifier_file_key">
+         <property name="toolTip">
+          <string>Choose the identifier field in the separate identifier file.</string>
+         </property>
          <property name="geometry">
           <rect>
            <x>0</x>

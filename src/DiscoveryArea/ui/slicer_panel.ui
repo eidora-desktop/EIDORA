@@ -196,6 +196,9 @@
                   </property>
                   <item>
                    <widget class="QComboBox" name="combo_slicer_column">
+                    <property name="toolTip">
+                     <string>Choose the metadata field to step through.</string>
+                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -283,6 +286,9 @@
                   </item>
                   <item alignment="Qt::AlignmentFlag::AlignLeft">
                    <widget class="QSpinBox" name="spin_slicer_start">
+                    <property name="toolTip">
+                     <string>Set the starting value or position in the sorted field values.</string>
+                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -370,6 +376,9 @@
                   </item>
                   <item alignment="Qt::AlignmentFlag::AlignLeft">
                    <widget class="QSpinBox" name="spin_slicer_spread">
+                    <property name="toolTip">
+                     <string>Set the numeric interval width or number of consecutive text values shown.</string>
+                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -451,6 +460,9 @@
                   </item>
                   <item alignment="Qt::AlignmentFlag::AlignLeft">
                    <widget class="QSpinBox" name="spin_slicer_steps">
+                    <property name="toolTip">
+                     <string>Set how far the slice moves with each step.</string>
+                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -507,6 +519,9 @@
                </item>
                <item>
                 <widget class="QToolButton" name="button_slicer_options">
+                 <property name="toolTip">
+                  <string>Open slicer presets and options.</string>
+                 </property>
                  <property name="maximumSize">
                   <size>
                    <width>22</width>
@@ -547,6 +562,9 @@
                </property>
                <item>
                 <widget class="QScrollBar" name="scrollbar_slicer">
+                 <property name="toolTip">
+                  <string>Move the active slice through the selected field.</string>
+                 </property>
                  <property name="enabled">
                   <bool>false</bool>
                  </property>

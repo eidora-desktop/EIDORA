@@ -302,6 +302,9 @@
                            <layout class="QVBoxLayout" name="verticalLayout_2">
                             <item>
                              <widget class="QToolButton" name="button_create_journal_plot">
+                              <property name="toolTip">
+                               <string>Create a figure for journal or print output.</string>
+                              </property>
                               <property name="sizePolicy">
                                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                                 <horstretch>0</horstretch>
@@ -350,6 +353,9 @@
                            <layout class="QVBoxLayout" name="verticalLayout_4">
                             <item>
                              <widget class="QToolButton" name="button_create_presentation_plot">
+                              <property name="toolTip">
+                               <string>Create a figure for presentation output.</string>
+                              </property>
                               <property name="sizePolicy">
                                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                                 <horstretch>0</horstretch>
@@ -398,6 +404,9 @@
                            <layout class="QVBoxLayout" name="verticalLayout_5">
                             <item>
                              <widget class="QToolButton" name="button_create_animation_plot">
+                              <property name="toolTip">
+                               <string>Create an animation from snapshots.</string>
+                              </property>
                               <property name="sizePolicy">
                                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                                 <horstretch>0</horstretch>

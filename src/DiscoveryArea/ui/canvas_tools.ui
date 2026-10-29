@@ -94,6 +94,9 @@
          </property>
          <item>
           <widget class="QToolButton" name="button_pan_tool">
+           <property name="accessibleName">
+            <string>Pan mode</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -132,6 +135,9 @@
          </item>
          <item>
           <widget class="QToolButton" name="button_selection_tool">
+           <property name="accessibleName">
+            <string>Item selection</string>
+           </property>
            <property name="cursor">
             <cursorShape>PointingHandCursor</cursorShape>
            </property>
@@ -161,6 +167,9 @@
          </item>
          <item>
           <widget class="QToolButton" name="button_zoom_tool">
+           <property name="accessibleName">
+            <string>Zoom mode</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -196,6 +205,9 @@
          </item>
          <item>
           <widget class="QToolButton" name="button_lasso_tool">
+           <property name="accessibleName">
+            <string>Lasso selection</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -267,6 +279,9 @@
          </property>
          <item>
           <widget class="QToolButton" name="button_fit_screen">
+           <property name="accessibleName">
+            <string>Fit canvas to items</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -299,6 +314,9 @@
          </item>
          <item>
           <widget class="QToolButton" name="button_find_item">
+           <property name="accessibleName">
+            <string>Find item</string>
+           </property>
            <property name="cursor">
             <cursorShape>PointingHandCursor</cursorShape>
            </property>
@@ -325,6 +343,9 @@
          </item>
          <item>
           <widget class="QToolButton" name="button_canvas_background">
+           <property name="accessibleName">
+            <string>Canvas background color</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -360,6 +381,9 @@
          </item>
          <item>
           <widget class="QToolButton" name="button_quick_export">
+           <property name="accessibleName">
+            <string>Quick canvas export</string>
+           </property>
            <property name="toolTip">
             <string>quick canvas export</string>
            </property>
@@ -389,6 +413,16 @@
    </item>
   </layout>
  </widget>
+ <tabstops>
+  <tabstop>button_pan_tool</tabstop>
+  <tabstop>button_selection_tool</tabstop>
+  <tabstop>button_zoom_tool</tabstop>
+  <tabstop>button_lasso_tool</tabstop>
+  <tabstop>button_fit_screen</tabstop>
+  <tabstop>button_find_item</tabstop>
+  <tabstop>button_canvas_background</tabstop>
+  <tabstop>button_quick_export</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>

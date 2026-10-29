@@ -14,7 +14,7 @@
    <item alignment="Qt::AlignmentFlag::AlignVCenter"><widget class="QLabel" name="label_status"><property name="text"><string/></property><property name="alignment"><set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignVCenter</set></property></widget></item>
    <item alignment="Qt::AlignmentFlag::AlignVCenter"><widget class="QProgressBar" name="progress_source"><property name="minimumWidth"><number>140</number></property><property name="maximumWidth"><number>240</number></property><property name="value"><number>0</number></property></widget></item>
    <item alignment="Qt::AlignmentFlag::AlignVCenter"><widget class="QPushButton" name="button_cancel"><property name="text"><string>Cancel</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
-   <item alignment="Qt::AlignmentFlag::AlignVCenter"><widget class="QPushButton" name="button_link"><property name="text"><string>Link…</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+   <item alignment="Qt::AlignmentFlag::AlignVCenter"><widget class="QPushButton" name="button_link"><property name="toolTip"><string>Review and link this source’s files to metadata items.</string></property><property name="text"><string>Link…</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
   </layout>
  </widget><resources/><connections/>
 </ui>

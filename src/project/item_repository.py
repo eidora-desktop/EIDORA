@@ -7,6 +7,8 @@ from contextlib import closing
 from pathlib import Path
 import sqlite3
 
+from shared.persistence.sqlite import connect_read_only
+
 
 def ensure_item_registry(connection: sqlite3.Connection) -> None:
     connection.execute(
@@ -51,7 +53,7 @@ class ItemRepository:
         """Read navigation eligibility without migrating or allocating storage."""
         if not database_path.is_file():
             return False
-        with closing(sqlite3.connect(database_path.resolve().as_uri() + "?mode=ro", uri=True)) as connection:
+        with closing(connect_read_only(database_path)) as connection:
             if connection.execute("SELECT 1 FROM sqlite_master WHERE name='project_items'").fetchone():
                 if connection.execute("SELECT 1 FROM project_items WHERE asset_id IS NOT NULL LIMIT 1").fetchone():
                     return True

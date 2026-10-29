@@ -52,6 +52,9 @@
    </property>
    <item>
     <widget class="QGroupBox" name="info_field_group">
+     <property name="toolTip">
+      <string>Show or hide metadata text in canvas tooltips.</string>
+     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
        <horstretch>0</horstretch>
@@ -88,6 +91,9 @@
       </property>
       <item>
        <widget class="QListWidget" name="list_pin_selected_metadata_fields_tooltip">
+        <property name="toolTip">
+         <string>Choose which metadata fields appear in tooltips and their order.</string>
+        </property>
         <property name="maximumSize">
          <size>
           <width>16777215</width>
@@ -158,6 +164,9 @@
             </property>
             <item>
              <widget class="QToolButton" name="button_pin_move_up_tooltip">
+              <property name="toolTip">
+               <string>Move the selected tooltip field up.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -193,6 +202,9 @@
             </item>
             <item>
              <widget class="QToolButton" name="button_pin_move_down_tooltip">
+              <property name="toolTip">
+               <string>Move the selected tooltip field down.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -263,6 +275,9 @@
    </item>
    <item>
     <widget class="QGroupBox" name="thumbnail_group">
+     <property name="toolTip">
+      <string>Show or hide thumbnail images in canvas tooltips.</string>
+     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
        <horstretch>0</horstretch>
@@ -394,6 +409,9 @@
          </item>
          <item>
           <widget class="QComboBox" name="combo_tooltip_thumbnail_field">
+           <property name="toolTip">
+            <string>Choose the thumbnail set used in canvas tooltips.</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -693,6 +711,9 @@
          </item>
          <item>
           <widget class="QSlider" name="slider_tooltip_thumbnail_size">
+           <property name="toolTip">
+            <string>Set the size of thumbnail images in canvas tooltips.</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>

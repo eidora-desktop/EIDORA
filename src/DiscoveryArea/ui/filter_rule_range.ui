@@ -130,6 +130,9 @@
             </property>
             <item>
              <widget class="QPushButton" name="button_apply_element">
+              <property name="toolTip">
+               <string>Start or pause this filter rule; in removal mode, remove it.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Expanding">
                 <horstretch>0</horstretch>
@@ -214,6 +217,9 @@
             </property>
             <item>
              <widget class="QSpinBox" name="spin_filter_value_min">
+              <property name="toolTip">
+               <string>Set the lower bound of the numeric filter range.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -230,6 +236,9 @@
             </item>
             <item>
              <widget class="QDoubleSpinBox" name="spin_filter_range_min_double">
+              <property name="toolTip">
+               <string>Set the lower bound of the numeric filter range.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -246,6 +255,9 @@
             </item>
             <item>
              <widget class="QSlider" name="slider_filter_value_range">
+              <property name="toolTip">
+               <string>Drag either handle to adjust the numeric filter range.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>1</horstretch>
@@ -265,6 +277,9 @@
             </item>
             <item>
              <widget class="QSpinBox" name="spin_filter_value_max">
+              <property name="toolTip">
+               <string>Set the upper bound of the numeric filter range.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -281,6 +296,9 @@
             </item>
             <item>
              <widget class="QDoubleSpinBox" name="spin_filter_range_max_double">
+              <property name="toolTip">
+               <string>Set the upper bound of the numeric filter range.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -309,6 +327,9 @@
          </item>
          <item row="0" column="1" colspan="2">
           <widget class="QComboBox" name="combo_column">
+           <property name="toolTip">
+            <string>Choose the numeric metadata field to filter.</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>

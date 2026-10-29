@@ -72,6 +72,9 @@
    </item>
    <item alignment="Qt::AlignmentFlag::AlignHCenter">
     <widget class="QPushButton" name="button_reset_preparation">
+     <property name="toolTip">
+      <string>Restore the selected model’s default input-preparation settings.</string>
+     </property>
      <property name="text">
       <string>Reset to Model Defaults</string>
      </property>
@@ -79,6 +82,9 @@
    </item>
    <item>
     <widget class="QCheckBox" name="check_create_thumbnails">
+     <property name="toolTip">
+      <string>Create thumbnails from the run inputs after the embedding job finishes.</string>
+     </property>
      <property name="text">
       <string>Create default thumbnails after completion</string>
      </property>

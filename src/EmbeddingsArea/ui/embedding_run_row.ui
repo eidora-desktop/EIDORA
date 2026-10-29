@@ -39,6 +39,9 @@
      </property>
      <item>
       <widget class="QToolButton" name="button_toggle_details">
+       <property name="toolTip">
+        <string>Expand or collapse run details and clustering results.</string>
+       </property>
        <property name="text">
         <string/>
        </property>

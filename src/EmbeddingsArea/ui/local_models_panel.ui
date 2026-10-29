@@ -126,6 +126,9 @@
         </item>
         <item>
          <widget class="QPushButton" name="button_browse_model_zoo">
+          <property name="toolTip">
+           <string>Browse models available to install.</string>
+          </property>
           <property name="text">
            <string>Model Zoo...</string>
           </property>
@@ -139,6 +142,9 @@
         </item>
         <item>
          <widget class="QToolButton" name="button_models_options">
+          <property name="toolTip">
+           <string>Open local model options.</string>
+          </property>
           <property name="minimumSize">
            <size>
             <width>22</width>

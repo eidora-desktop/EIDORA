@@ -85,6 +85,9 @@
       </item>
       <item>
        <widget class="QPushButton" name="button_add_thumbnails">
+        <property name="toolTip">
+         <string>Create a thumbnail set from media or existing thumbnails.</string>
+        </property>
         <property name="text">
          <string>Add New…</string>
         </property>

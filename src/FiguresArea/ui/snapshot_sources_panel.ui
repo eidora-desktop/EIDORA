@@ -107,6 +107,9 @@
         </item>
         <item>
          <widget class="QToolButton" name="button_snapshot_sources_options">
+          <property name="toolTip">
+           <string>Open snapshot source options.</string>
+          </property>
           <property name="minimumSize">
            <size>
             <width>22</width>
@@ -165,6 +168,9 @@
          </property>
          <item>
           <widget class="QListWidget" name="list_snapshots">
+           <property name="toolTip">
+            <string>Drag a snapshot into a figure or animation timeline.</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
              <horstretch>0</horstretch>
@@ -221,6 +227,9 @@
             </item>
             <item alignment="Qt::AlignmentFlag::AlignVCenter">
              <widget class="QLabel" name="label_snapshot_size_icon">
+              <property name="toolTip">
+               <string>Snapshot preview size.</string>
+              </property>
               <property name="text">
                <string/>
               </property>
@@ -244,6 +253,9 @@
             </item>
             <item alignment="Qt::AlignmentFlag::AlignVCenter">
              <widget class="QSpinBox" name="spin_snapshot_thumbnail_size">
+              <property name="toolTip">
+               <string>Resize snapshot previews in this panel.</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                 <horstretch>0</horstretch>
