@@ -4,10 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
-## 0.2.2 — Candidate
+## 0.2.2 — 2026-10-29
 
-Prepared for macOS Apple Silicon and Intel, Windows Store x64, and Linux x64.
-Publication date and platform availability will be recorded after release review.
+Experimental release for macOS Apple Silicon and Intel, and Linux x64.
+Windows is excluded from this publication while validation continues.
 This patch improves existing workflows and bundles the updated MET example;
 it does not introduce project-format changes.
 
