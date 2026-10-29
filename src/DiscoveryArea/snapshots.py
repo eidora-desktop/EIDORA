@@ -85,8 +85,11 @@ class DiscoverySnapshot:
         default_factory=lambda: DiscoveryMetadataSignature(count=0, checksum="")
     )
 
+    canvas_state: dict[str, Any] = field(default_factory=dict)
+
     def to_dict(self) -> dict[str, Any]:
         states = {
+            "canvas": dict(self.canvas_state),
             "appearance": dict(self.appearance_state),
             "filters": dict(self.filters_state),
             "camera": dict(self.camera_state),
@@ -151,6 +154,7 @@ class DiscoverySnapshot:
             ),
             appearance_state=_safe_dict(states.get("appearance")),
             filters_state=_safe_dict(states.get("filters")),
+            canvas_state=_safe_dict(states.get("canvas")),
             camera_state=_safe_dict(states.get("camera")),
             slicer_state=_safe_dict(states.get("slicer")),
             layer_state=_safe_dict(states.get("layers")),

@@ -10,6 +10,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Default the Discovery canvas to gray (#7D7D7E) in dark mode and white in light mode, preserving custom background colors across theme changes and restoring the background choice with projects and snapshots.
+
 - Accept macOS arrow-key events in workspace-tour navigation, including Qt's keypad flag.
 
 - Restore readable Linux dark-mode text, icons, inputs, and item views when the desktop reports a dark preference with a light Qt palette; retain Linux platform-theme plugins in packaged builds without changing macOS theme handling.

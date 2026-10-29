@@ -1637,6 +1637,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._qml_zoom_drag_item: QtCore.QObject | None = None
         self._qml_find_blink_item: QtCore.QObject | None = None
         self._qml_selection_item: QtCore.QObject | None = None
+        self._custom_background_color = False
         self._background_color = QtGui.QColor("#ffffff")
         self._quick_available = False
         self._quick_init_attempted = False
@@ -1873,6 +1874,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._update_cursor()
         self._position_thumbnail_loading_label()
         self._viewport = self._aspect_normalized_viewport((0.0, 1.0, 0.0, 1.0))
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.paletteChanged.connect(self._apply_default_background_color)
+            self._apply_default_background_color(app.palette())
 
     def _ensure_quick_backend_loaded(self, *, force: bool = False) -> None:
         if self._quick_init_attempted:
@@ -2120,6 +2125,27 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             return self._quick_view.engine()
         return None
 
+    def _apply_default_background_color(self, palette: QtGui.QPalette) -> None:
+        if self._custom_background_color:
+            return
+        dark = palette.color(QtGui.QPalette.ColorRole.Window).lightness() < 128
+        self._background_color = QtGui.QColor("#7D7D7E" if dark else "#ffffff")
+        self._apply_background_color()
+
+    def background_state(self) -> dict[str, object]:
+        return {
+            "background_color": self._background_color.name(QtGui.QColor.NameFormat.HexArgb)
+            if self._custom_background_color else None,
+        }
+
+    def restore_background_state(self, state: dict[str, object]) -> None:
+        color = state.get("background_color")
+        if isinstance(color, str) and QtGui.QColor(color).isValid():
+            self.set_background_color(color)
+            return
+        self._custom_background_color = False
+        self._apply_default_background_color(QtWidgets.QApplication.palette())
+
     def background_color(self) -> QtGui.QColor:
         return QtGui.QColor(self._background_color)
 
@@ -2127,6 +2153,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         next_color = QtGui.QColor(color)
         if not next_color.isValid():
             return
+        self._custom_background_color = True
         self._background_color = next_color
         self._apply_background_color()
 

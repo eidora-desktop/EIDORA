@@ -1154,6 +1154,8 @@ class DiscoveryAreaController:
     def _handle_canvas_background_color_changed(self, color: QtGui.QColor) -> None:
         if self._canvas_widget is not None:
             self._canvas_widget.set_background_color(color)
+            self._queue_project_exploration_settings_save()
+            self._refresh_current_snapshot_update_state()
 
     def _handle_quick_canvas_export(self) -> bool:
         if self._canvas_widget is None:
@@ -3784,6 +3786,7 @@ class DiscoveryAreaController:
         )
         display = layers.pin_display_settings_payload() if layers is not None else {}
         return {
+            "canvas": self._canvas_widget.background_state() if self._canvas_widget is not None else {},
             "tooltip": {key: value for key, value in display.items() if key.startswith("tooltip_")},
             "tooltips_visible": checkbox.isChecked() if checkbox is not None else True,
             "filters": filters.filter_state_payload() if filters is not None else {},
@@ -3801,13 +3804,15 @@ class DiscoveryAreaController:
         try:
             DiscoverySettingsRepository(self._project.paths.state).save(self._exploration_settings_payload())
         except OSError:
-            self._show_status("Failed to save tooltip and filter settings.")
+            self._show_status("Failed to save Discovery settings.")
 
     def _load_project_exploration_settings(self) -> None:
         payload = (
             DiscoverySettingsRepository(self._project.paths.state).load()
             if self._project_has_storage() else {}
         )
+        if self._canvas_widget is not None:
+            self._canvas_widget.restore_background_state(payload.get("canvas", {}))
         self._has_saved_tooltip_settings = "tooltip" in payload
         defaults = self._default_exploration_settings
         layers = self._panel(LayersSettingPanelController)
@@ -4124,6 +4129,9 @@ class DiscoveryAreaController:
                         self._canvas_widget.set_camera_state(payload["camera"], preserve_aspect=True)
             if snapshot.camera_state:
                 self._canvas_widget.set_camera_state(snapshot.camera_state, preserve_aspect=True)
+        if self._canvas_widget is not None:
+            self._canvas_widget.restore_background_state(snapshot.canvas_state)
+            self._queue_project_exploration_settings_save()
         self._apply_snapshot_layer_state(snapshot.layer_state)
         self._apply_snapshot_pinboard_state(snapshot.pinboard_state)
         if failures:
@@ -4179,6 +4187,7 @@ class DiscoveryAreaController:
             refs=snapshot_refs,
             appearance_state=appearance_state,
             filters_state=filters_state,
+            canvas_state=self._canvas_widget.background_state() if self._canvas_widget is not None else {},
             camera_state=camera_state,
             slicer_state=slicer_state,
             layer_state=layer_state,
@@ -4241,6 +4250,7 @@ class DiscoveryAreaController:
             "transform_state": snapshot.transform_state,
             "appearance_state": snapshot.appearance_state,
             "filters_state": snapshot.filters_state,
+            "canvas_state": snapshot.canvas_state,
             "camera_state": snapshot.camera_state,
             "slicer_state": snapshot.slicer_state,
             "layer_state": snapshot.layer_state,
