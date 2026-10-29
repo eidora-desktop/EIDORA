@@ -4,6 +4,15 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.2 — Candidate
+
+Prepared for macOS Apple Silicon and Intel, Windows Store x64, and Linux x64.
+Publication date and platform availability will be recorded after release review.
+This patch improves existing workflows and bundles the updated MET example;
+it does not introduce project-format changes.
+
+Prototype software. Use at your own risk. Stability and backward compatibility are not guaranteed.
+
 ### Added
 
 - Bundle MET_Example v2 with reduced, citation-bearing ResNet50 and DINO vectors,
