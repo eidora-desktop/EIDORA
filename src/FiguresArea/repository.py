@@ -12,6 +12,7 @@ from FiguresArea.domain import (
     PlotCell,
 )
 from FiguresArea.template_settings import default_plot_settings
+from project.portable_paths import ProjectPaths
 from shared.persistence import json_store
 
 
@@ -24,11 +25,12 @@ class FigureTabsRepository:
 
     def __init__(self, state_root: Path) -> None:
         self._path = state_root / self._FILENAME
+        self._paths = ProjectPaths(state_root.parent)
 
     def save(self, tabs: list[dict[str, Any]], current_index: int | None) -> None:
         json_store.write_json(
             self._path,
-            {"version": self._VERSION, "tabs": tabs, "current_index": current_index},
+            {"version": self._VERSION, "tabs": [self._composition_paths(tab, encode=True) for tab in tabs], "current_index": current_index},
         )
 
     def load(self) -> tuple[list[dict[str, Any]], int | None]:
@@ -44,7 +46,26 @@ class FigureTabsRepository:
         tabs = [tab for tab in (self._validated_tab(item) for item in raw_tabs) if tab is not None]
         current_index = payload.get("current_index")
         valid_index = current_index if isinstance(current_index, int) and not isinstance(current_index, bool) else None
-        return tabs, valid_index
+        return [self._composition_paths(tab, encode=False) for tab in tabs], valid_index
+
+    def _composition_paths(self, tab: dict[str, Any], *, encode: bool) -> dict[str, Any]:
+        """Keep static figure preset references portable, like animation references."""
+        tab = copy.deepcopy(tab)
+        convert = self._paths.encode if encode else self._paths.decode
+        composition = tab.get('composition')
+        cells = composition.get('plot_cells', []) if isinstance(composition, dict) else []
+        for cell in cells if isinstance(cells, list) else []:
+            if not isinstance(cell, dict):
+                continue
+            if isinstance(cell.get('snapshot_path'), str) and cell['snapshot_path']:
+                cell['snapshot_path'] = convert(cell['snapshot_path'])
+            state = cell.get('render_state')
+            paths = state.get('preset_paths') if isinstance(state, dict) else None
+            if isinstance(paths, dict):
+                for key in ('snapshot', 'discovery', 'transform', 'camera', 'appearance', 'filter'):
+                    if isinstance(paths.get(key), str) and paths[key]:
+                        paths[key] = convert(paths[key])
+        return tab
 
     @classmethod
     def settings_payload(cls, settings: FigurePlotSettings) -> dict[str, Any]:

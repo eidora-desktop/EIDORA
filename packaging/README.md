@@ -154,9 +154,9 @@ For each release:
 
 ## MET starter collection
 
-Every release includes the checksum-pinned `MET_Example-v1.zip` described by
+Every release includes the checksum-pinned `MET_Example-v2.zip` described by
 `src/project/resources/starter-collection.json`. Build-time download uses the
-`starter-met-v1` release in this repository, never a mutable latest release.
+`starter-met-v2` release in this repository, never a mutable latest release.
 The build uses `GH_TOKEN`/`GITHUB_TOKEN` when provided for private repositories;
 the installed application neither downloads the starter nor receives that token.
 The archive's exact size is accounted for separately from the existing application
@@ -165,30 +165,36 @@ size limits. Corruption or a missing asset stops the build.
 Prepare a new release copy from a closed, saved working project:
 
 ```sh
-python automation/prepare_starter_collection.py --project /path/to/MET_Example --attribution /path/to/met_starter_dataset --output build/starter
-python automation/audit_starter_collection.py --manifest build/starter/starter-collection.json
+python automation/prepare_starter_collection.py --project /path/to/MET_Example --attribution /path/to/met_starter_dataset --output build/starter-v2 --version 2
+python automation/audit_starter_collection.py --manifest build/starter-v2/starter-collection.json
 ```
 
 Preparation leaves the working project unchanged, copies its linked images,
 retains item identities and saved views, removes unused source-run records,
 sanitizes structured paths, compacts databases, and validates all references.
+Filters, slicers, appearance, camera presets, snapshots, figures, and Discovery
+settings are preserved. Saved SVD transforms are checksum-validated. Use a fresh
+output directory and an unused collection version; preparation refuses to
+overwrite an existing release directory. When retaining historical clustering
+results, pass `--clustering-note` with the reviewed provenance explanation; the
+note is stored in each result and the collection README, only in the release copy.
 Run it twice and compare the archive checksum when updating the dataset.
 Copy the reviewed manifest into `src/project/resources/starter-collection.json`.
 Do not commit the archive, workspace data, or backups into Git.
 
-After pushing the implementation, create the **starter-met-v1** GitHub release
+After pushing the implementation, create the **starter-met-v2** GitHub release
 in `eidora-desktop/EIDORA`, leave **Set as the latest release** unchecked,
 and upload these two locally prepared files:
 
-- `build/starter/MET_Example-v1.zip`
-- `build/starter/starter-collection.json`
+- `build/starter-v2/MET_Example-v2.zip`
+- `build/starter-v2/starter-collection.json`
 
 The release tag deliberately does not start with `v`, so publishing the dataset
 will not trigger an application version release. With an authenticated GitHub CLI,
 the equivalent command is:
 
 ```sh
-gh release create starter-met-v1 build/starter/MET_Example-v1.zip build/starter/starter-collection.json --repo eidora-desktop/EIDORA --title 'MET starter collection v1' --notes-file packaging/starter-release-notes.txt --latest=false
+gh release create starter-met-v2 build/starter-v2/MET_Example-v2.zip build/starter-v2/starter-collection.json --repo eidora-desktop/EIDORA --title 'MET starter collection v2' --notes-file packaging/starter-release-notes.txt --latest=false
 ```
 
 This upload is required before a clean release build can fetch the pinned asset.
