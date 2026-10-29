@@ -39,7 +39,7 @@
     <number>0</number>
    </property>
    <property name="bottomMargin">
-    <number>0</number>
+    <number>6</number>
    </property>
    <item>
     <widget class="QWidget" name="panel_filters_content" native="true">
@@ -396,7 +396,7 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
               <number>6</number>
              </property>
              <property name="bottomMargin">
-              <number>6</number>
+              <number>0</number>
              </property>
              <item>
               <widget class="QComboBox" name="combo_matching">
