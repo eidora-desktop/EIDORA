@@ -130,7 +130,7 @@ def validate_collection(root, expected=None, *, cancelled=lambda: False):
                     return
                 if '/' in value or value.endswith(('.json', '.npz', '.sqlite', '.png')):
                     local_file(root, value)
-        visit(json.loads(path.read_text()))
+        visit(json.loads(path.read_text(encoding='utf-8')))
     report = dict(items=len(metadata_ids), images=len(assets), media_links=len(links),
                   thumbnails=len(thumbnails), embedding_runs=len(runs), dimensions=dimensions,
                   group_sets=groups, snapshots=len(list((root/'presets/snapshots').glob('*.json'))),

@@ -33,6 +33,9 @@ Prototype software. Use at your own risk. Stability and backward compatibility a
 
 ### Fixed
 
+- Read bundled starter settings as UTF-8 on Windows and report starter-install
+  failures directly in packaged self-tests instead of waiting on an error dialog.
+
 - Resolve saved static-figure snapshot and preset references relative to their
   project so filters and other controls remain available after relocation.
 

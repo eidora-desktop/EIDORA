@@ -83,11 +83,11 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
         check_starter = bool(getattr(sys, "frozen", False))
         if check_starter:
             checkpoint("install-starter")
-            project = prepare_bundled_starter(project_service)
+            project = prepare_bundled_starter(project_service, raise_on_error=True)
             if project is None:
                 raise RuntimeError("Starter was not installed in a clean workspace.")
             choose_starter(project_service, project)
-            if prepare_bundled_starter(project_service) is not None:
+            if prepare_bundled_starter(project_service, raise_on_error=True) is not None:
                 raise RuntimeError("Starter was installed twice.")
         checkpoint("create-main-window")
         controller = MainWindowController(

@@ -12,7 +12,7 @@ from shared.qt.message_dialogs import show_error
 from shared.qt.ui_loader import load_ui
 
 
-def prepare_bundled_starter(service, *, recreate=False):
+def prepare_bundled_starter(service, *, recreate=False, raise_on_error=False):
     if not recreate and (not getattr(sys, 'frozen', False) or (service.workspace_root / '.starter-collection.json').exists()):
         return
     dialog = load_ui('MainWindow', 'ui/starter_collection.ui', None)
@@ -67,7 +67,7 @@ def prepare_bundled_starter(service, *, recreate=False):
             except InterruptedError:
                 pass
             except Exception as exc:
-                error.append(str(exc))
+                error.append(exc)
             timer.stop()
             admission.finish()
             dialog.accept()
@@ -86,5 +86,7 @@ def prepare_bundled_starter(service, *, recreate=False):
         dialog.removeEventFilter(close_filter)
         admission.finish()
     if error:
-        show_error(None, 'Starter Collection', error[0] + '\n\nUse Create MET Example to try again.')
+        if raise_on_error:
+            raise error[0]
+        show_error(None, 'Starter Collection', str(error[0]) + '\n\nUse Create MET Example to try again.')
     return installed_project
