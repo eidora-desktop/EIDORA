@@ -38,6 +38,7 @@ class MainWindowController:
         self._project_service = project_service or ProjectService()
         self._button_group = QtWidgets.QButtonGroup(self.window)
         self._button_group.setExclusive(True)
+        self._button_group.setProperty("tabAllButtons", True)
         self._stack = self._ensure_area_stack()
         self._status_bar = self._find_required(QtWidgets.QStatusBar, "status_bar")
         self._activity = ActivityManager(self._status_bar)
@@ -386,6 +387,7 @@ class MainWindowController:
             if result.metadata_changed:
                 self._refresh_discovery_availability()
                 self._queue_media_refresh(1, "metadata", metadata_area.refresh)
+            if result.metadata_changed or result.links_changed:
                 self._queue_media_refresh(3, "metadata", discovery_area.refresh_metadata)
 
         project_area.set_media_operation_callback(refresh_after_media_operation)
@@ -539,11 +541,11 @@ class MainWindowController:
             available = index == 0 or ((enabled or touring) and index < len(self._areas))
             if index == 3:
                 available = available and (self._discovery_has_items or touring)
-                item.button.setToolTip("Discovery" if self._discovery_has_items or touring else
+                item.button.setToolTip("" if self._discovery_has_items or touring else
                                        "Import metadata or run an analysis on assets to enable Discovery")
             if index == 4:
                 available = available and (self._figures_has_snapshots or touring)
-                item.button.setToolTip("Figures" if self._figures_has_snapshots or touring else
+                item.button.setToolTip("" if self._figures_has_snapshots or touring else
                                        "Create a snapshot to enable Figures")
             item.button.setEnabled(available)
         self._tour_controller.update_availability(not self._shutdown and len(self._areas) == len(self._navigation_items))

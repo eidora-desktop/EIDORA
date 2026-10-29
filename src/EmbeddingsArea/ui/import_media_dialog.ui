@@ -27,7 +27,8 @@
       </widget>
      </item>
      <item>
-      <widget class="QComboBox" name="combo_media_content_type"/>
+      <widget class="QComboBox" name="combo_media_content_type">
+      </widget>
      </item>
      <item>
       <widget class="QLabel" name="label_content_identifier">

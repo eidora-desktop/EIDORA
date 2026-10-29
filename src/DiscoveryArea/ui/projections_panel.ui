@@ -146,6 +146,9 @@
            </item>
            <item>
             <widget class="QToolButton" name="button_discovery_options">
+             <property name="toolTip">
+              <string>Projection options</string>
+             </property>
              <property name="minimumSize">
               <size>
                <width>22</width>
@@ -241,6 +244,9 @@
          </item>
          <item alignment="Qt::AlignmentFlag::AlignHCenter">
           <widget class="QPushButton" name="button_add_new_projection">
+           <property name="toolTip">
+            <string>Create a projection from vectors</string>
+           </property>
            <property name="text">
             <string>add new</string>
            </property>

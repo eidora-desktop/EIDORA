@@ -416,6 +416,9 @@
         </item>
         <item>
          <widget class="QToolButton" name="button_timeline_options">
+          <property name="toolTip">
+           <string>Timeline options</string>
+          </property>
           <property name="minimumSize">
            <size>
             <width>22</width>
@@ -543,6 +546,9 @@
             </property>
             <item row="0" column="0">
              <widget class="QListWidget" name="list_animation_sequence">
+              <property name="toolTip">
+               <string>Reorder animation frames</string>
+              </property>
               <property name="minimumSize">
                <size>
                 <width>0</width>
@@ -650,7 +656,8 @@
                    </widget>
                   </item>
                   <item>
-                   <widget class="QComboBox" name="combo_slicer_presets"/>
+                   <widget class="QComboBox" name="combo_slicer_presets">
+                   </widget>
                   </item>
                   <item>
                    <widget class="QToolButton" name="button_import_slicer_preset">
@@ -737,6 +744,9 @@
             </property>
             <item>
              <widget class="QToolButton" name="button_animation_play">
+              <property name="toolTip">
+               <string>Play or pause preview</string>
+              </property>
               <property name="maximumSize">
                <size>
                 <width>22</width>
@@ -813,6 +823,9 @@
                </item>
                <item>
                 <widget class="QSpinBox" name="spin_speed_ms">
+                 <property name="toolTip">
+                  <string>Time between frames, in milliseconds</string>
+                 </property>
                  <property name="suffix">
                   <string>ms</string>
                  </property>
@@ -891,6 +904,9 @@
                </item>
                <item>
                 <widget class="QComboBox" name="combo_repeat_style">
+                 <property name="toolTip">
+                  <string>Loop, reverse, or play once</string>
+                 </property>
                  <item>
                   <property name="text">
                    <string>from start</string>
@@ -984,6 +1000,9 @@
                </property>
                <item>
                 <widget class="QLabel" name="label_animation_thumbnail_size_icon">
+                 <property name="toolTip">
+                  <string>Timeline preview size</string>
+                 </property>
                  <property name="text">
                   <string/>
                  </property>
@@ -1007,6 +1026,9 @@
                </item>
                <item>
                 <widget class="QSpinBox" name="spin_snapshot_thumbnail_size">
+                 <property name="toolTip">
+                  <string>Timeline preview size</string>
+                 </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                    <horstretch>0</horstretch>

@@ -52,6 +52,9 @@
    </property>
    <item>
     <widget class="QTreeWidget" name="tree_marked_areas">
+     <property name="toolTip">
+      <string>Manage area visibility and colors</string>
+     </property>
      <property name="minimumSize">
       <size>
        <width>0</width>
@@ -197,6 +200,9 @@
             </item>
             <item>
              <widget class="QSpinBox" name="spin_marked_area_opacity">
+              <property name="toolTip">
+               <string>Area fill opacity</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                 <horstretch>0</horstretch>

@@ -75,7 +75,7 @@ QPushButton[flat="true"], QToolButton[autoRaise="true"] {{
     background-color: transparent;
     border-color: transparent;
 }}
-QPushButton:focus:enabled, QToolButton:focus:enabled, QPushButton:default:enabled {{
+QPushButton:default:enabled {{
     border-color: {control_border};
 }}
 QPushButton:hover:enabled, QPushButton:pressed:enabled, QPushButton:checked:enabled,
@@ -83,6 +83,10 @@ QToolButton:hover:enabled, QToolButton:pressed:enabled, QToolButton:checked:enab
     background-color: {selection_background};
     color: {text};
     border-color: {control_border};
+}}
+QPushButton[keyboardFocus="true"]:focus:enabled, QToolButton[keyboardFocus="true"]:focus:enabled {{
+    border-color: {text};
+    border-style: solid;
 }}
 QAbstractItemView::item:selected:enabled, QAbstractItemView::item:hover:enabled {{
     background-color: {selection_background};

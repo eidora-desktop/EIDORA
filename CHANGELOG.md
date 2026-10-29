@@ -6,9 +6,39 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Added
 
+- Add short Designer tooltips for non-obvious controls across the application,
+  including appearance, filters, media linking, vector exchange, and figures.
+  Omit redundant hints where visible labels already explain the control.
+  Workspace navigation only shows hints when a workspace is unavailable.
+
+- Add keyboard and context-menu access to Discovery layer settings, accessible
+  names and tab order for canvas controls, and solid button focus borders shown
+  only during keyboard navigation in both themes. Mouse clicks hide the extra
+  focus cue without changing hover or selection styling.
+
 - Navigate the workspace tour with Tab or arrow keys on all platforms; Shift+Tab goes back.
 
 ### Fixed
+
+- Apply Discovery’s shared filter rules in Figures so saved numeric ranges fade
+  only excluded points; preserve disabled filters, match-any rules, and advanced queries.
+
+- Keep keyboard focus frames owned by their original windows so closing thumbnail
+  or clustering dialogs cannot invalidate workspace controls or Discovery settings.
+- Finish clustering with GUI-owned thread cleanup, preventing worker teardown
+  hangs and crashes after computation. Limit Discovery's global key filter to
+  live-workspace keyboard events.
+
+- Let Tab reach each enabled workspace button and leave the metadata and media
+  sources tables. Show a keyboard-only focus outline on fields, lists, checkboxes,
+  and the canvas as well as buttons. Keep Discovery's Space-to-pan handler from
+  consuming keyboard activation on other controls or hidden workspaces.
+
+- Refresh Discovery's Random view after linking media to existing metadata, so linked items appear without reopening the project or restarting the app.
+
+- Default the Discovery canvas to gray (#7D7D7E) in dark mode and white in light mode, preserving custom background colors across theme changes and restoring the background choice with projects and snapshots.
+
+- Open projects and validate starter collections on Windows UNC paths, including Parallels shared folders, without SQLite URI authority errors.
 
 - Accept macOS arrow-key events in workspace-tour navigation, including Qt's keypad flag.
 

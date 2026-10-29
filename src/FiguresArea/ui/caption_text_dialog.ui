@@ -35,6 +35,9 @@
       <item><widget class="QPushButton" name="button_insert_snapshot_caption"><property name="text"><string>Insert Snapshot Methods</string></property><property name="toolTip"><string>Append methods, settings, and citations from the saved snapshots used by this figure.</string></property></widget></item>
       <item>
        <widget class="QToolButton" name="button_caption_bold">
+        <property name="toolTip">
+         <string>Bold text</string>
+        </property>
         <property name="text">
          <string>B</string>
         </property>
@@ -45,6 +48,9 @@
       </item>
       <item>
        <widget class="QToolButton" name="button_caption_italic">
+        <property name="toolTip">
+         <string>Italic text</string>
+        </property>
         <property name="text">
          <string>I</string>
         </property>
@@ -55,6 +61,9 @@
       </item>
       <item>
        <widget class="QToolButton" name="button_caption_underline">
+        <property name="toolTip">
+         <string>Underline text</string>
+        </property>
         <property name="text">
          <string>U</string>
         </property>

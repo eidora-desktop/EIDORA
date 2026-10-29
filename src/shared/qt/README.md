@@ -28,3 +28,28 @@ busy indicators; `deferred.py` defers actions.
   hover/selection backgrounds in Designer without disabling their child controls.
 
 Keep feature computation and persistence out of these helpers.
+
+## Lightweight accessibility
+
+- Keep ordinary Qt keyboard behavior and a logical Tab order in Designer forms.
+  `keyboard_focus.py` enables a solid neutral button outline for keyboard
+  navigation, including on checked buttons, in both themes. Other controls use
+  a lightweight Qt focus frame without changing geometry. Mouse presses hide
+  the extra cue; pointer movement does not.
+- Workspace navigation opts into `tabAllButtons` on its exclusive button group
+  so each enabled workspace has a Tab stop. Tab leaves the metadata and media
+  sources tables; arrow keys continue to navigate their contents.
+- Scope canvas key handlers to their visible, active workspace, and leave Space
+  available to focused buttons, checkboxes, and other standard controls.
+- Give icon-only controls concise `accessibleName` properties; associate text
+  labels with inputs using Designer buddies. Tooltips supplement these names.
+- Provide a click or keyboard route to essential hover and drag actions. Return
+  focus to the initiating control when dismissing a keyboard-opened popover.
+- Respect system fonts and check layouts with larger text. Avoid conveying
+  important state through color alone; retain text, checkmarks, or other indicators.
+- Check changed workflows with the keyboard. Use platform screen readers for
+  manual validation before claiming screen-reader support for a workflow.
+
+These are incremental UI rules, not a separate accessibility mode. Custom
+visualizations need their own interaction design; do not create one widget or
+accessibility object per plotted point as part of routine UI maintenance.

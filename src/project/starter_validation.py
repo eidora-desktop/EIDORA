@@ -4,7 +4,8 @@ import hashlib
 import json
 from pathlib import Path, PureWindowsPath
 import re
-import sqlite3
+
+from shared.persistence.sqlite import connect_read_only
 
 PERSONAL_PATH = re.compile(rb"/(?:Users|home|Volumes)/[^\s\x00\"']+|[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/]", re.I)
 PATH_FIELDS = frozenset({
@@ -46,7 +47,7 @@ def validate_collection(root, expected=None, *, cancelled=lambda: False):
         if PERSONAL_PATH.search(raw):
             raise ValueError(f'Personal path in {path.relative_to(root)}')
         if path.suffix in {'.db', '.sqlite'}:
-            with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)) as db:
+            with closing(connect_read_only(path)) as db:
                 if db.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
                     raise ValueError(f'Invalid starter database: {path.name}')
         elif path.suffix == '.npz':
@@ -56,7 +57,7 @@ def validate_collection(root, expected=None, *, cancelled=lambda: False):
                     if value.dtype.kind in 'US' and PERSONAL_PATH.search(str(value.tolist()).encode()):
                         raise ValueError(f'Personal path in {path.name}:{name}')
     def connect(relative):
-        return closing(sqlite3.connect((root / relative).resolve().as_uri() + '?mode=ro', uri=True))
+        return closing(connect_read_only(root / relative))
     with connect('metadata/metadata.db') as db:
         metadata_ids = {row[0] for row in db.execute('SELECT id FROM metadata')}
     with connect('media/media_index.db') as db:

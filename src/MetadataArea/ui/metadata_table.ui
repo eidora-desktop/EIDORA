@@ -192,6 +192,9 @@
       </property>
       <item>
        <widget class="QTableView" name="table_metadata">
+        <property name="tabKeyNavigation">
+         <bool>false</bool>
+        </property>
         <property name="alternatingRowColors">
          <bool>true</bool>
         </property>
@@ -339,7 +342,11 @@
           </widget>
          </item>
          <item>
-          <widget class="QComboBox" name="combo_search_column"/>
+          <widget class="QComboBox" name="combo_search_column">
+           <property name="toolTip">
+            <string>Search one column or all</string>
+           </property>
+          </widget>
          </item>
          <item alignment="Qt::AlignmentFlag::AlignRight">
           <widget class="QLabel" name="label_metadata_search_matches">

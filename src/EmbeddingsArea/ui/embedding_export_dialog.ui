@@ -106,6 +106,9 @@
          </item>
          <item row="1" column="1">
           <widget class="QComboBox" name="combo_export_structure">
+           <property name="toolTip">
+            <string>Arrangement of identifiers and vectors</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -193,6 +196,9 @@
          </item>
          <item row="0" column="1">
           <widget class="QComboBox" name="combo_export_dtype">
+           <property name="toolTip">
+            <string>Float16: smaller, less precise</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -218,6 +224,9 @@
          </item>
          <item row="1" column="1">
           <widget class="QSpinBox" name="spin_export_shard_size">
+           <property name="toolTip">
+            <string>Vectors per file; 0 = one file</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>

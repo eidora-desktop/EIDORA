@@ -165,6 +165,9 @@
             </item>
             <item>
              <widget class="QComboBox" name="combo_render_options">
+              <property name="toolTip">
+               <string>Canvas thumbnail source</string>
+              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -345,6 +348,9 @@
                            </property>
                            <item>
                             <widget class="QSlider" name="slider_preview_thumbnail_size">
+                             <property name="toolTip">
+                              <string>Canvas preview size</string>
+                             </property>
                              <property name="sizePolicy">
                               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                                <horstretch>0</horstretch>
@@ -552,6 +558,9 @@
                            </property>
                            <item>
                             <widget class="QSlider" name="slider_preview_thumbnail_density">
+                             <property name="toolTip">
+                              <string>Maximum visible previews</string>
+                             </property>
                              <property name="sizePolicy">
                               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                                <horstretch>0</horstretch>

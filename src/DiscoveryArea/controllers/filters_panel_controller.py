@@ -753,6 +753,7 @@ class FiltersPanelController(UiPanelController):
         self._populate_rule(rule)
         apply_button = rule.findChild(QtWidgets.QPushButton, "button_apply_element")
         if apply_button is not None:
+            apply_button.setProperty("defaultToolTip", apply_button.toolTip())
             apply_button.setCheckable(True)
             self._update_rule_apply_button_icon(apply_button)
             apply_button.clicked.connect(
@@ -779,6 +780,7 @@ class FiltersPanelController(UiPanelController):
             return
         slider = ThresholdSlider(placeholder.parentWidget())
         slider.setObjectName(placeholder.objectName())
+        slider.setToolTip(placeholder.toolTip())
         slider.setSizePolicy(placeholder.sizePolicy())
         slider.setMinimumSize(placeholder.minimumSize())
         slider.setMaximumSize(placeholder.maximumSize())
@@ -800,6 +802,7 @@ class FiltersPanelController(UiPanelController):
             return
         slider = RangeSlider(placeholder.parentWidget())
         slider.setObjectName(placeholder.objectName())
+        slider.setToolTip(placeholder.toolTip())
         slider.setSizePolicy(placeholder.sizePolicy())
         slider.setMinimumSize(placeholder.minimumSize())
         slider.setMaximumSize(placeholder.maximumSize())
@@ -1379,7 +1382,8 @@ class FiltersPanelController(UiPanelController):
         if apply_button is not None:
             apply_button.setChecked(bool(payload.get("active", False)) and not missing_column)
             apply_button.setToolTip(
-                "This field no longer exists; the rule is inactive." if missing_column else ""
+                "This field no longer exists; the rule is inactive."
+                if missing_column else str(apply_button.property("defaultToolTip") or "")
             )
             self._update_rule_apply_button_icon(apply_button)
 

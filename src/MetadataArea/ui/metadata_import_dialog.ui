@@ -116,7 +116,8 @@
        </widget>
       </item>
       <item row="1" column="1" colspan="3">
-       <widget class="QComboBox" name="combo_table"/>
+       <widget class="QComboBox" name="combo_table">
+       </widget>
       </item>
       <item row="2" column="0" colspan="4">
        <widget class="QWidget" name="panel_file_settings" native="true">
@@ -151,6 +152,9 @@
          </item>
          <item row="0" column="1" colspan="3">
           <widget class="QLineEdit" name="edit_record_path">
+           <property name="toolTip">
+            <string>XML element or JSON record path</string>
+           </property>
            <property name="placeholderText">
             <string>Record element or JSON path</string>
            </property>
@@ -184,7 +188,8 @@
           </widget>
          </item>
          <item row="1" column="3">
-          <widget class="QComboBox" name="combo_encoding"/>
+          <widget class="QComboBox" name="combo_encoding">
+          </widget>
          </item>
          <item row="2" column="0">
           <widget class="QLabel" name="label_delimiter">
@@ -195,6 +200,9 @@
          </item>
          <item row="2" column="1">
           <widget class="QLineEdit" name="edit_delimiter">
+           <property name="toolTip">
+            <string>Column separator; Auto detects</string>
+           </property>
            <property name="maximumSize">
             <size>
              <width>80</width>
@@ -290,6 +298,9 @@
          </item>
          <item row="0" column="1">
           <widget class="QComboBox" name="combo_source_identifier">
+           <property name="toolTip">
+            <string>Source field for matching items</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -325,6 +336,9 @@
          </item>
          <item row="1" column="1">
           <widget class="QComboBox" name="combo_project_identifier">
+           <property name="toolTip">
+            <string>Project field for matching items</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -392,6 +406,9 @@
          </property>
          <item>
           <widget class="QTableWidget" name="table_mappings">
+           <property name="toolTip">
+            <string>Select columns, names, and types</string>
+           </property>
            <property name="verticalScrollBarPolicy">
             <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOn</enum>
            </property>

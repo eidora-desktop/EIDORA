@@ -61,6 +61,12 @@
       </property>
       <item>
        <widget class="QCheckBox" name="checkbox_show_tooltips">
+        <property name="toolTip">
+         <string>Show or hide item tooltips</string>
+        </property>
+        <property name="accessibleDescription">
+         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
           <horstretch>0</horstretch>
@@ -77,6 +83,12 @@
       </item>
       <item>
        <widget class="QCheckBox" name="checkbox_show_pins">
+        <property name="toolTip">
+         <string>Show or hide pins</string>
+        </property>
+        <property name="accessibleDescription">
+         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
           <horstretch>0</horstretch>
@@ -93,6 +105,12 @@
       </item>
       <item>
        <widget class="QCheckBox" name="checkbox_show_marked_areas">
+        <property name="toolTip">
+         <string>Show or hide marked areas</string>
+        </property>
+        <property name="accessibleDescription">
+         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
           <horstretch>0</horstretch>
@@ -109,6 +127,12 @@
       </item>
       <item>
        <widget class="QCheckBox" name="checkbox_show_thumbnails">
+        <property name="toolTip">
+         <string>Show or hide image previews</string>
+        </property>
+        <property name="accessibleDescription">
+         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
           <horstretch>0</horstretch>
@@ -218,6 +242,12 @@
          </property>
          <item>
           <widget class="QComboBox" name="combo_camera_preset">
+           <property name="toolTip">
+            <string>Fit items or restore a view</string>
+           </property>
+           <property name="accessibleName">
+            <string>Camera preset</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -246,6 +276,9 @@
          </item>
          <item>
           <widget class="QToolButton" name="button_add_camera_preset">
+           <property name="accessibleName">
+            <string>Save camera preset</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -358,6 +391,12 @@
          </property>
          <item>
           <widget class="QComboBox" name="combo_crop_preset">
+           <property name="toolTip">
+            <string>Set snapshot aspect ratio</string>
+           </property>
+           <property name="accessibleName">
+            <string>Snapshot crop ratio</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -381,6 +420,9 @@
          </item>
          <item>
           <widget class="QToolButton" name="check_hide_crop_bars">
+           <property name="accessibleName">
+            <string>Hide crop bars</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -422,6 +464,16 @@
    </item>
   </layout>
  </widget>
+ <tabstops>
+  <tabstop>checkbox_show_tooltips</tabstop>
+  <tabstop>checkbox_show_pins</tabstop>
+  <tabstop>checkbox_show_marked_areas</tabstop>
+  <tabstop>checkbox_show_thumbnails</tabstop>
+  <tabstop>combo_camera_preset</tabstop>
+  <tabstop>button_add_camera_preset</tabstop>
+  <tabstop>combo_crop_preset</tabstop>
+  <tabstop>check_hide_crop_bars</tabstop>
+ </tabstops>
  <resources/>
  <connections/>
 </ui>

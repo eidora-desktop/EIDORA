@@ -338,6 +338,9 @@
           </item>
           <item>
            <widget class="QSlider" name="slider_source_media_position">
+            <property name="toolTip">
+             <string>Seek in source video</string>
+            </property>
             <property name="minimumSize">
              <size>
               <width>120</width>
@@ -498,10 +501,17 @@
            <number>0</number>
           </property>
           <item>
-           <widget class="QComboBox" name="combo_embeddings"/>
+           <widget class="QComboBox" name="combo_embeddings">
+            <property name="toolTip">
+             <string>Vectors for similarity search</string>
+            </property>
+           </widget>
           </item>
           <item>
            <widget class="QComboBox" name="combo_neighbor_metric">
+            <property name="toolTip">
+             <string>Similarity or distance measure</string>
+            </property>
             <item>
              <property name="text">
               <string>Cosine Similarity</string>
@@ -590,6 +600,9 @@
           </property>
           <item alignment="Qt::AlignmentFlag::AlignRight">
            <widget class="QComboBox" name="combo_neighbor_thumbnail_source">
+            <property name="toolTip">
+             <string>Neighbor thumbnail source</string>
+            </property>
             <property name="sizePolicy">
              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
               <horstretch>0</horstretch>
@@ -688,6 +701,9 @@
                 </property>
                 <item row="0" column="0">
                  <widget class="QRadioButton" name="radio_topk">
+                  <property name="toolTip">
+                   <string>Save a fixed number of neighbors</string>
+                  </property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                     <horstretch>0</horstretch>
@@ -707,6 +723,9 @@
                 </item>
                 <item row="0" column="1">
                  <widget class="QSpinBox" name="spin_save_topk">
+                  <property name="toolTip">
+                   <string>Number of neighbors to save</string>
+                  </property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                     <horstretch>0</horstretch>
@@ -729,6 +748,9 @@
                 </item>
                 <item row="1" column="0">
                  <widget class="QRadioButton" name="radio_radius">
+                  <property name="toolTip">
+                   <string>Save neighbors within a threshold</string>
+                  </property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                     <horstretch>0</horstretch>
@@ -745,6 +767,9 @@
                 </item>
                 <item row="1" column="1">
                  <widget class="QDoubleSpinBox" name="spin_save_radius">
+                  <property name="toolTip">
+                   <string>Minimum similarity or maximum distance</string>
+                  </property>
                   <property name="enabled">
                    <bool>false</bool>
                   </property>

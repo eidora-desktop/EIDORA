@@ -115,7 +115,8 @@
             </widget>
            </item>
            <item row="2" column="1">
-            <widget class="QComboBox" name="combo_method"/>
+            <widget class="QComboBox" name="combo_method">
+            </widget>
            </item>
           </layout>
          </item>
@@ -284,6 +285,9 @@
       </item>
       <item>
        <widget class="QPushButton" name="button_defaults">
+        <property name="toolTip">
+         <string>Restore method defaults</string>
+        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
           <horstretch>0</horstretch>

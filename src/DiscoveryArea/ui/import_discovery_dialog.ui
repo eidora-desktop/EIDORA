@@ -51,7 +51,8 @@
       </widget>
      </item>
      <item row="3" column="1" colspan="2">
-      <widget class="QComboBox" name="combo_import_id_column"/>
+      <widget class="QComboBox" name="combo_import_id_column">
+      </widget>
      </item>
      <item row="4" column="0">
       <widget class="QLabel" name="label_import_metadata_column">
@@ -61,7 +62,11 @@
       </widget>
      </item>
      <item row="4" column="1" colspan="2">
-      <widget class="QComboBox" name="combo_import_metadata_column"/>
+      <widget class="QComboBox" name="combo_import_metadata_column">
+       <property name="toolTip">
+        <string>Match imported IDs to this field</string>
+       </property>
+      </widget>
      </item>
      <item row="5" column="0">
       <widget class="QLabel" name="label_import_x_column">
@@ -71,7 +76,8 @@
       </widget>
      </item>
      <item row="5" column="1" colspan="2">
-      <widget class="QComboBox" name="combo_import_x_column"/>
+      <widget class="QComboBox" name="combo_import_x_column">
+      </widget>
      </item>
      <item row="6" column="0">
       <widget class="QLabel" name="label_import_y_column">
@@ -81,7 +87,8 @@
       </widget>
      </item>
      <item row="6" column="1" colspan="2">
-      <widget class="QComboBox" name="combo_import_y_column"/>
+      <widget class="QComboBox" name="combo_import_y_column">
+      </widget>
      </item>
     </layout>
    </item>

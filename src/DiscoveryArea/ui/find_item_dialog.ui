@@ -37,6 +37,9 @@
       </property>
       <item row="0" column="0">
        <widget class="QLabel" name="label_id">
+        <property name="buddy">
+         <cstring>edit_item_id</cstring>
+        </property>
         <property name="text">
          <string>ID:</string>
         </property>
@@ -44,6 +47,9 @@
       </item>
       <item row="0" column="1">
        <widget class="QLineEdit" name="edit_item_id">
+        <property name="accessibleName">
+         <string>Item ID</string>
+        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
           <horstretch>0</horstretch>

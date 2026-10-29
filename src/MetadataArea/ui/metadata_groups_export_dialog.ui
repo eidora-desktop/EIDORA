@@ -161,6 +161,9 @@
           </item>
           <item>
            <widget class="QComboBox" name="combo_export_structure">
+            <property name="toolTip">
+             <string>How group memberships are arranged</string>
+            </property>
             <item>
              <property name="text">
               <string>Table</string>

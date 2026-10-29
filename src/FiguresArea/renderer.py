@@ -9,6 +9,15 @@ import re
 import tempfile
 from typing import Any
 
+import numpy as np
+
+from DiscoveryArea.filters import (
+    build_mask,
+    filter_matching_from_state_payload,
+    filters_from_state_payload,
+    required_filter_columns,
+)
+
 from shared.plot_fonts import initialize_plot_fonts
 
 initialize_plot_fonts()
@@ -1708,32 +1717,32 @@ class FigureMatplotlibRenderer:
         metadata: dict[int, dict[str, str]],
     ) -> list[bool] | None:
         filters = self._safe_dict(state.get("filters"))
-        rules = filters.get("rules")
-        active = (
-            [
-                rule
-                for rule in rules
-                if isinstance(rule, dict) and bool(rule.get("active", False))
-            ]
-            if isinstance(rules, list)
-            else []
+        active = filters_from_state_payload(filters)
+        columns, numeric_columns = required_filter_columns(active)
+        text_values = {
+            column: np.asarray(
+                [metadata.get(metadata_id, {}).get(column, "") for metadata_id in metadata_ids],
+                dtype=str,
+            )
+            for column in columns
+        }
+        numeric_values = {}
+        for column in numeric_columns:
+            values = np.full(len(metadata_ids), np.nan, dtype=np.float32)
+            for index, value in enumerate(text_values[column]):
+                try:
+                    values[index] = float(value)
+                except (TypeError, ValueError):
+                    pass
+            numeric_values[column] = values
+        filter_mask = build_mask(
+            active,
+            text_values,
+            numeric_values,
+            np.asarray(metadata_ids, dtype=np.int64),
+            filter_matching_from_state_payload(filters),
         )
-        mask: list[bool] | None = [True for _ in metadata_ids] if active else None
-        for rule in active:
-            column = str(rule.get("column") or "")
-            if not column:
-                continue
-            next_mask = [
-                self._metadata_value_matches_rule(
-                    metadata.get(metadata_id, {}).get(column, ""), rule
-                )
-                for metadata_id in metadata_ids
-            ]
-            if mask is not None:
-                mask = [
-                    current and next_value
-                    for current, next_value in zip(mask, next_mask, strict=True)
-                ]
+        mask = filter_mask.tolist() if filter_mask is not None else None
         slicer = self._safe_dict(state.get("slicer_selection"))
         slicer_column = str(slicer.get("column") or "").strip()
         slicer_values = slicer.get("values")
@@ -1752,30 +1761,6 @@ class FigureMatplotlibRenderer:
                 ]
             )
         return mask
-
-    def _metadata_value_matches_rule(self, value: str, rule: dict[str, Any]) -> bool:
-        kind = str(rule.get("kind") or "").lower()
-        operator = str(rule.get("operator") or "").lower()
-        if kind == "slider":
-            threshold = self._clamped_float(rule.get("threshold", 0.0), float("-inf"), float("inf"), 0.0)
-            try:
-                numeric = float(value)
-            except (TypeError, ValueError):
-                return False
-            mode = str(rule.get("mode") or "max").lower()
-            if mode == "min":
-                return numeric >= threshold
-            if mode == "exact":
-                return numeric == threshold
-            return numeric <= threshold
-        expected = str(rule.get("value") if kind == "selection" else rule.get("query") or "")
-        if operator == "is not":
-            return value != expected
-        if operator == "contains":
-            return expected in value
-        if operator == "does not contain":
-            return expected not in value
-        return value == expected
 
     @staticmethod
     def _axis_limits(values: list[float]) -> tuple[float, float]:
