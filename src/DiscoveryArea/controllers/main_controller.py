@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
+from shiboken6 import isValid
 
 from EmbeddingsArea.domain import EmbeddingRunState
 from EmbeddingsArea.repository import EmbeddingRunRepository
@@ -125,7 +126,7 @@ if TYPE_CHECKING:
 
 class _CanvasSpaceKeyFilter(QtCore.QObject):
     def __init__(self, owner: "DiscoveryAreaController") -> None:
-        super().__init__()
+        super().__init__(owner.widget)
         self._owner = owner
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
@@ -657,7 +658,13 @@ class DiscoveryAreaController:
         self._show_marked_areas = bool(checkbox is not None and checkbox.isChecked())
 
     def _handle_space_key_event(self, _obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        if self._canvas_widget is None:
+        if event.type() not in (
+            QtCore.QEvent.Type.ShortcutOverride,
+            QtCore.QEvent.Type.KeyPress,
+            QtCore.QEvent.Type.KeyRelease,
+        ):
+            return False
+        if self._shutting_down or self._canvas_widget is None or not isValid(self._widget):
             return False
         if self._focus_widget_accepts_text_input():
             return False

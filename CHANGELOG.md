@@ -17,6 +17,12 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Keep keyboard focus frames owned by their original windows so closing thumbnail
+  or clustering dialogs cannot invalidate workspace controls or Discovery settings.
+- Finish clustering with GUI-owned thread cleanup, preventing worker teardown
+  hangs and crashes after computation. Limit Discovery's global key filter to
+  live-workspace keyboard events.
+
 - Refresh Discovery's Random view after linking media to existing metadata, so linked items appear without reopening the project or restarting the app.
 
 - Default the Discovery canvas to gray (#7D7D7E) in dark mode and white in light mode, preserving custom background colors across theme changes and restoring the background choice with projects and snapshots.

@@ -28,17 +28,18 @@ class ExecutionState:
     report: list[str] = field(default_factory=list)
 
 
-class _ClusteringWorker(QtCore.QObject):
-    finished = QtCore.Signal(str, object)
+class _ClusteringThread(QtCore.QThread):
+    """Keep the callback-owning Qt object on the GUI thread until run exits."""
+
+    result_ready = QtCore.Signal(str, object)
     progress = QtCore.Signal(str, int, str)
 
-    def __init__(self, service, result_id: str, cancelled: threading.Event) -> None:
-        super().__init__()
+    def __init__(self, service, result_id: str, cancelled: threading.Event, parent=None) -> None:
+        super().__init__(parent)
         self._service = service
         self._result_id = result_id
         self._cancelled = cancelled
 
-    @QtCore.Slot()
     def run(self) -> None:
         try:
             result = self._service.execute(
@@ -51,9 +52,9 @@ class _ClusteringWorker(QtCore.QObject):
                 ),
             )
         except Exception as exc:  # noqa: BLE001
-            self.finished.emit(self._result_id, exc)
+            self.result_ready.emit(self._result_id, exc)
         else:
-            self.finished.emit(self._result_id, result)
+            self.result_ready.emit(self._result_id, result)
 
     @staticmethod
     def _stage_progress(message: str) -> int:
@@ -327,18 +328,13 @@ class ExecutionCoordinator(QtCore.QObject):
     def _start_clustering(self, state: ExecutionState) -> None:
         cancellation = threading.Event()
         self._cluster_cancellations[state.id] = cancellation
-        thread = QtCore.QThread(self)
-        worker = _ClusteringWorker(self.service, state.id, cancellation)
-        worker.moveToThread(thread)
-        state.thread, state.worker = thread, worker
+        thread = _ClusteringThread(self.service, state.id, cancellation, parent=self)
+        state.thread = state.worker = thread
         self._thread_keys[thread] = ("clustering", state.id)
         state.state, state.detail = "running", "Preparing clustering…"
         self.active_id = state.id
-        thread.started.connect(worker.run)
-        worker.progress.connect(self._clustering_progress)
-        worker.finished.connect(self._finish_clustering)
-        worker.finished.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
+        thread.progress.connect(self._clustering_progress)
+        thread.result_ready.connect(self._finish_clustering)
         thread.finished.connect(self._job_thread_finished)
         thread.finished.connect(thread.deleteLater)
         thread.start()
