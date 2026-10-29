@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "collection_id": "MET_Example",
-  "version": 1,
-  "archive": "MET_Example-v1.zip",
-  "sha256": "d317ab15222f6290c66ed98027277ab7bb4f7ef08fe3883e15039bc18555dfb2",
-  "archive_bytes": 197157452,
-  "extracted_bytes": 208120972,
-  "url": "https://github.com/eidora-desktop/EIDORA/releases/download/starter-met-v1/MET_Example-v1.zip",
+  "version": 2,
+  "archive": "MET_Example-v2.zip",
+  "sha256": "0082dab38661c3ba7566ab2ae270aa2c0d23c8fae8f18054a05a695e05ac1951",
+  "archive_bytes": 202148404,
+  "extracted_bytes": 215237803,
+  "url": "https://github.com/eidora-desktop/EIDORA/releases/download/starter-met-v2/MET_Example-v2.zip",
   "counts": {
     "items": 5400,
     "images": 5400,
@@ -14,11 +14,11 @@
     "thumbnails": 21600,
     "embedding_runs": 2,
     "dimensions": [
-      128,
+      256,
       128
     ],
     "group_sets": 2,
-    "snapshots": 1,
-    "projections": 1
+    "snapshots": 2,
+    "projections": 2
   }
 }

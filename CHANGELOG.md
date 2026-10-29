@@ -6,6 +6,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Added
 
+- Bundle MET_Example v2 with reduced, citation-bearing ResNet50 and DINO vectors,
+  saved SVD transforms, projections, snapshots, filters, and figure settings.
+  Preserve historical cluster groups with an explicit provenance note.
+
 - Add short Designer tooltips for non-obvious controls across the application,
   including appearance, filters, media linking, vector exchange, and figures.
   Omit redundant hints where visible labels already explain the control.
@@ -19,6 +23,9 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 - Navigate the workspace tour with Tab or arrow keys on all platforms; Shift+Tab goes back.
 
 ### Fixed
+
+- Resolve saved static-figure snapshot and preset references relative to their
+  project so filters and other controls remain available after relocation.
 
 - Apply Discovery’s shared filter rules in Figures so saved numeric ranges fade
   only excluded points; preserve disabled filters, match-any rules, and advanced queries.

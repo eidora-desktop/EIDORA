@@ -1,12 +1,21 @@
-MET_Example starter collection, version 1
+MET_Example starter collection, version 2
 
 A portable example project for EIDORA Desktop with 5,400 artworks, metadata,
-384-pixel source images, four thumbnail sizes, two 128-dimensional embeddings,
-published groups, a saved t-SNE projection, and a snapshot with its settings.
+384-pixel source images, four thumbnail sizes, and citation-bearing embeddings:
+ResNet50 reduced from 2048 to 256 dimensions and DINO ViT-S/16 reduced from
+384 to 128 dimensions using uncentered SVD and L2 normalization. Both saved
+transforms and the original model provenance are included.
+
+Includes two ResNet50 projections (UMAP and t-SNE), two snapshots, saved filters,
+slicers, appearance and camera settings, Discovery settings, and the saved figure.
+Two published k-means group sets are retained from the original full-dimensional
+vectors. Their methods reports and the collection README explicitly note that
+rerunning clustering on the reduced vectors may produce different groups.
 
 Source: The Metropolitan Museum of Art Open Access. The archive includes the
 source attribution and metadata field dictionary. Resized images and derived
 annotations form a modified subset; this is not an official Met product or endorsement.
 
-The starter is bundled with EIDORA and installed offline into each user's workspace.
+The starter is bundled with new EIDORA builds and installed offline on first start.
+Existing user collections are never overwritten or automatically replaced.
 See starter-collection.json for the SHA-256 checksum and exact content counts.

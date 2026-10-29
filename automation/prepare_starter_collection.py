@@ -14,9 +14,13 @@ sys.path.insert(0, str(ROOT/'src'))
 from project.starter_validation import PATH_FIELDS, sha256, validate_collection
 
 
-def prepare(source, output, attribution):
+def prepare(source, output, attribution, *, version, clustering_note=''):
+    if type(version) is not int or version < 1:
+        raise ValueError('Use a positive collection version.')
+    if output.exists():
+        raise FileExistsError('Use a new output directory; existing releases are immutable.')
     source = source.resolve()
-    output.mkdir(parents=True, exist_ok=True)
+    output.mkdir(parents=True)
     before = {str(p.relative_to(source)): sha256(p) for p in source.rglob('*') if p.is_file()}
     with closing(sqlite3.connect((source/'media/media_index.db').as_uri()+'?mode=ro', uri=True)) as db:
         sources = db.execute('SELECT id,path FROM media_sources').fetchall()
@@ -50,6 +54,9 @@ def prepare(source, output, attribution):
         shutil.copytree(images, staged/'media/media_sources/met_images', ignore=shutil.ignore_patterns('.DS_Store'))
         shutil.copy2(attribution/'README.txt', staged/'COLLECTION_README.txt')
         shutil.copy2(attribution/'field_dictionary.json', staged/'field_dictionary.json')
+        if clustering_note:
+            with (staged/'COLLECTION_README.txt').open('a', encoding='utf-8') as stream:
+                stream.write('\nSaved clustering provenance\n' + clustering_note + '\n')
         def convert(value, key=''):
             if isinstance(value, dict):
                 return {k: convert(v, k) for k,v in value.items()}
@@ -67,6 +74,19 @@ def prepare(source, output, attribution):
         for path in staged.rglob('*.json'):
             data = json.loads(path.read_text())
             path.write_text(json.dumps(convert(data), indent=2, ensure_ascii=False)+'\n')
+        # Saved controls and compositions are release contents, not disposable UI cache.
+        for directory in ('presets', 'state'):
+            for path in (source/directory).rglob('*'):
+                if not path.is_file() or path.suffix in {'.db', '.sqlite'}:
+                    continue
+                if path.name in excluded(path.parent, [path.name]):
+                    continue
+                saved = staged/path.relative_to(source)
+                if path.suffix == '.json':
+                    if json.loads(saved.read_text()) != convert(json.loads(path.read_text())):
+                        raise ValueError(f'Saved settings changed during preparation: {path.name}')
+                elif sha256(path) != sha256(saved):
+                    raise ValueError(f'Saved view payload changed during preparation: {path.name}')
         # Structured fields only; artwork text and URLs are not rewritten.
         path_columns = {
             'embedding_runs': ['artifact_path'], 'embedding_run_inputs': ['absolute_path'],
@@ -90,6 +110,10 @@ def prepare(source, output, attribution):
                             if any(key in p.read_text() for p in (staged/'presets').rglob('*.json')):
                                 raise ValueError('Removed clustering is still referenced by a preset.')
                             db.execute('DELETE FROM clustering_runs WHERE id=?', (key,))
+                        elif clustering_note:
+                            record = json.loads(payload)
+                            record['warnings'] = list(dict.fromkeys([*record.get('warnings', []), clustering_note]))
+                            db.execute('UPDATE clustering_runs SET payload=? WHERE id=?', (json.dumps(record), key))
                 for table in ['processes','media_scan_events']:
                     if table in tables:
                         db.execute(f'DELETE FROM {table}')
@@ -104,10 +128,11 @@ def prepare(source, output, attribution):
                 db.commit()
                 db.execute('VACUUM')
         counts = validate_collection(staged)
-        if counts['items'] != 5400 or counts['embedding_runs'] != 2 or counts['group_sets'] != 2:
+        if counts['items'] != 5400 or counts['embedding_runs'] != 2:
             raise ValueError(f'Unexpected MET contents: {counts}')
-        archive_path = output/'MET_Example-v1.zip'
-        temporary_archive = output/'.MET_Example-v1.zip.tmp'
+        archive_name = f'MET_Example-v{version}.zip'
+        archive_path = output/archive_name
+        temporary_archive = output/f'.{archive_name}.tmp'
         total = 0
         with zipfile.ZipFile(temporary_archive, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             for path in [staged, *sorted(staged.rglob('*'))]:
@@ -127,10 +152,10 @@ def prepare(source, output, attribution):
             temporary_archive.unlink()
             raise RuntimeError('Working project changed during preparation; retry after saving and closing it.')
         temporary_archive.replace(archive_path)
-        manifest = dict(schema_version=1, collection_id='MET_Example', version=1,
+        manifest = dict(schema_version=1, collection_id='MET_Example', version=version,
                         archive=archive_path.name, sha256=sha256(archive_path),
                         archive_bytes=archive_path.stat().st_size, extracted_bytes=total,
-                        url='https://github.com/eidora-desktop/EIDORA/releases/download/starter-met-v1/MET_Example-v1.zip',
+                        url=f'https://github.com/eidora-desktop/EIDORA/releases/download/starter-met-v{version}/{archive_name}',
                         counts=counts)
         (output/'starter-collection.json').write_text(json.dumps(manifest,indent=2)+'\n')
         print(json.dumps(manifest,indent=2))
@@ -142,5 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('--project',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--attribution',type=Path,required=True)
+    parser.add_argument('--version',type=int,required=True)
+    parser.add_argument('--clustering-note',default='',help='Provenance note for preserved clustering results in this release copy.')
     args=parser.parse_args()
-    prepare(args.project,args.output,args.attribution)
+    prepare(args.project,args.output,args.attribution,version=args.version,clustering_note=args.clustering_note)

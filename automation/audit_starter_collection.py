@@ -11,7 +11,7 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'src'))
 from project.starter_collection import install_starter, read_manifest
-from project.starter_validation import validate_collection
+from project.starter_validation import sha256, validate_collection
 from project.service import ProjectService
 
 
@@ -26,16 +26,40 @@ def audit(manifest_path):
         service=ProjectService(workspace)
         original=install_starter(service,manifest_path)
         assert original is not None
+        def saved_state(root):
+            return {str(path.relative_to(root)): sha256(path)
+                    for directory in ('presets', 'state')
+                    for path in (root/directory).rglob('*')
+                    if path.is_file() and path.name != 'processes.db'}
+        settings = saved_state(original.root)
         assert install_starter(service,manifest_path) is None
         assert original in service.list_recent_projects()
         moved=Path(temp)/'moved collection'
         original.root.rename(moved)
         project=service.open_project(moved)
+        assert saved_state(moved) == settings, 'Saved settings changed during relocation.'
         report=validate_collection(moved,manifest['counts'])
         runs=EmbeddingRunRepository(project.paths.embeddings/'embeddings.db').list_runs()
+        actual_dimensions = []
         for run in runs:
             matrix,ids,summary=load_embedding_matrix_with_ids(Path(run.artifact_path))
-            assert matrix.shape == (5400,128) and summary['pca_reduced']
+            dimensions = summary['dimensions']
+            actual_dimensions.append(dimensions)
+            assert matrix.shape == (manifest['counts']['items'],dimensions)
+            if manifest['version'] >= 2:
+                from EmbeddingsArea.provenance import embedding_citation_payloads
+                assert embedding_citation_payloads(summary), 'Starter model citation missing.'
+                assert summary['raw_dimensions'] >= dimensions
+        assert sorted(actual_dimensions) == sorted(manifest['counts']['dimensions'])
+        from FiguresArea.repository import FigureTabsRepository
+        tabs, _ = FigureTabsRepository(moved/'state').load()
+        for tab in tabs:
+            composition = tab.get('composition') or {}
+            for cell in composition.get('plot_cells', []):
+                references = [cell.get('snapshot_path'), *cell.get('render_state', {}).get('preset_paths', {}).values()]
+                for reference in references:
+                    if reference:
+                        assert Path(reference).is_file(), f'Figure preset is unavailable: {reference}'
         media=MediaRepository(project.paths.media/'media_index.db')
         for source in media.list_sources():
             assert source.path.is_dir()
@@ -48,10 +72,11 @@ def audit(manifest_path):
             assert Path(snapshot.discovery_key).is_file()
             assert Path(snapshot.discovery_ref).is_file()
             frozen=snapshots.load_coordinates(snapshot)
-            assert frozen.coordinates.shape == (5400,2)
+            assert frozen.coordinates.shape == (manifest['counts']['items'],2)
         bundle=service.export_project_bundle(project,Path(temp)/'roundtrip.zip')
         imported=ProjectService(Path(temp)/'imported').import_project_bundle(bundle)
         validate_collection(imported.root,manifest['counts'])
+        assert saved_state(imported.root) == settings, 'Saved settings changed during export/import.'
         assert install_starter(service,manifest_path) is None
         return report
 

@@ -11,7 +11,8 @@ PERSONAL_PATH = re.compile(rb"/(?:Users|home|Volumes)/[^\s\x00\"']+|[A-Za-z]:[\\
 PATH_FIELDS = frozenset({
     'path', 'absolute_path', 'artifact_path', 'source_artifact', 'source_path',
     'source_dir', 'discovery_key', 'discovery_ref', 'discovery_file',
-    'last_discovery_key', 'coordinates_ref', 'thumbnail',
+    'last_discovery_key', 'coordinates_ref', 'thumbnail', 'transform_path',
+    'snapshot_path', 'appearance', 'camera', 'discovery', 'filter', 'snapshot',
 })
 
 
@@ -78,10 +79,24 @@ def validate_collection(root, expected=None, *, cancelled=lambda: False):
             mapping = dict(db.execute('SELECT ordinal,metadata_row_id FROM embedding_run_inputs WHERE run_id=?', (run_id,)))
             with np.load(path, allow_pickle=False) as data:
                 matrix, ids = data['embeddings'], data['object_ids']
-                if matrix.shape != (len(metadata_ids), 128) or not np.isfinite(matrix).all():
+                if (matrix.ndim != 2 or matrix.shape[0] != len(metadata_ids) or not matrix.shape[1]
+                        or matrix.dtype.kind != 'f' or not np.isfinite(matrix).all()
+                        or int(data['dimensions']) != matrix.shape[1]):
                     raise ValueError('Invalid starter embedding shape or values.')
-                if len(set(ids.tolist())) != len(ids) or {mapping.get(int(i)) for i in ids} != metadata_ids:
+                if (ids.ndim != 1 or ids.dtype.kind not in 'iu' or len(ids) != len(matrix)
+                        or len(set(ids.tolist())) != len(ids) or {mapping.get(int(i)) for i in ids} != metadata_ids):
                     raise ValueError('Invalid starter embedding identities.')
+                for step in json.loads(str(data['postprocess'])) if 'postprocess' in data else []:
+                    if not isinstance(step, dict) or step.get('id') != 'truncated_svd':
+                        continue
+                    transform = local_file(root, step['transform_path'])
+                    if sha256(transform) != step['transform_sha256']:
+                        raise ValueError('Starter reduction transform checksum mismatch.')
+                    with np.load(transform, allow_pickle=False) as saved:
+                        components = saved['components']
+                        if (components.shape != (matrix.shape[1], int(data['raw_dimensions']))
+                                or not np.isfinite(components).all()):
+                            raise ValueError('Invalid starter reduction transform.')
                 dimensions.append(int(matrix.shape[1]))
         for path, in db.execute('SELECT absolute_path FROM embedding_run_inputs'):
             local_file(root, path)
@@ -102,7 +117,7 @@ def validate_collection(root, expected=None, *, cancelled=lambda: False):
             raise ValueError('Invalid group membership.')
         if any(row[0] not in dict(runs) for row in db.execute('SELECT run_id FROM clustering_runs')):
             raise ValueError('Clustering refers to a removed embedding.')
-    for path in (root / 'presets').rglob('*.json'):
+    for path in [*(root / 'presets').rglob('*.json'), *(root / 'state').rglob('*.json')]:
         def visit(value, key=''):
             if isinstance(value, dict):
                 for k, v in value.items():
