@@ -117,9 +117,6 @@
       </item>
       <item row="1" column="1" colspan="3">
        <widget class="QComboBox" name="combo_table">
-        <property name="toolTip">
-         <string>Choose the source sheet or table to import.</string>
-        </property>
        </widget>
       </item>
       <item row="2" column="0" colspan="4">
@@ -156,7 +153,7 @@
          <item row="0" column="1" colspan="3">
           <widget class="QLineEdit" name="edit_record_path">
            <property name="toolTip">
-            <string>Specify the XML record element or JSON path containing the records.</string>
+            <string>XML element or JSON record path</string>
            </property>
            <property name="placeholderText">
             <string>Record element or JSON path</string>
@@ -172,9 +169,6 @@
          </item>
          <item row="1" column="1">
           <widget class="QSpinBox" name="spin_header_row">
-           <property name="toolTip">
-            <string>Choose the source row containing column names.</string>
-           </property>
            <property name="minimum">
             <number>1</number>
            </property>
@@ -195,9 +189,6 @@
          </item>
          <item row="1" column="3">
           <widget class="QComboBox" name="combo_encoding">
-           <property name="toolTip">
-            <string>Choose the character encoding used to read the source file.</string>
-           </property>
           </widget>
          </item>
          <item row="2" column="0">
@@ -210,7 +201,7 @@
          <item row="2" column="1">
           <widget class="QLineEdit" name="edit_delimiter">
            <property name="toolTip">
-            <string>Specify the column separator, or leave Auto to detect it.</string>
+            <string>Column separator; Auto detects</string>
            </property>
            <property name="maximumSize">
             <size>
@@ -308,7 +299,7 @@
          <item row="0" column="1">
           <widget class="QComboBox" name="combo_source_identifier">
            <property name="toolTip">
-            <string>Choose the source column used to match records to project items.</string>
+            <string>Source field for matching items</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -346,7 +337,7 @@
          <item row="1" column="1">
           <widget class="QComboBox" name="combo_project_identifier">
            <property name="toolTip">
-            <string>Choose the project field to match against source identifiers.</string>
+            <string>Project field for matching items</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -416,7 +407,7 @@
          <item>
           <widget class="QTableWidget" name="table_mappings">
            <property name="toolTip">
-            <string>Choose the source columns, destination names, and data types to import.</string>
+            <string>Select columns, names, and types</string>
            </property>
            <property name="verticalScrollBarPolicy">
             <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOn</enum>

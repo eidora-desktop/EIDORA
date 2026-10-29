@@ -114,7 +114,7 @@
         <item>
          <widget class="QToolButton" name="button_snapshots_options">
           <property name="toolTip">
-           <string>Open snapshot options.</string>
+           <string>Snapshot options</string>
           </property>
           <property name="minimumSize">
            <size>
@@ -218,7 +218,7 @@
             <item>
              <widget class="QPushButton" name="button_add_snapshot">
               <property name="toolTip">
-               <string>Save the current Discovery view and settings as a snapshot.</string>
+               <string>Save this view and settings</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -247,7 +247,7 @@
             <item>
              <widget class="QLabel" name="label_snapshot_size_icon">
               <property name="toolTip">
-               <string>Snapshot preview size.</string>
+               <string>Snapshot preview size</string>
               </property>
               <property name="text">
                <string/>
@@ -273,7 +273,7 @@
             <item>
              <widget class="QSpinBox" name="spin_snapshot_thumbnail_size">
               <property name="toolTip">
-               <string>Resize snapshot previews in this panel.</string>
+               <string>Snapshot preview size</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">

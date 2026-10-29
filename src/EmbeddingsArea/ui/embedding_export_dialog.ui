@@ -89,9 +89,6 @@
          </item>
          <item row="0" column="1">
           <widget class="QComboBox" name="combo_export_format">
-           <property name="toolTip">
-            <string>Choose the output file format for the vectors.</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -110,7 +107,7 @@
          <item row="1" column="1">
           <widget class="QComboBox" name="combo_export_structure">
            <property name="toolTip">
-            <string>Choose how identifiers and vector values are arranged in the export.</string>
+            <string>Arrangement of identifiers and vectors</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -135,9 +132,6 @@
          </item>
          <item row="2" column="1">
           <widget class="QComboBox" name="combo_metadata">
-           <property name="toolTip">
-            <string>Choose the identifiers written alongside exported vectors.</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -203,7 +197,7 @@
          <item row="0" column="1">
           <widget class="QComboBox" name="combo_export_dtype">
            <property name="toolTip">
-            <string>Choose numeric precision; Float16 uses less space with lower precision than Float32.</string>
+            <string>Float16: smaller, less precise</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -231,7 +225,7 @@
          <item row="1" column="1">
           <widget class="QSpinBox" name="spin_export_shard_size">
            <property name="toolTip">
-            <string>Limit vectors per output file; zero writes a single file.</string>
+            <string>Vectors per file; 0 = one file</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -268,9 +262,6 @@
          </item>
          <item row="2" column="1">
           <widget class="QCheckBox" name="check_export_compression">
-           <property name="toolTip">
-            <string>Compress the output where the selected format supports it.</string>
-           </property>
            <property name="text">
             <string>Compress export</string>
            </property>

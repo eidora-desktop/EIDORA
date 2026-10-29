@@ -106,7 +106,7 @@
       <item>
        <widget class="QToolButton" name="button_transform_options">
         <property name="toolTip">
-         <string>Open transform presets and options.</string>
+         <string>Transform options</string>
         </property>
         <property name="minimumSize">
          <size>

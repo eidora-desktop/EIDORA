@@ -53,7 +53,7 @@
    <item>
     <widget class="QGroupBox" name="group_info_field">
      <property name="toolTip">
-      <string>Show or hide metadata text in pins.</string>
+      <string>Show metadata text</string>
      </property>
      <property name="minimumSize">
       <size>
@@ -110,7 +110,7 @@
          <item>
           <widget class="QListWidget" name="list_pin_selected_metadata_fields">
            <property name="toolTip">
-            <string>Choose which metadata fields appear in pins and their order.</string>
+            <string>Choose and order pin fields</string>
            </property>
            <property name="alternatingRowColors">
             <bool>true</bool>
@@ -177,7 +177,7 @@
                <item>
                 <widget class="QToolButton" name="button_pin_move_up">
                  <property name="toolTip">
-                  <string>Move the selected pin field up.</string>
+                  <string>Move field up</string>
                  </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -215,7 +215,7 @@
                <item>
                 <widget class="QToolButton" name="button_pin_move_down">
                  <property name="toolTip">
-                  <string>Move the selected pin field down.</string>
+                  <string>Move field down</string>
                  </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -342,7 +342,7 @@
                <item>
                 <widget class="QLabel" name="label_pin_text_size_icon">
                  <property name="toolTip">
-                  <string>Pin text size.</string>
+                  <string>Pin text size</string>
                  </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
@@ -389,7 +389,7 @@
             <item>
              <widget class="QFontComboBox" name="combo_pin_font">
               <property name="toolTip">
-               <string>Choose the font for pin text.</string>
+               <string>Pin font</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -413,7 +413,7 @@
             <item>
              <widget class="QSpinBox" name="spin_pin_font_size">
               <property name="toolTip">
-               <string>Set the size of pin text.</string>
+               <string>Pin text size</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -568,7 +568,7 @@
                   <item>
                    <widget class="QToolButton" name="button_hide_pin_label">
                     <property name="toolTip">
-                     <string>Hide field names and show only their values.</string>
+                     <string>Hide field names</string>
                     </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
@@ -606,7 +606,7 @@
                   <item>
                    <widget class="QToolButton" name="button_bold_pin_label">
                     <property name="toolTip">
-                     <string>Use bold text for field names.</string>
+                     <string>Bold field names</string>
                     </property>
                     <property name="minimumSize">
                      <size>
@@ -641,7 +641,7 @@
                   <item>
                    <widget class="QToolButton" name="button_italic_pin_label">
                     <property name="toolTip">
-                     <string>Use italic text for field names.</string>
+                     <string>Italic field names</string>
                     </property>
                     <property name="minimumSize">
                      <size>
@@ -673,7 +673,7 @@
                   <item>
                    <widget class="QToolButton" name="button_underline_pin_label">
                     <property name="toolTip">
-                     <string>Underline field names.</string>
+                     <string>Underline field names</string>
                     </property>
                     <property name="minimumSize">
                      <size>
@@ -766,7 +766,7 @@
                   <item>
                    <widget class="QToolButton" name="button_bold_pin_value">
                     <property name="toolTip">
-                     <string>Use bold text for metadata values.</string>
+                     <string>Bold values</string>
                     </property>
                     <property name="minimumSize">
                      <size>
@@ -801,7 +801,7 @@
                   <item>
                    <widget class="QToolButton" name="button_italic_pin_value">
                     <property name="toolTip">
-                     <string>Use italic text for metadata values.</string>
+                     <string>Italic values</string>
                     </property>
                     <property name="minimumSize">
                      <size>
@@ -833,7 +833,7 @@
                   <item>
                    <widget class="QToolButton" name="button_underline_pin_value">
                     <property name="toolTip">
-                     <string>Underline metadata values.</string>
+                     <string>Underline values</string>
                     </property>
                     <property name="minimumSize">
                      <size>
@@ -879,9 +879,6 @@
    </item>
    <item>
     <widget class="QGroupBox" name="group_thumbnail">
-     <property name="toolTip">
-      <string>Show or hide thumbnail images in pins.</string>
-     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
        <horstretch>0</horstretch>
@@ -1014,7 +1011,7 @@
          <item>
           <widget class="QComboBox" name="combo_pin_thumbnail_field">
            <property name="toolTip">
-            <string>Choose the thumbnail set used in pins.</string>
+            <string>Pin thumbnail source</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -1289,7 +1286,7 @@
          <item>
           <widget class="QSlider" name="slider_pin_thumbnail_size">
            <property name="toolTip">
-            <string>Set the size of thumbnail images in pins.</string>
+            <string>Pin thumbnail size</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -1358,9 +1355,6 @@
       </property>
       <item>
        <widget class="QGroupBox" name="group_box">
-        <property name="toolTip">
-         <string>Show or hide the pin box.</string>
-        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
           <horstretch>0</horstretch>
@@ -1458,7 +1452,7 @@
                   <item>
                    <widget class="QLabel" name="label_pin_background_color_icon">
                     <property name="toolTip">
-                     <string>Pin background color.</string>
+                     <string>Pin background color</string>
                     </property>
                     <property name="maximumSize">
                      <size>
@@ -1533,7 +1527,7 @@
                   <item>
                    <widget class="QLabel" name="label_pin_border_color_icon">
                     <property name="toolTip">
-                     <string>Pin border color.</string>
+                     <string>Pin border color</string>
                     </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -1641,7 +1635,7 @@
                   <item>
                    <widget class="QLabel" name="label_pin_box_opacity_icon">
                     <property name="toolTip">
-                     <string>Pin box opacity.</string>
+                     <string>Pin box opacity</string>
                     </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -1685,7 +1679,7 @@
                   <item>
                    <widget class="QSpinBox" name="spin_pin_opacity">
                     <property name="toolTip">
-                     <string>Set the opacity of the pin box.</string>
+                     <string>Pin box opacity</string>
                     </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -1731,7 +1725,7 @@
                   <item>
                    <widget class="QLabel" name="label_pin_outline_width_icon">
                     <property name="toolTip">
-                     <string>Pin border width.</string>
+                     <string>Pin border width</string>
                     </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -1775,7 +1769,7 @@
                   <item>
                    <widget class="QDoubleSpinBox" name="spin_pin_outline_width">
                     <property name="toolTip">
-                     <string>Set the width of the pin border.</string>
+                     <string>Pin border width</string>
                     </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -1831,7 +1825,7 @@
       <item>
        <widget class="QGroupBox" name="group_connector">
         <property name="toolTip">
-         <string>Show or hide lines connecting pins to their points.</string>
+         <string>Connect pins to their points</string>
         </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Expanding">
@@ -2148,7 +2142,7 @@
                <item>
                 <widget class="QLabel" name="label_pin_connector_width_icon">
                  <property name="toolTip">
-                  <string>Pin connector width.</string>
+                  <string>Pin connector width</string>
                  </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -2195,7 +2189,7 @@
             <item>
              <widget class="QDoubleSpinBox" name="spin_connector_width">
               <property name="toolTip">
-               <string>Set the width of lines connecting pins to their points.</string>
+               <string>Pin connector width</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">

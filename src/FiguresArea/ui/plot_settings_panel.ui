@@ -147,7 +147,7 @@
            <item>
             <widget class="QToolButton" name="button_figure_settings_options">
              <property name="toolTip">
-              <string>Open figure settings presets and options.</string>
+              <string>Figure settings options</string>
              </property>
              <property name="minimumSize">
               <size>
@@ -604,7 +604,7 @@
             <item>
              <widget class="QPushButton" name="button_apply_figure_settings">
               <property name="toolTip">
-               <string>Apply the edited settings to the selected figure.</string>
+               <string>Apply to the selected figure</string>
               </property>
               <property name="text">
                <string>apply</string>

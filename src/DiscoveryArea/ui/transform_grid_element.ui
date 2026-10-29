@@ -74,7 +74,7 @@
       <item row="0" column="0" rowspan="2" alignment="Qt::AlignmentFlag::AlignTop">
        <widget class="QPushButton" name="button_apply_grid">
         <property name="toolTip">
-         <string>Apply or disable the grid arrangement.</string>
+         <string>Enable or disable grid arrangement</string>
         </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -147,7 +147,7 @@
       <item row="1" column="1">
        <widget class="QSpinBox" name="spin_grid_percentage">
         <property name="toolTip">
-         <string>Blend between the original positions and the grid arrangement.</string>
+         <string>Blend original and grid positions</string>
         </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">

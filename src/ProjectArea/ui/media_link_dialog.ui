@@ -84,7 +84,7 @@
       <item row="0" column="1">
        <widget class="QComboBox" name="combo_source_field">
         <property name="toolTip">
-         <string>Choose the media field to match against metadata.</string>
+         <string>Media field for matching items</string>
         </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -122,7 +122,7 @@
       <item row="1" column="1">
        <widget class="QComboBox" name="combo_metadata_column">
         <property name="toolTip">
-         <string>Choose the metadata column containing matching media identifiers.</string>
+         <string>Metadata field for matching items</string>
         </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -173,7 +173,7 @@
    <item>
     <widget class="QComboBox" name="combo_examples">
      <property name="toolTip">
-      <string>Choose which matching results to preview.</string>
+      <string>Matching results to preview</string>
      </property>
     </widget>
    </item>

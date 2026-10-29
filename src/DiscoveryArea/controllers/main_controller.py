@@ -666,7 +666,12 @@ class DiscoveryAreaController:
             return False
         if self._shutting_down or self._canvas_widget is None or not isValid(self._widget):
             return False
-        if self._focus_widget_accepts_text_input():
+        if not self._widget.isVisible() or QtWidgets.QApplication.activeWindow() is not self._widget.window():
+            return False
+        focus = QtWidgets.QApplication.focusWidget()
+        if focus is not None and focus is not self._widget and not self._widget.isAncestorOf(focus):
+            return False
+        if self._focus_widget_handles_space():
             return False
         if event.type() == QtCore.QEvent.Type.ShortcutOverride:
             key_event = event
@@ -691,7 +696,7 @@ class DiscoveryAreaController:
         return False
 
     @staticmethod
-    def _focus_widget_accepts_text_input() -> bool:
+    def _focus_widget_handles_space() -> bool:
         focus_widget = QtWidgets.QApplication.focusWidget()
         return isinstance(
             focus_widget,
@@ -700,6 +705,11 @@ class DiscoveryAreaController:
                 QtWidgets.QTextEdit,
                 QtWidgets.QPlainTextEdit,
                 QtWidgets.QAbstractSpinBox,
+                QtWidgets.QAbstractButton,
+                QtWidgets.QAbstractItemView,
+                QtWidgets.QComboBox,
+                QtWidgets.QAbstractSlider,
+                QtWidgets.QTabBar,
             ),
         )
 

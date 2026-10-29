@@ -158,8 +158,8 @@
         </property>
        </widget>
       </item>
-      <item><widget class="QPushButton" name="button_starter"><property name="toolTip"><string>Create the bundled MET example project to explore EIDORA.</string></property><property name="text"><string>Create MET Example…</string></property></widget></item>
-      <item><widget class="QPushButton" name="button_storage"><property name="toolTip"><string>Manage project and model storage locations and cached resources.</string></property><property name="text"><string>Storage…</string></property></widget></item>
+      <item><widget class="QPushButton" name="button_starter"><property name="text"><string>Create MET Example…</string></property></widget></item>
+      <item><widget class="QPushButton" name="button_storage"><property name="toolTip"><string>Manage storage and cached resources</string></property><property name="text"><string>Storage…</string></property></widget></item>
      </layout>
     </widget>
    </item>

@@ -28,9 +28,6 @@
      </item>
      <item>
       <widget class="QComboBox" name="combo_media_content_type">
-       <property name="toolTip">
-        <string>Choose the kind of media being imported.</string>
-       </property>
       </widget>
      </item>
      <item>
@@ -42,9 +39,6 @@
      </item>
      <item>
       <widget class="QComboBox" name="combo_media_identifier_column">
-       <property name="toolTip">
-        <string>Choose the metadata field used to identify media items.</string>
-       </property>
        <property name="sizePolicy">
         <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
          <horstretch>0</horstretch>
@@ -62,9 +56,6 @@
     <layout class="QHBoxLayout" name="layout_horizontal_layout_6">
      <item>
       <widget class="QRadioButton" name="radio_keep_unmatched_rows">
-       <property name="toolTip">
-        <string>Keep entries that do not have a matching media file.</string>
-       </property>
        <property name="text">
         <string>keep unmatched</string>
        </property>
@@ -78,9 +69,6 @@
      </item>
      <item>
       <widget class="QRadioButton" name="radio_dismiss_missing_rows">
-       <property name="toolTip">
-        <string>Exclude entries that do not have a matching media file.</string>
-       </property>
        <property name="sizePolicy">
         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
          <horstretch>0</horstretch>

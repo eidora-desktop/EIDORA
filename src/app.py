@@ -33,6 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     from shared.qt.branding import install_application_icon
     from shared.qt.theme import install_theme
     from shared.qt.icons import install_icon_palette_refresh
+    from shared.qt.keyboard_focus import install_keyboard_focus
 
     configure_logging()
 
@@ -52,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationVersion(__version__)
     install_dialog_window_policy(app)
     install_theme(app)
+    install_keyboard_focus(app)
     install_icon_palette_refresh(app)
     install_application_icon(app)
 

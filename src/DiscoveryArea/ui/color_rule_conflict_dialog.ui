@@ -78,7 +78,7 @@
          <item row="0" column="0">
           <widget class="QRadioButton" name="radio_prioritize_rule">
            <property name="toolTip">
-            <string>Use one existing rule for items that match multiple rules.</string>
+            <string>Prioritize an existing rule</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -97,7 +97,7 @@
          <item row="0" column="1">
           <widget class="QComboBox" name="combo_priority_rule">
            <property name="toolTip">
-            <string>Choose which matching rule takes priority.</string>
+            <string>Choose the winning rule</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -110,7 +110,7 @@
          <item row="1" column="0">
           <widget class="QRadioButton" name="radio_overlap_color">
            <property name="toolTip">
-            <string>Give items in the overlap their own color.</string>
+            <string>Give overlapping items a separate color</string>
            </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -150,7 +150,7 @@
            <item>
             <widget class="QLineEdit" name="line_new_condition">
              <property name="toolTip">
-              <string>Name the new overlap color rule.</string>
+              <string>Name the overlap rule</string>
              </property>
             </widget>
            </item>

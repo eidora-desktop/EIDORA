@@ -62,7 +62,7 @@
       <item>
        <widget class="QCheckBox" name="checkbox_show_tooltips">
         <property name="toolTip">
-         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+         <string>Show or hide item tooltips</string>
         </property>
         <property name="accessibleDescription">
          <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
@@ -84,7 +84,7 @@
       <item>
        <widget class="QCheckBox" name="checkbox_show_pins">
         <property name="toolTip">
-         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+         <string>Show or hide pins</string>
         </property>
         <property name="accessibleDescription">
          <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
@@ -106,7 +106,7 @@
       <item>
        <widget class="QCheckBox" name="checkbox_show_marked_areas">
         <property name="toolTip">
-         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+         <string>Show or hide marked areas</string>
         </property>
         <property name="accessibleDescription">
          <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
@@ -128,7 +128,7 @@
       <item>
        <widget class="QCheckBox" name="checkbox_show_thumbnails">
         <property name="toolTip">
-         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+         <string>Show or hide image previews</string>
         </property>
         <property name="accessibleDescription">
          <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
@@ -243,7 +243,7 @@
          <item>
           <widget class="QComboBox" name="combo_camera_preset">
            <property name="toolTip">
-            <string>Fit the canvas to the items or restore a saved camera view.</string>
+            <string>Fit items or restore a view</string>
            </property>
            <property name="accessibleName">
             <string>Camera preset</string>
@@ -392,7 +392,7 @@
          <item>
           <widget class="QComboBox" name="combo_crop_preset">
            <property name="toolTip">
-            <string>Set the snapshot crop ratio without changing the camera view.</string>
+            <string>Set snapshot aspect ratio</string>
            </property>
            <property name="accessibleName">
             <string>Snapshot crop ratio</string>

@@ -94,7 +94,7 @@
       <item>
        <widget class="QComboBox" name="combo_thumbnail_field">
         <property name="toolTip">
-         <string>Choose the thumbnail source to display.</string>
+         <string>Thumbnail source</string>
         </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -131,7 +131,7 @@
          <item>
           <widget class="QToolButton" name="button_edit_tooltip_layout">
            <property name="toolTip">
-            <string>Edit the tooltip layout.</string>
+            <string>Edit tooltip layout</string>
            </property>
            <property name="maximumSize">
             <size>
@@ -178,7 +178,7 @@
       <item>
        <widget class="QListWidget" name="list_selected_metadata_fields">
         <property name="toolTip">
-         <string>Choose the metadata fields to display and their order.</string>
+         <string>Choose and order metadata fields</string>
         </property>
         <property name="alternatingRowColors">
          <bool>true</bool>
@@ -245,7 +245,7 @@
             <item>
              <widget class="QToolButton" name="button_move_up">
               <property name="toolTip">
-               <string>Move the selected metadata field up.</string>
+               <string>Move field up</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -277,7 +277,7 @@
             <item>
              <widget class="QToolButton" name="button_move_down">
               <property name="toolTip">
-               <string>Move the selected metadata field down.</string>
+               <string>Move field down</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">

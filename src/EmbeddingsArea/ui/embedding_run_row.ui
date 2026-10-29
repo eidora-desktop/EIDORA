@@ -40,7 +40,7 @@
      <item>
       <widget class="QToolButton" name="button_toggle_details">
        <property name="toolTip">
-        <string>Expand or collapse run details and clustering results.</string>
+        <string>Show run details and clustering</string>
        </property>
        <property name="text">
         <string/>

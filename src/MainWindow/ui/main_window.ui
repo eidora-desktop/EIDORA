@@ -59,9 +59,6 @@
        </property>
        <item>
         <widget class="QPushButton" name="button_project_area">
-         <property name="toolTip">
-          <string>Manage the project’s media sources and thumbnails.</string>
-         </property>
          <property name="text">
           <string>Project</string>
          </property>
@@ -94,9 +91,6 @@
        </item>
        <item>
         <widget class="QPushButton" name="button_metadata_area">
-         <property name="toolTip">
-          <string>Browse, edit, and organize item metadata.</string>
-         </property>
          <property name="text">
           <string>Metadata</string>
          </property>
@@ -129,9 +123,6 @@
        </item>
        <item>
         <widget class="QPushButton" name="button_embeddings_area">
-         <property name="toolTip">
-          <string>Manage models, vector data, and clustering.</string>
-         </property>
          <property name="text">
           <string>Embeddings</string>
          </property>

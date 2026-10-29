@@ -8,7 +8,7 @@
    <item><widget class="QLabel" name="label_media_type_prompt">
     <property name="text"><string>This source contains several media types. Choose one type to import:</string></property>
    </widget></item>
-   <item><widget class="QComboBox" name="combo_media_type"><property name="toolTip"><string>Choose which type of media to include.</string></property>
+   <item><widget class="QComboBox" name="combo_media_type">
     <property name="sizeAdjustPolicy"><enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum></property>
     <property name="minimumContentsLength"><number>12</number></property>
    </widget></item>

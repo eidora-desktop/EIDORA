@@ -101,7 +101,7 @@
      <item>
       <widget class="QToolButton" name="button_media_sources_options">
        <property name="toolTip">
-        <string>Open dataset and group options.</string>
+        <string>Dataset and group options</string>
        </property>
        <property name="minimumSize">
         <size>
@@ -161,9 +161,6 @@
       </property>
       <item>
        <widget class="QTreeWidget" name="tree_metadata_groups">
-        <property name="toolTip">
-         <string>Browse datasets, groups, and their item memberships.</string>
-        </property>
         <property name="alternatingRowColors">
          <bool>true</bool>
         </property>

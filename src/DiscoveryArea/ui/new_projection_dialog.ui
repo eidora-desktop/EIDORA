@@ -38,7 +38,7 @@
       <item row="0" column="3">
        <widget class="QComboBox" name="combo_filter_preset">
         <property name="toolTip">
-         <string>Choose which saved filter limits the items included in this projection.</string>
+         <string>Filter items before projection</string>
         </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -50,9 +50,6 @@
       </item>
       <item row="1" column="1" colspan="3">
        <widget class="QComboBox" name="combo_discovery_method">
-        <property name="toolTip">
-         <string>Choose the method used to calculate the 2D projection.</string>
-        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
           <horstretch>0</horstretch>
@@ -63,9 +60,6 @@
       </item>
       <item row="0" column="1">
        <widget class="QComboBox" name="combo_embeddings_source">
-        <property name="toolTip">
-         <string>Choose the vector data to project.</string>
-        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
           <horstretch>0</horstretch>

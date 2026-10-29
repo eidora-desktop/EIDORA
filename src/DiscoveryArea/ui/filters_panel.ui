@@ -166,7 +166,7 @@
            <item>
             <widget class="QToolButton" name="button_filter_options">
              <property name="toolTip">
-              <string>Open filter presets and options.</string>
+              <string>Filter options</string>
              </property>
              <property name="minimumSize">
               <size>
@@ -227,7 +227,7 @@
             <item>
              <widget class="QPushButton" name="button_filter_simple">
               <property name="toolTip">
-               <string>Build filters from individual field rules.</string>
+               <string>Filter using individual field rules</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -258,7 +258,7 @@
             <item>
              <widget class="QPushButton" name="button_filter_advanced">
               <property name="toolTip">
-               <string>Build a filter with a query expression.</string>
+               <string>Filter using a query expression</string>
               </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -401,7 +401,7 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
              <item>
               <widget class="QComboBox" name="combo_matching">
                <property name="toolTip">
-                <string>Require all active rules to match, or allow any matching rule.</string>
+                <string>Match all or any rules</string>
                </property>
                <item>
                 <property name="text">
@@ -525,7 +525,7 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
                 <item alignment="Qt::AlignmentFlag::AlignVCenter">
                  <widget class="QSpinBox" name="spin_filtered_point_opacity">
                   <property name="toolTip">
-                   <string>Set the opacity of filtered-out points; 0% hides them.</string>
+                   <string>Filtered-point opacity; 0% hides</string>
                   </property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
@@ -623,9 +623,6 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
              </property>
              <item row="1" column="1">
               <widget class="QPushButton" name="button_query_insert_value">
-               <property name="toolTip">
-                <string>Insert the selected value into the query.</string>
-               </property>
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                  <horstretch>0</horstretch>
@@ -640,7 +637,7 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
              <item row="1" column="0">
               <widget class="QComboBox" name="combo_query_value">
                <property name="toolTip">
-                <string>Choose a value from the selected field.</string>
+                <string>Value to insert</string>
                </property>
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -659,7 +656,7 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
              <item row="0" column="0">
               <widget class="QComboBox" name="combo_query_field">
                <property name="toolTip">
-                <string>Choose the metadata field to insert into the query.</string>
+                <string>Field to insert</string>
                </property>
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
@@ -677,9 +674,6 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
              </item>
              <item row="0" column="1">
               <widget class="QPushButton" name="button_query_insert_field">
-               <property name="toolTip">
-                <string>Insert the selected field into the query.</string>
-               </property>
                <property name="sizePolicy">
                 <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                  <horstretch>0</horstretch>
@@ -974,7 +968,7 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
                 <item>
                  <widget class="QSpinBox" name="spin_filtered_point_opacity_2">
                   <property name="toolTip">
-                   <string>Set the opacity of filtered-out points; 0% hides them.</string>
+                   <string>Filtered-point opacity; 0% hides</string>
                   </property>
                   <property name="sizePolicy">
                    <sizepolicy hsizetype="Fixed" vsizetype="Fixed">

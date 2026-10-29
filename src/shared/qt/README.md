@@ -32,7 +32,15 @@ Keep feature computation and persistence out of these helpers.
 ## Lightweight accessibility
 
 - Keep ordinary Qt keyboard behavior and a logical Tab order in Designer forms.
-  Preserve visible focus, including on checked buttons, in both themes.
+  `keyboard_focus.py` enables a solid neutral button outline for keyboard
+  navigation, including on checked buttons, in both themes. Other controls use
+  a lightweight Qt focus frame without changing geometry. Mouse presses hide
+  the extra cue; pointer movement does not.
+- Workspace navigation opts into `tabAllButtons` on its exclusive button group
+  so each enabled workspace has a Tab stop. Tab leaves the metadata and media
+  sources tables; arrow keys continue to navigate their contents.
+- Scope canvas key handlers to their visible, active workspace, and leave Space
+  available to focused buttons, checkboxes, and other standard controls.
 - Give icon-only controls concise `accessibleName` properties; associate text
   labels with inputs using Designer buddies. Tooltips supplement these names.
 - Provide a click or keyboard route to essential hover and drag actions. Return
