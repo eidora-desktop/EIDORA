@@ -4,6 +4,19 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.3 — 2026-10-30
+
+Experimental release for macOS Apple Silicon and Intel, and Linux x64.
+Windows Store x64 is built separately for validation and Store submission.
+This patch improves first launch without changing the project format.
+
+Prototype software. Use at your own risk. Stability and backward compatibility are not guaranteed.
+
+### Fixed
+
+- Install the already-audited MET_Example after archive checksum and safe extraction checks, without repeating the detailed content audit on first launch.
+- Render semantic widget icons directly from bundled SVGs so their pixmaps do not depend on the SVG icon-engine plugin.
+
 ## 0.2.2 — 2026-10-29
 
 Experimental release for macOS Apple Silicon and Intel, and Linux x64.
