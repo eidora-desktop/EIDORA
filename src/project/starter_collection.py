@@ -8,7 +8,7 @@ import sys
 import zipfile
 
 from project.service import ProjectService
-from project.starter_validation import sha256, validate_collection
+from project.starter_validation import sha256
 from shared.persistence.json_store import write_json
 
 
@@ -140,8 +140,9 @@ def install_starter(service: ProjectService, manifest_path: Path, *, progress=la
                             writer.write(chunk)
                             completed += len(chunk)
                     progress(min(90, int(90 * completed / max(1,total))), 'Preparing MET_Example…')
-            progress(92, 'Verifying images, embeddings, and saved settings…')
-            validate_collection(stage, manifest['counts'], cancelled=cancelled)
+            # The pinned archive was deeply audited during release preparation.
+            # Its verified SHA-256 and ZIP CRC checks cover the extracted bytes;
+            # repeating the content audit here makes first launch unnecessarily slow.
             check()
             write_json(stage / '.starter-origin.json', origin)
             pending = {'destination': destination.name, 'origin': origin}

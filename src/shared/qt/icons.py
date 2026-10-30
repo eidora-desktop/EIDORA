@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from pathlib import Path
 
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtSvg, QtWidgets
 
 
 class IconTheme(StrEnum):
@@ -124,17 +124,25 @@ def tinted_icon_pixmap(
     size: QtCore.QSize,
     color: QtGui.QColor | str,
 ) -> QtGui.QPixmap:
-    pixmap = QtGui.QIcon(str(_icon_file(name))).pixmap(size)
-    if pixmap.isNull():
-        return pixmap
-    tinted = QtGui.QPixmap(pixmap.size())
-    tinted.setDevicePixelRatio(pixmap.devicePixelRatio())
+    # Render bundled SVGs directly: an unavailable/lazily loaded icon-engine
+    # plugin must not leave every semantic control with an empty fixed pixmap.
+    renderer = QtSvg.QSvgRenderer(str(_icon_file(name)))
+    if not renderer.isValid():
+        raise ValueError(f"Invalid semantic icon: {name}")
+    renderer.setAspectRatioMode(QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+    app = QtWidgets.QApplication.instance()
+    ratio = app.devicePixelRatio() if app is not None else 1.0
+    tinted = QtGui.QPixmap(size * ratio)
+    tinted.setDevicePixelRatio(ratio)
     tinted.fill(QtCore.Qt.GlobalColor.transparent)
     painter = QtGui.QPainter(tinted)
-    painter.drawPixmap(0, 0, pixmap)
-    painter.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_SourceIn)
-    painter.fillRect(tinted.rect(), QtGui.QColor(color))
-    painter.end()
+    try:
+        bounds = QtCore.QRectF(0, 0, size.width(), size.height())
+        renderer.render(painter, bounds)
+        painter.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(bounds, QtGui.QColor(color))
+    finally:
+        painter.end()
     return tinted
 
 
