@@ -857,11 +857,7 @@ class DiscoveryAreaController:
             self._thumbnail_service.shutdown()
             self._thumbnail_service = None
         self._cancel_all_discovery_runs()
-        if self._discovery_run_worker is not None:
-            self._discovery_run_thread.quit() if self._discovery_run_thread is not None else None
-            self._discovery_run_thread.wait(1500) if self._discovery_run_thread is not None else None
-            self._discovery_run_worker = None
-            self._discovery_run_thread = None
+        self._wait_for_discovery_shutdown()
         for panel in self._panels:
             panel.shutdown()
         if self._tooltip_popup is not None:
@@ -872,6 +868,16 @@ class DiscoveryAreaController:
             self._canvas_widget.close()
             self._canvas_widget.deleteLater()
             self._canvas_widget = None
+
+    def _wait_for_discovery_shutdown(self) -> None:
+        thread = self._discovery_run_thread
+        if thread is not None:
+            # Cancellation may need two seconds before killing an unresponsive
+            # subprocess. Keep its Qt owners alive until cleanup has completed.
+            thread.quit()
+            thread.wait()
+        self._discovery_run_worker = None
+        self._discovery_run_thread = None
 
     def _flush_pin_persistence(self) -> None:
         if not self._project_has_storage():

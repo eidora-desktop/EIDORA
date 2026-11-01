@@ -4,7 +4,7 @@ import time
 
 from ProjectArea.thumbnail_generator import next_thumbnail_variant_label
 from ProjectArea.thumbnail_service import create_source_thumbnails
-from EmbeddingsArea.domain import EmbeddingRunConfiguration, EmbeddingRunState, MediaContentType
+from EmbeddingsArea.domain import EmbeddingRunState, MediaContentType
 from EmbeddingsArea.session import EmbeddingsAreaSession
 from DiscoveryArea.thumbnails.repository import ThumbnailVariantRepository
 
@@ -111,20 +111,19 @@ class EmbeddingGenerationJob:
                 summaries[source_id]
                 for source_id in source_ids
                 if source_id in summaries
-                and summaries[source_id].source.content_type == MediaContentType.IMAGE
+                and summaries[source_id].source.content_type in {MediaContentType.IMAGE, MediaContentType.VIDEO}
                 and summaries[source_id].asset_count > summaries[source_id].missing_count + summaries[source_id].error_count
             ),
             None,
         )
         if summary is None:
             self._emit_message(
-                "Thumbnail creation skipped: no usable image source was used by this embedding.",
+                "Thumbnail creation skipped: no usable image or video source was used by this embedding.",
                 completion_log,
             )
             self._emit_overall_progress(99, "Completing run without thumbnails...")
             return
 
-        resize_mode = self._thumbnail_resize_mode(configuration)
         label = next_thumbnail_variant_label(
             repo,
             f"{summary.source.label} (thumbs)",
@@ -158,7 +157,8 @@ class EmbeddingGenerationJob:
                 session.link_repository,
                 summary,
                 label=label,
-                resize_mode=resize_mode,
+                # Preview source media independently of model tensor resizing.
+                resize_mode="original_aspect",
                 progress_callback=_progress,
                 should_cancel=lambda: self._cancel_requested,
             )
@@ -167,16 +167,6 @@ class EmbeddingGenerationJob:
             self._emit_overall_progress(99, "Thumbnail generation finished with an error.")
             return
         self._emit_message(f"Generated default thumbnail variant '{result.label}'.", completion_log)
-
-    @staticmethod
-    def _thumbnail_resize_mode(configuration: EmbeddingRunConfiguration) -> str:
-        for value in configuration.parameter_values:
-            if (
-                value.scope == "preprocess"
-                and value.parameter_id in {"resize_mode", "image_resize", "resize"}
-            ):
-                return str(value.value or "original_aspect").strip() or "original_aspect"
-        return "original_aspect"
 
     def _emit_message(self, message: str, completion_log: list[str]) -> None:
         completion_log.append(message)

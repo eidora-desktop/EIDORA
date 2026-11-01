@@ -117,6 +117,12 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
             checkpoint(f"load-method:{method_id}")
             catalog.create(method_id)
 
+        checkpoint("umap-subprocess")
+        from shared.discovery_runtime_audit import audit_discovery_runtime
+        report["discovery_runtime"] = audit_discovery_runtime(
+            Path(temporary.name) / "discovery-runtime"
+        )
+
         checkpoint("clustering-subprocess")
         from EmbeddingsArea.clustering.process_runner import probe_runtime
         report["clustering_methods"] = probe_runtime()

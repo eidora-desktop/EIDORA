@@ -179,11 +179,16 @@ def _display_image(frame: Any, stream: Any) -> Image.Image:
 
     metadata = getattr(stream, "metadata", {}) or {}
     try:
-        rotation = int(round(float(getattr(frame, "rotation", 0) or metadata.get("rotate", 0)))) % 360
+        # PyAV display-matrix angles and Pillow both use counterclockwise
+        # rotation; legacy stream rotate tags use the opposite convention.
+        rotation = getattr(frame, "rotation", 0)
+        if not rotation:
+            rotation = -float(metadata.get("rotate", 0))
+        rotation = int(round(float(rotation))) % 360
     except (TypeError, ValueError):
         rotation = 0
     if rotation:
-        image = image.rotate(-rotation, expand=True)
+        image = image.rotate(rotation, expand=True)
     if str(metadata.get("mirror", "")).lower() in {"1", "true", "horizontal"}:
         image = ImageOps.mirror(image)
     return image
