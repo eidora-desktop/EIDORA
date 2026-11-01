@@ -377,17 +377,14 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
             </layout>
            </widget>
           </item>
-          <item>
+          <item alignment="Qt::AlignmentFlag::AlignBottom">
            <widget class="QWidget" name="panel_bottom_control" native="true">
-            <property name="surfaceRole" stdset="0">
-             <string>panel</string>
-            </property>
             <layout class="QHBoxLayout" name="layout_horizontal_layout_2">
              <property name="spacing">
               <number>6</number>
              </property>
              <property name="leftMargin">
-              <number>6</number>
+              <number>4</number>
              </property>
              <property name="topMargin">
               <number>0</number>
@@ -396,64 +393,91 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
               <number>6</number>
              </property>
              <property name="bottomMargin">
-              <number>3</number>
+              <number>0</number>
              </property>
-             <item>
-              <widget class="QComboBox" name="combo_matching">
-               <property name="toolTip">
-                <string>Match all or any rules</string>
-               </property>
-               <item>
-                <property name="text">
-                 <string>match all</string>
-                </property>
-               </item>
-               <item>
-                <property name="text">
-                 <string>match any</string>
-                </property>
-               </item>
-              </widget>
-             </item>
-             <item>
-              <widget class="QToolButton" name="button_hide_tooltip">
+             <item alignment="Qt::AlignmentFlag::AlignBottom">
+              <widget class="QWidget" name="widget" native="true">
                <property name="sizePolicy">
-                <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                  <horstretch>0</horstretch>
                  <verstretch>0</verstretch>
                 </sizepolicy>
                </property>
-               <property name="minimumSize">
-                <size>
-                 <width>22</width>
-                 <height>22</height>
-                </size>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>22</width>
-                 <height>22</height>
-                </size>
-               </property>
-               <property name="toolTip">
-                <string>Hide tooltips for filtered items</string>
-               </property>
-               <property name="text">
-                <string/>
-               </property>
-               <property name="icon">
-                <iconset>
-                 <normaloff>../../shared/icons/material/hide_tooltip.svg</normaloff>../../shared/icons/material/hide_tooltip.svg</iconset>
-               </property>
-               <property name="checkable">
-                <bool>true</bool>
-               </property>
-               <property name="checked">
-                <bool>true</bool>
-               </property>
-               <property name="iconName" stdset="0">
-                <string>hide_tooltip</string>
-               </property>
+               <layout class="QHBoxLayout" name="horizontalLayout">
+                <property name="spacing">
+                 <number>6</number>
+                </property>
+                <property name="leftMargin">
+                 <number>0</number>
+                </property>
+                <property name="topMargin">
+                 <number>0</number>
+                </property>
+                <property name="rightMargin">
+                 <number>0</number>
+                </property>
+                <property name="bottomMargin">
+                 <number>6</number>
+                </property>
+                <item>
+                 <widget class="QComboBox" name="combo_matching">
+                  <property name="toolTip">
+                   <string>Match all or any rules</string>
+                  </property>
+                  <item>
+                   <property name="text">
+                    <string>match all</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>match any</string>
+                   </property>
+                  </item>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QToolButton" name="button_hide_tooltip">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="minimumSize">
+                   <size>
+                    <width>22</width>
+                    <height>22</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>22</width>
+                    <height>22</height>
+                   </size>
+                  </property>
+                  <property name="toolTip">
+                   <string>Hide tooltips for filtered items</string>
+                  </property>
+                  <property name="text">
+                   <string/>
+                  </property>
+                  <property name="icon">
+                   <iconset>
+                    <normaloff>../../shared/icons/material/hide_tooltip.svg</normaloff>../../shared/icons/material/hide_tooltip.svg</iconset>
+                  </property>
+                  <property name="checkable">
+                   <bool>true</bool>
+                  </property>
+                  <property name="checked">
+                   <bool>true</bool>
+                  </property>
+                  <property name="iconName" stdset="0">
+                   <string>hide_tooltip</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
               </widget>
              </item>
              <item>
@@ -469,7 +493,7 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
                </property>
               </spacer>
              </item>
-             <item>
+             <item alignment="Qt::AlignmentFlag::AlignBottom">
               <widget class="QWidget" name="panel_filtered_opacity" native="true">
                <property name="minimumSize">
                 <size>
@@ -494,7 +518,7 @@ QListWidget::item:hover, QListWidget::item:selected { background: transparent; b
                  <number>0</number>
                 </property>
                 <property name="bottomMargin">
-                 <number>0</number>
+                 <number>6</number>
                 </property>
                 <item>
                  <widget class="QLabel" name="label_filtered_opacity_icon">

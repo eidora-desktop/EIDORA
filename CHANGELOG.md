@@ -4,8 +4,17 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.4 — 2026-11-01
+
+Experimental release for macOS Apple Silicon and Intel, and Linux x64.
+Windows Store x64 is built separately for validation and Store submission.
+This patch preserves the existing project format and dependency pins.
+
+Prototype software. Use at your own risk. Stability and backward compatibility are not guaranteed.
+
 ### Fixed
 
+- Refine the alignment and spacing of Discovery filter and snapshot footer controls.
 - Correct macOS signing permissions for UMAP's Numba/LLVM runtime, and exercise a real UMAP projection in packaged release checks.
 - Wait for Discovery cancellation to finish before releasing its Qt thread during shutdown.
 
