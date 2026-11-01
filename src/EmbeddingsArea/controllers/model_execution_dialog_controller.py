@@ -65,17 +65,12 @@ class ModelExecutionDialogController:
         if self._model is not None:
             self.dialog.setWindowTitle(f"Run {self._model.label}")
         self._rebuild(configuration)
-        has_completed = any(
-            run.state == EmbeddingRunState.COMPLETED
-            for run in self._session.service.list_embedding_runs()
-            if run.id != self.run_id
-        )
         variants = ThumbnailVariantRepository(self._project.paths.root).list_variants()
         saved = {
             (value.scope, value.parameter_id): value.value
             for value in configuration.parameter_values
         }
-        default = not has_completed and not variants
+        default = not variants
         self._thumbnails.setChecked(
             saved.get(("run", "create_thumbnails"), str(default)).lower() in {"1", "true", "yes"}
         )

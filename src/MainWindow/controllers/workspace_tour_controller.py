@@ -148,7 +148,9 @@ class WorkspaceTourController(QtCore.QObject):
         while parent is not None:
             rect = rect.intersected(QtCore.QRect(parent.mapToGlobal(QtCore.QPoint()), parent.size()))
             parent = parent.parentWidget()
-        rect.translate(-self._dialog.mapToGlobal(QtCore.QPoint()))
+        # Before first show, Windows mapToGlobal() can retain the native
+        # window's old position. Use the frameless overlay's assigned bounds.
+        rect.translate(-self._dialog.geometry().topLeft())
         return rect
 
     def _present(self) -> None:

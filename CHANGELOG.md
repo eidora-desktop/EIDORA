@@ -4,6 +4,17 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Correct macOS signing permissions for UMAP's Numba/LLVM runtime, and exercise a real UMAP projection in packaged release checks.
+- Wait for Discovery cancellation to finish before releasing its Qt thread during shutdown.
+
+- Default to creating thumbnails after embedding whenever none exist, including after earlier runs, and support video sources in automatic thumbnail creation.
+- Keep automatic thumbnails at the source aspect ratio independently of model preprocessing, so model resize settings cannot prevent thumbnail creation.
+- Correct upside-down portrait video thumbnails caused by reversed display-matrix rotation.
+
+- Start the workspace tour correctly on Windows when the hidden overlay's native position has not caught up with its assigned geometry.
+
 ## 0.2.3 — 2026-10-30
 
 Experimental release for macOS Apple Silicon and Intel, and Linux x64.

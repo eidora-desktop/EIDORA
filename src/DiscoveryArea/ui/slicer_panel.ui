@@ -2,9 +2,6 @@
 <ui version="4.0">
  <class>panel_slicer_pane_main</class>
  <widget class="QWidget" name="panel_slicer_pane_main">
-  <property name="styleSheet">
-   <string notr="true">QPushButton#button_apply_element { text-align: center; }</string>
-  </property>
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -15,6 +12,9 @@
   </property>
   <property name="windowTitle">
    <string>Form</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QPushButton#button_apply_element { text-align: center; }</string>
   </property>
   <property name="surfaceRole" stdset="0">
    <string>panel</string>
@@ -33,7 +33,7 @@
     <number>6</number>
    </property>
    <property name="bottomMargin">
-    <number>6</number>
+    <number>3</number>
    </property>
    <item>
     <widget class="QWidget" name="main_container" native="true">
@@ -196,9 +196,6 @@
                   </property>
                   <item>
                    <widget class="QComboBox" name="combo_slicer_column">
-                    <property name="toolTip">
-                     <string>Field to step through</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -216,6 +213,9 @@
                       <width>300</width>
                       <height>16777215</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Field to step through</string>
                     </property>
                     <property name="sizeAdjustPolicy">
                      <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
@@ -286,9 +286,6 @@
                   </item>
                   <item alignment="Qt::AlignmentFlag::AlignLeft">
                    <widget class="QSpinBox" name="spin_slicer_start">
-                    <property name="toolTip">
-                     <string>Starting value or position</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -300,6 +297,9 @@
                       <width>60</width>
                       <height>0</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Starting value or position</string>
                     </property>
                     <property name="minimum">
                      <number>-999999999</number>
@@ -376,9 +376,6 @@
                   </item>
                   <item alignment="Qt::AlignmentFlag::AlignLeft">
                    <widget class="QSpinBox" name="spin_slicer_spread">
-                    <property name="toolTip">
-                     <string>Interval width or text-value count</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -390,6 +387,9 @@
                       <width>40</width>
                       <height>0</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Interval width or text-value count</string>
                     </property>
                     <property name="minimum">
                      <number>1</number>
@@ -460,9 +460,6 @@
                   </item>
                   <item alignment="Qt::AlignmentFlag::AlignLeft">
                    <widget class="QSpinBox" name="spin_slicer_steps">
-                    <property name="toolTip">
-                     <string>Advance per step</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -474,6 +471,9 @@
                       <width>40</width>
                       <height>0</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Advance per step</string>
                     </property>
                     <property name="minimum">
                      <number>1</number>
@@ -519,14 +519,14 @@
                </item>
                <item>
                 <widget class="QToolButton" name="button_slicer_options">
-                 <property name="toolTip">
-                  <string>Slicer options</string>
-                 </property>
                  <property name="maximumSize">
                   <size>
                    <width>22</width>
                    <height>22</height>
                   </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Slicer options</string>
                  </property>
                  <property name="text">
                   <string>...</string>
@@ -562,9 +562,6 @@
                </property>
                <item>
                 <widget class="QScrollBar" name="scrollbar_slicer">
-                 <property name="toolTip">
-                  <string>Move the active slice</string>
-                 </property>
                  <property name="enabled">
                   <bool>false</bool>
                  </property>
@@ -585,6 +582,9 @@
                    <width>16777215</width>
                    <height>18</height>
                   </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Move the active slice</string>
                  </property>
                  <property name="maximum">
                   <number>16777215</number>
