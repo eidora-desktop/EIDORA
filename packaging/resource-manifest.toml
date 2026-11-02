@@ -98,6 +98,7 @@ modules = [
   "pyarrow.parquet",
   "shared.export_runtime_audit",
   "shared.internal_workers",
+  "shared.onnx_runtime_audit",
   "shared.release_self_test",
   "project.starter_ui_audit",
   "shared.video_runtime_audit",

@@ -208,6 +208,7 @@ jobs:
             aqtinstall.log
             build-output/resource-inventory.json
             build-output/release-self-test.json
+            build-output/release-self-test.onnx.json
             build-output/store/msix-build-report.json
             build-output/release-self-test.*.log
             build-output/dist/bundle-inventory.json

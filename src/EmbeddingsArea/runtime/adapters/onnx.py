@@ -123,6 +123,10 @@ class OnnxAdapter:
         providers = execution_providers_for_device(ort, config.requested_device, declared)
         self._phase("setup")
         try:
+            if providers[0] == "CUDAExecutionProvider":
+                from EmbeddingsArea.runtime.cuda import preload_cuda
+
+                preload_cuda(ort)
             self._session = ort.InferenceSession(
                 str(config.model_path),
                 providers=providers,

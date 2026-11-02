@@ -4,6 +4,13 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Include the CUDA-enabled ONNX Runtime and its CUDA 12/cuDNN dependencies in
+  Windows and Linux bundles, retaining CPU execution and older NVIDIA GPU support.
+  Validate the native CUDA payload and library loading during packaging, and
+  exercise actual CoreML inference in Apple Silicon release self-tests.
+
 ## 0.2.5 — 2026-11-02
 
 Published for macOS Apple Silicon and Intel, Linux x64, and Windows x64

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from resource_inventory import inventory
 from fetch_starter_collection import fetch
+from onnx_bundle import validate_cuda_bundle
 
 
 _REQUIRED_MACOS_QT_FRAMEWORKS = frozenset(
@@ -148,6 +149,7 @@ def build(
     if not bundle.exists():
         raise RuntimeError(f"PyInstaller did not create the expected bundle: {bundle}")
     _repair_macos_qt_framework_links(bundle)
+    validate_cuda_bundle(bundle)
     report = _file_manifest(bundle)
     report_path = output_dir / "bundle-inventory.json"
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

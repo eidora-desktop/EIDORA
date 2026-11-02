@@ -4,8 +4,8 @@
 #
 #    pip-compile --output-file=packaging/runtime-requirements.txt --strip-extras pyproject.toml
 #
-# The Intel macOS ONNX Runtime/Numba/llvmlite/NumPy and platform Qt pins are wheel/SDK
-# compatibility overrides. Preserve their markers when regenerating this file.
+# The Intel macOS, platform Qt, and CUDA 12/cuDNN pins are compatibility
+# overrides. Preserve their markers and versions when regenerating this file.
 #
 annoy==1.17.3
     # via trimap
@@ -100,10 +100,20 @@ numpy==2.5.3 ; sys_platform != "darwin" or platform_machine != "x86_64"
     #   scikit-learn
     #   scipy
     #   umap-learn
+# CUDA 12.8 / cuDNN 9.10 retain Pascal support; keep aligned with pyproject.toml.
+onnxruntime-gpu==1.26.0; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+nvidia-cudnn-cu12==9.10.2.21; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+nvidia-cublas-cu12==12.8.4.1; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+nvidia-cuda-runtime-cu12==12.8.90; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+nvidia-cuda-nvrtc-cu12==12.8.93; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+nvidia-cufft-cu12==11.3.3.83; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+nvidia-curand-cu12==10.3.9.90; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+nvidia-nvjitlink-cu12==12.8.93; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+
 odfpy==1.4.1
     # via eidora-desktop (pyproject.toml)
 onnxruntime==1.23.2 ; sys_platform == "darwin" and platform_machine == "x86_64"
-onnxruntime==1.30.0 ; sys_platform != "darwin" or platform_machine != "x86_64"
+onnxruntime==1.30.0 ; (sys_platform != "darwin" or platform_machine != "x86_64") and (sys_platform != "win32" and sys_platform != "linux" or platform_machine != "AMD64" and platform_machine != "x86_64")
     # via eidora-desktop (pyproject.toml)
 openpyxl==3.1.5
     # via eidora-desktop (pyproject.toml)

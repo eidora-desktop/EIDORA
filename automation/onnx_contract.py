@@ -14,6 +14,7 @@ from EmbeddingsArea.preparation_contract import catalog_document
 SOURCES = ("src/EmbeddingsArea/preparation_contract.py", "src/EmbeddingsArea/model_package.py",
            "src/EmbeddingsArea/runtime/preparers.py", "src/EmbeddingsArea/runtime/adapters/onnx.py",
            "src/EmbeddingsArea/runtime/adapters/base.py", "src/EmbeddingsArea/runtime/contracts.py",
+           "src/EmbeddingsArea/runtime/cuda.py",
            "src/EmbeddingsArea/runtime/package_validation.py", "src/shared/bibtex.py")
 DOCS = ("ONNX_CONFIG_SCHEMA.md", "ONNX_MODEL_REQUIREMENTS.md", "ONNX_MODEL_REQUIREMENTS_AGENTS.md", "ONNX_PREPARATION_OPTIONS.md")
 
