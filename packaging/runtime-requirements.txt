@@ -114,7 +114,7 @@ nvidia-nvjitlink-cu12==12.8.93; (sys_platform == 'win32' or sys_platform == 'lin
 
 odfpy==1.4.1
     # via eidora-desktop (pyproject.toml)
-onnx==1.20.1 ; sys_platform == "darwin"
+onnx==1.22.0 ; sys_platform == "darwin"
     # via eidora-desktop (pyproject.toml)
 onnxruntime==1.23.2 ; sys_platform == "darwin" and platform_machine == "x86_64"
 onnxruntime==1.30.0 ; (sys_platform != "darwin" or platform_machine != "x86_64") and (sys_platform != "win32" and sys_platform != "linux" or platform_machine != "AMD64" and platform_machine != "x86_64")
