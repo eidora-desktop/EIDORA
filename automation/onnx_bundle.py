@@ -13,6 +13,24 @@ CUDA_DISTRIBUTIONS = (
 )
 
 
+def remove_duplicate_cuda_libraries(entries, root_binaries):
+    """Keep explicitly flattened CUDA libraries once after PyInstaller hooks run."""
+    roots = {destination.replace("\\", "/"): Path(source).resolve()
+             for destination, source, kind in root_binaries
+             if kind == "BINARY" and "/" not in destination.replace("\\", "/")}
+    result = []
+    for entry in entries:
+        destination, source, kind = entry
+        destination = destination.replace("\\", "/")
+        # Never remove a different library with the same name, or a library
+        # whose flattened counterpart is absent. Retain licenses and modules.
+        if (destination.startswith("nvidia/") and kind in {"BINARY", "DATA"}
+                and roots.get(destination.rsplit("/", 1)[-1]) == Path(source).resolve()):
+            continue
+        result.append(entry)
+    return result
+
+
 def cuda_bundle_files() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Flatten runtime libraries into the bootloader's native library directory.
 
