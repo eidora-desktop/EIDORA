@@ -164,6 +164,7 @@ class LocalModelsPanelController(_BaseModelsPanelController):
         self._browse_callback: Callable[[], None] | None = None
         self._browse_button.clicked.connect(self._browse_model_zoo)
         self._install_coordinator.changed.connect(self.update_pending_install)
+        self._install_coordinator.progress_changed.connect(self.update_pending_install)
         self._configure_tree(self._local_models)
         self.refresh()
 
