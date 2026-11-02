@@ -6,6 +6,16 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Prevent CoreML dynamic execution-plan failures and native compiler crashes
+  with validated single-item batch specialization and static-shape CoreML partitions,
+  retaining strict output validation and CPU execution for unsupported graph sections.
+- Show Model Zoo download sizes from Hugging Face file metadata, counting the
+  installed package files. Keep model cards responsive while sizes load and
+  allow unavailable sizes to retry.
+- Use CoreML's MLProgram format so normalized embedding outputs retain sufficient
+  precision to pass validation instead of unnecessarily restarting on CPU.
+  Handle its missing-padding compiler error for models such as VGG16 using a
+  temporary equivalent graph, preserving downloaded packages and checksums.
 - Include the CUDA-enabled ONNX Runtime and its CUDA 12/cuDNN dependencies in
   Windows and Linux bundles, retaining CPU execution and older NVIDIA GPU support.
   Validate the native CUDA payload and library loading during packaging, and

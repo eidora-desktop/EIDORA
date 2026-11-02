@@ -66,7 +66,14 @@ macOS size guards remain unchanged.
 The packaged self-test checks CUDA plugin loading and CPU inference on Windows
 and Linux even when CI has no GPU. Apple Silicon checks actual CoreML inference;
 Intel Macs check CPU. The audit verifies numerical results at batches 1, 2, and
-32 and uses profiling to reject silent substitution of CPU for an accelerator.
+32, checks unit-length embeddings, and uses profiling to reject silent substitution
+of CPU for an accelerator. It shares the adapter's explicit CoreML MLProgram
+configuration; the older NeuralNetwork format can violate the normalization
+tolerance through precision loss.
+The graph deliberately omits Conv/AveragePool padding. This exercises the
+CoreML-only compatibility retry for ORT's missing MLProgram `pad` input, including
+the macOS `onnx` / `ml-dtypes` bundle dependencies. Keep this omission in the
+fixture: explicit padding would hide the VGG16 compiler regression.
 This small graph checks the runtime, not every Model Zoo model. On NVIDIA
 hardware, also run the packaged worker explicitly (paths must be writable):
 

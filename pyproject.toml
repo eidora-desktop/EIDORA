@@ -13,7 +13,8 @@ dependencies = [
   "certifi>=2026.10.19",
   "filelock>=4.2.1",
   "numpy>=1.26",
-  "onnxruntime>=1.18; sys_platform != 'win32' and sys_platform != 'linux' or platform_machine != 'AMD64' and platform_machine != 'x86_64'",
+  "onnx>=1.20.1; sys_platform == 'darwin'",
+  "onnxruntime>=1.20; sys_platform != 'win32' and sys_platform != 'linux' or platform_machine != 'AMD64' and platform_machine != 'x86_64'",
   # CUDA 12 and cuDNN 9.10 retain Pascal support (including GeForce MX350).
   # ORT 1.27+ PyPI GPU wheels use CUDA 13; do not upgrade these independently.
   "onnxruntime-gpu[cuda,cudnn]==1.26.0; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')",

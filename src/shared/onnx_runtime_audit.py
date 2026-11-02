@@ -10,17 +10,20 @@ import sys
 import traceback
 
 
-# ONNX IR 9, opset 17: identity 1x1 Conv, Relu, GlobalAveragePool, Flatten.
+# ONNX IR 9, opset 17: Conv, Relu, AveragePool, GlobalAveragePool, Flatten, ReduceL2, Div.
 # Conv exercises cuDNN engine loading as well as the CUDA provider itself.
+# Omitted Conv/AveragePool pads exercise the MLProgram compatibility path.
+# L2 normalization detects CoreML precision loss on real embedding contracts.
 # An immutable synthetic graph keeps release checks independent of Model Zoo,
 # networking, and the exporter/onnx development package.
-_MODEL = "CAk6mgIKIQoGcGl4ZWxzCgZ3ZWlnaHQSCWNvbnZvbHZlZCIEQ29udgobCgljb252b2x2ZWQSCHBvc2l0aXZlIgRSZWx1CiUKCHBvc2l0aXZlEgZwb29sZWQiEUdsb2JhbEF2ZXJhZ2VQb29sChwKBnBvb2xlZBIJZW1iZWRkaW5nIgdGbGF0dGVuEhBjdWRhLWN1ZG5uLWF1ZGl0KjgIAwgDCAEIARABQgZ3ZWlnaHRKJAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAACAP1olCgZwaXhlbHMSGwoZCAESFQoHEgViYXRjaAoCCAMKAggECgIIBGIgCgllbWJlZGRpbmcSEwoRCAESDQoHEgViYXRjaAoCCANCAhAR"
+_MODEL = "CAk6ugMKIQoGcGl4ZWxzCgZ3ZWlnaHQSCWNvbnZvbHZlZCIEQ29udgobCgljb252b2x2ZWQSCHBvc2l0aXZlIgRSZWx1CkoKCHBvc2l0aXZlEghhdmVyYWdlZCILQXZlcmFnZVBvb2wqFQoMa2VybmVsX3NoYXBlQAJAAqABByoQCgdzdHJpZGVzQAJAAqABBwolCghhdmVyYWdlZBIGcG9vbGVkIhFHbG9iYWxBdmVyYWdlUG9vbAobCgZwb29sZWQSCGZlYXR1cmVzIgdGbGF0dGVuCicKCGZlYXR1cmVzEgRub3JtIghSZWR1Y2VMMioLCgRheGVzQAGgAQcKIAoIZmVhdHVyZXMKBG5vcm0SCWVtYmVkZGluZyIDRGl2Ehpub3JtYWxpemVkLWVtYmVkZGluZy1hdWRpdCo4CAMIAwgBCAEQAUIGd2VpZ2h0SiQAAIA/AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD9aJQoGcGl4ZWxzEhsKGQgBEhUKBxIFYmF0Y2gKAggDCgIIBAoCCARiIAoJZW1iZWRkaW5nEhMKEQgBEg0KBxIFYmF0Y2gKAggDQgIQEQ=="
 
 
 def probe(directory: Path, provider: str | None = None) -> dict:
     import ctypes
     import numpy as np
     import onnxruntime as ort
+    from EmbeddingsArea.runtime.adapters.onnx import create_onnx_session
 
     directory.mkdir(parents=True, exist_ok=True)
     available = ort.get_available_providers()
@@ -49,20 +52,25 @@ def probe(directory: Path, provider: str | None = None) -> dict:
     options = ort.SessionOptions()
     options.enable_profiling = True
     options.profile_file_prefix = str(directory / "profile")
-    session = ort.InferenceSession(base64.b64decode(_MODEL), sess_options=options, providers=providers)
+    model_path = directory / "model.onnx"
+    model_path.write_bytes(base64.b64decode(_MODEL))
+    session = create_onnx_session(ort, model_path, providers, sess_options=options)
     session.disable_fallback()
     if session.get_providers() != providers:
         raise RuntimeError(f"Requested {providers}, received {session.get_providers()}")
     for batch in (1, 2, 32):
         pixels = np.arange(batch * 48, dtype=np.float32).reshape(batch, 3, 4, 4)
         actual = session.run(None, {"pixels": pixels})[0]
-        np.testing.assert_allclose(actual, pixels.mean(axis=(2, 3)), rtol=1e-4, atol=1e-5)
+        expected = pixels.mean(axis=(2, 3))
+        expected /= np.linalg.norm(expected, axis=1, keepdims=True)
+        np.testing.assert_allclose(actual, expected, rtol=1e-4, atol=1e-5)
+        np.testing.assert_allclose(np.linalg.norm(actual, axis=1), 1.0, rtol=1e-4, atol=1e-5)
     profile = Path(session.end_profiling())
     events = json.loads(profile.read_text(encoding="utf-8"))
     executed = sorted({event.get("args", {}).get("provider") for event in events if event.get("args", {}).get("provider")})
     if name not in executed:
         raise RuntimeError(f"Inference did not execute any nodes on {name}: {executed}")
-    report.update(provider=name, executed_providers=executed, batches=[1, 2, 32])
+    report.update(provider=name, executed_providers=executed, batches=[1, 2, 32], normalized_vectors=True)
     if provider == "cuda":
         report["cuda_inference"] = "passed"
     return report

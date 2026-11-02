@@ -19,7 +19,8 @@ _MODEL_KIND_ROLE = _MODEL_ID_ROLE + 1
 
 class _CatalogSignals(QtCore.QObject):
     groups_loaded = QtCore.Signal(int, object)
-    card_loaded = QtCore.Signal(int, str, object, object)
+    card_loaded = QtCore.Signal(int, str, object)
+    size_loaded = QtCore.Signal(int, str, object)
 
 
 class ModelZooDialogController:
@@ -45,6 +46,7 @@ class ModelZooDialogController:
         self._signals = _CatalogSignals()
         self._signals.groups_loaded.connect(self._apply_groups)
         self._signals.card_loaded.connect(self._apply_card)
+        self._signals.size_loaded.connect(self._apply_size)
         self._catalog_generation = 0
         self._card_generation = 0
         self._catalog_loading = False
@@ -100,6 +102,8 @@ class ModelZooDialogController:
             return
         if not self._groups and not self._catalog_loading:
             self.refresh()
+        elif entry := self._entries.get(self._key(self._selected_model_id)):
+            self._show_entry(entry)
         if not self._initial_size_applied:
             screen = self.dialog.screen() or QtGui.QGuiApplication.primaryScreen()
             available = screen.availableGeometry() if screen is not None else QtCore.QRect(0, 0, 960, 640)
@@ -114,6 +118,9 @@ class ModelZooDialogController:
             return
         if force:
             self._force_card_reload = True
+            self._size_cache.clear()
+            self._card_generation += 1
+            self._loading_card_key = ""
         self._catalog_generation += 1
         generation = self._catalog_generation
         catalog = self._catalog()
@@ -246,49 +253,63 @@ class ModelZooDialogController:
         if cached is not None and not self._force_card_reload:
             self.card.setMarkdown(cached)
             self.status_label.setText("")
-            return
+            if key in self._size_cache:
+                return
         if cached is None:
             self.card.setMarkdown(f"# {entry.label}\n\n{entry.description}\n\n_Loading model card…_")
-        self.status_label.setText(f"Loading model card for {entry.label}…")
+        force = self._force_card_reload
+        if cached is None or force:
+            self.status_label.setText(f"Loading model card for {entry.label}…")
         self._force_card_reload = False
         if self._loading_card_key == key:
             return
         self._loading_card_key = key
+        self._refresh_install_controls(entry)
         self._card_generation += 1
         generation = self._card_generation
         catalog = self._catalog()
         threading.Thread(
             target=self._load_card,
-            args=(generation, entry, catalog),
+            args=(generation, entry, catalog, None if force else cached),
             name="model-zoo-card",
             daemon=True,
         ).start()
 
-    def _load_card(self, generation: int, entry: ModelCatalogEntry, catalog: object) -> None:
+    def _load_card(self, generation: int, entry: ModelCatalogEntry, catalog: object, cached: str | None) -> None:
         try:
-            local_model_id = self._local_model_id(entry.id, catalog)
-            if local_model_id is not None:
-                text = catalog.read_local_model_readme(local_model_id)
+            if cached is not None:
+                text = cached
             else:
-                text = catalog.fetch_discoverable_model_readme(entry)
+                local_model_id = self._local_model_id(entry.id, catalog)
+                if local_model_id is not None:
+                    text = catalog.read_local_model_readme(local_model_id)
+                else:
+                    text = catalog.fetch_discoverable_model_readme(entry)
         except Exception as exc:  # noqa: BLE001
             text = exc
+        self._signals.card_loaded.emit(generation, entry.id, text)
         try:
             size = catalog.fetch_discoverable_model_size(entry)
         except Exception:  # noqa: BLE001
             size = None
-        self._signals.card_loaded.emit(generation, entry.id, text, size)
+        self._signals.size_loaded.emit(generation, entry.id, size)
 
-    def _apply_card(self, generation: int, model_id: str, result: object, size: object) -> None:
-        if self._shutdown:
+    def _apply_size(self, generation: int, model_id: str, size: object) -> None:
+        if self._shutdown or generation != self._card_generation:
             return
         key = self._key(model_id)
         if self._loading_card_key == key:
             self._loading_card_key = ""
-        if generation != self._card_generation:
-            return
-        if isinstance(size, int):
+        if type(size) is int and size >= 0:
             self._size_cache[key] = size
+        entry = self._entries.get(key)
+        if entry is not None and key == self._key(self._selected_model_id):
+            self._refresh_install_controls(entry)
+
+    def _apply_card(self, generation: int, model_id: str, result: object) -> None:
+        if self._shutdown or generation != self._card_generation:
+            return
+        key = self._key(model_id)
         entry = self._entries.get(key)
         if key != self._key(self._selected_model_id):
             return
@@ -338,7 +359,12 @@ class ModelZooDialogController:
         pending = self._install_coordinator.pending(entry.id)
         installed = entry.is_installed or self._installed_locally(entry.id)
         size = self._size_cache.get(self._key(entry.id), entry.size_bytes)
-        self.size_label.setText(f"Download: {_human_size(size)}" if size is not None else "Download size unavailable")
+        if size is not None:
+            self.size_label.setText(f"Download: {_human_size(size)}")
+        elif self._loading_card_key == self._key(entry.id):
+            self.size_label.setText("Loading download size…")
+        else:
+            self.size_label.setText("Download size unavailable")
         if installed:
             self.install_button.setText("Installed")
             self.install_button.setEnabled(False)
