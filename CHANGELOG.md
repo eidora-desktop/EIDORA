@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.6 — Prepared
+
 ### Fixed
 
 - Prevent CoreML dynamic execution-plan failures and native compiler crashes
