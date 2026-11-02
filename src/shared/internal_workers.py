@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 
 INTERNAL_WORKER_FLAG = "--internal-worker"
-_WORKER_NAMES = frozenset({"discovery", "gif", "native-probe", "video-thumbnail"})
+_WORKER_NAMES = frozenset({"discovery", "gif", "native-probe", "video-thumbnail", "onnx-audit"})
 
 
 def internal_worker_arguments(name: str, *arguments: object) -> list[str]:
@@ -45,6 +45,10 @@ def dispatch_internal_worker(argv: Sequence[str]) -> int:
         return 2
 
     name, worker_args = args[0], args[1:]
+    if name == "onnx-audit":
+        from shared.onnx_runtime_audit import main
+
+        return main(worker_args)
     if name == "discovery":
         from DiscoveryArea.discovery_methods.process_runner import main
 

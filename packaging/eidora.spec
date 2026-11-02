@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "automation"))
 from eidora_version import __version__
 from resource_inventory import release_resources
 from prepare_macos_icon import validate_macos_icon
+from onnx_bundle import cuda_bundle_files
 
 
 with MANIFEST_PATH.open("rb") as stream:
@@ -69,6 +70,9 @@ if not native_libraries:
 
 binaries = [(str(library), native_destination) for library in native_libraries]
 binaries.extend(collect_dynamic_libs("av"))
+cuda_binaries, cuda_data = cuda_bundle_files()
+binaries.extend(cuda_binaries)
+datas.extend(cuda_data)
 datas.append((str(native_module / "qmldir"), native_destination))
 
 analysis = Analysis(

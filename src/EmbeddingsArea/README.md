@@ -35,6 +35,14 @@ still applies, and refreshing the local catalog reads repaired configurations.
 Set the switch to `False` to restore the original strict download/install path.
 Receipt reading remains available so previously downloaded packages stay visible.
 
+Download sizes use Hub file metadata (`blobs=true`) and the config at the same
+immutable repository revision. Count declared artifacts and present optional
+installer files once, excluding unrelated repository contents. Share the optional
+file list between the HTTP and Hub-client installers and size lookup. Cache only
+successful totals; missing sizes or required files must not produce partial totals.
+The dialog displays model cards before size requests finish, retries unavailable
+sizes on selection/reopening, and invalidates its size cache on forced refresh.
+
 Schema-v3 multimodal packages keep aligned encoders in one installed model:
 `modality: multimodal`, `runtime.components` (one runtime/preparation mapping per
 modality), and `runtime.fusion: normalized_mean`. Every encoder shares the root

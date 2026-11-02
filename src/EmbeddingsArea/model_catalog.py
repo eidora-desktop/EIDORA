@@ -35,6 +35,10 @@ from EmbeddingsArea.model_package import (
 
 HUGGINGFACE_ACCOUNT = "EIDORA"
 MODEL_MANIFEST = "config.yaml"
+_OPTIONAL_PACKAGE_FILES = (
+    "README.md", "LICENSE", "LICENSE.txt", "tokenizer.json", "tokenizer_config.json",
+    "special_tokens_map.json", "vocab.txt", "vocab.json", "merges.txt",
+)
 # Temporary schema-repair escape hatch; strict installs are the default.
 # Execution still uses the normal package contract and validation.
 TEMPORARILY_ALLOW_UNVALIDATED_MODEL_DOWNLOADS = False
@@ -1038,7 +1042,7 @@ def _download_huggingface_model(
             repo_id=repo_id,
             repo_type="model",
             local_dir=str(target),
-            allow_patterns=(MODEL_MANIFEST, "README.md", *declared_paths),
+            allow_patterns=(MODEL_MANIFEST, *_OPTIONAL_PACKAGE_FILES, *declared_paths),
         )
     except TypeError:
         snapshot_download(
@@ -1112,18 +1116,9 @@ def _download_huggingface_model_via_http(
             progress_start=start,
             progress_end=end,
         )
-    optional_paths = (
-        "README.md",
-        "LICENSE",
-        "LICENSE.txt",
-        "tokenizer.json",
-        "tokenizer_config.json",
-        "special_tokens_map.json",
-        "vocab.txt",
-        "vocab.json",
-        "merges.txt",
-    )
-    for path in optional_paths:
+    for path in _OPTIONAL_PACKAGE_FILES:
+        if path in required_paths:
+            continue
         _download_huggingface_file(
             repo_id,
             path,
@@ -1195,17 +1190,17 @@ def _read_package_readme(directory: Path, label: str) -> str:
         return readme.read_text(encoding="utf-8", errors="replace")
 
 
-def _read_huggingface_text_file(repo_id: str, remote_path: str) -> str:
+def _read_huggingface_text_file(repo_id: str, remote_path: str, *, revision: str = "main") -> str:
     if not _is_relative_package_path(remote_path):
         raise RuntimeError(f"Model package path escapes the package directory: {remote_path}")
     safe_repo = quote(repo_id, safe="/")
     safe_path = quote(str(remote_path).strip().lstrip("/"), safe="/")
-    url = f"https://huggingface.co/{safe_repo}/resolve/main/{safe_path}"
+    url = f"https://huggingface.co/{safe_repo}/resolve/{quote(revision, safe='')}/{safe_path}"
     try:
         with _open_huggingface_url(url, timeout=10.0) as response:
             payload = response.read()
     except Exception as exc:
-        raise RuntimeError(f"README.md is not available for {repo_id}: {exc}") from exc
+        raise RuntimeError(f"{remote_path} is not available for {repo_id}: {exc}") from exc
     return payload.decode("utf-8", errors="replace")
 
 
@@ -1647,11 +1642,10 @@ def _entry_from_collection_item(raw: Any, installed_ids: frozenset[str]) -> Mode
     tags = tuple(str(tag).strip() for tag in item.get("tags", ()) if str(tag).strip()) if isinstance(item.get("tags"), list) else ()
     modality_labels = _modality_labels_from_item(pipeline_tag, tags)
     label = str(item.get("title") or item.get("label") or item.get("name") or "").strip() or _display_model_label(model_id)
-    safetensors = item.get("safetensors") if isinstance(item.get("safetensors"), dict) else {}
-    size_bytes = _coerce_optional_int(item.get("size") or item.get("sizeBytes") or safetensors.get("total"))
     # Collection discovery must remain a single request path. Fetching each
     # package manifest here delays every row until all model requests finish.
-    # The Hub's collection metadata supplies a size when it is available.
+    # Selected-model file metadata supplies download bytes; collection sizes
+    # can describe unrelated files, and safetensors.total counts parameters.
     description = str(item.get("description") or card_data.get("summary") or f"https://huggingface.co/{model_id}").strip()
     return ModelCatalogEntry(
         id=model_id,
@@ -1660,69 +1654,49 @@ def _entry_from_collection_item(raw: Any, installed_ids: frozenset[str]) -> Mode
         backend=str(item.get("library_name") or card_data.get("library_name") or "huggingface"),
         description=description,
         dimensions=_coerce_optional_int(card_data.get("embedding_dimensions") or card_data.get("dimensions")),
-        size_bytes=size_bytes,
         install_state=ModelInstallState.INSTALLED if _model_id_key(model_id) in installed_ids else ModelInstallState.AVAILABLE,
         is_installed=_model_id_key(model_id) in installed_ids,
     )
 
 
-@lru_cache(maxsize=256)
 def _fetch_model_package_size_bytes(model_id: str) -> int | None:
-    """Read the package-owned size declaration used by the Model Zoo UI."""
+    """Look up installed-file bytes without downloading weights or caching failures."""
     try:
-        text = _read_huggingface_text_file(model_id, MODEL_MANIFEST)
-        import yaml
-
-        payload = yaml.safe_load(text)
+        _validate_eidora_repo_id(model_id)
+        url = f"https://huggingface.co/api/models/{quote(model_id, safe='/')}?blobs=true"
+        with _open_huggingface_url(url, timeout=10.0) as response:
+            metadata = json.load(response)
+        revision = metadata.get("sha", "")
+        if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+            raise ValueError("Model metadata has no immutable revision.")
+        siblings = metadata.get("siblings")
+        if not isinstance(siblings, list):
+            raise ValueError("Model metadata has no file listing.")
+        files = tuple(sorted(
+            (item["rfilename"], item["size"] if type(item.get("size")) is int and item["size"] >= 0 else None)
+            for item in siblings if isinstance(item, dict) and isinstance(item.get("rfilename"), str)
+        ))
+        return _model_package_size_at_revision(model_id, revision, files)
     except Exception:
         return None
-    return _package_size_bytes_from_config(payload)
 
 
-def _package_size_bytes_from_config(payload: Any) -> int | None:
-    if not isinstance(payload, dict):
-        return None
-    artifact = payload.get("artifact") if isinstance(payload.get("artifact"), dict) else {}
-    artifacts = payload.get("artifacts") if isinstance(payload.get("artifacts"), dict) else {}
-    candidates = (
-        payload.get("file_size_bytes"),
-        payload.get("package_size_bytes"),
-        artifact.get("file_size_bytes"),
-        artifact.get("package_size_bytes"),
-        artifacts.get("file_size_bytes"),
-        artifacts.get("package_size_bytes"),
-        payload.get("file_size"),
-        artifact.get("file_size"),
-        artifacts.get("file_size"),
-    )
-    for value in candidates:
-        parsed = _size_bytes(value)
-        if parsed is not None:
-            return parsed
-    return None
+@lru_cache(maxsize=256)
+def _model_package_size_at_revision(
+    model_id: str, revision: str, files: tuple[tuple[str, int | None], ...],
+) -> int:
+    import yaml
 
-
-def _size_bytes(value: Any) -> int | None:
-    numeric = _coerce_optional_int(value)
-    if numeric is not None and numeric >= 0:
-        return numeric
-    match = re.match(r"^\s*(\d+(?:\.\d+)?)\s*([kmgt]?i?b)\s*$", str(value or ""), flags=re.IGNORECASE)
-    if match is None:
-        return None
-    amount = float(match.group(1))
-    unit = match.group(2).casefold()
-    multipliers = {
-        "b": 1,
-        "kb": 1_000,
-        "mb": 1_000_000,
-        "gb": 1_000_000_000,
-        "tb": 1_000_000_000_000,
-        "kib": 1024,
-        "mib": 1024**2,
-        "gib": 1024**3,
-        "tib": 1024**4,
-    }
-    return round(amount * multipliers[unit])
+    payload = yaml.safe_load(_read_huggingface_text_file(model_id, MODEL_MANIFEST, revision=revision))
+    spec = parse_model_package(payload)
+    required = {MODEL_MANIFEST, *(artifact.path for artifact in spec.artifacts)}
+    sizes = dict(files)
+    selected = required | (set(_OPTIONAL_PACKAGE_FILES) & sizes.keys())
+    if any(sizes.get(path) is None for path in selected):
+        # Exceptions are not cached by lru_cache: a transient/incomplete reply
+        # must remain retryable instead of becoming a misleading partial total.
+        raise ValueError("Model metadata is missing required file sizes.")
+    return sum(sizes[path] for path in selected)
 
 
 def _modality_labels_from_item(pipeline_tag: str, tags: tuple[str, ...]) -> tuple[str, ...]:

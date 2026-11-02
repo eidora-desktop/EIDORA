@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import platform
+from copy import deepcopy
 from pathlib import Path
 from dataclasses import replace
 from typing import Any
@@ -87,6 +88,35 @@ def _provider_chain(provider: str, available: set[str]) -> list[str]:
     return [provider, "CPUExecutionProvider"] if "CPUExecutionProvider" in available else [provider]
 
 
+def session_provider_configuration(providers: list[str]) -> list[str | tuple[str, dict[str, str]]]:
+    """Avoid legacy CoreML rounding that violates normalized-vector contracts."""
+    return [
+        (provider, {"ModelFormat": "MLProgram"}) if provider == "CoreMLExecutionProvider" else provider
+        for provider in providers
+    ]
+
+
+def create_onnx_session(ort, model_path: Path, providers: list[str], *, coreml_options=None, **kwargs):
+    configuration = session_provider_configuration(providers)
+    if coreml_options is not None:
+        configuration = [(name, {"ModelFormat": "MLProgram", **coreml_options})
+                         if name == "CoreMLExecutionProvider" else name for name in providers]
+    try:
+        return ort.InferenceSession(str(model_path), providers=configuration, **kwargs)
+    except Exception as exc:
+        if (providers[0] != "CoreMLExecutionProvider" or
+                "Unable to parse ML Program" not in str(exc) or "Required param 'pad' is missing" not in str(exc)):
+            raise
+        # ORT's MLProgram converter omits Apple's required pad input for valid
+        # ONNX default/VALID padding (upstream issue microsoft/onnxruntime#33574).
+        from EmbeddingsArea.runtime.coreml import explicit_padding_model
+
+        with explicit_padding_model(model_path) as compatible_path:
+            if compatible_path is None:
+                raise
+            return ort.InferenceSession(str(compatible_path), providers=configuration, **kwargs)
+
+
 class OnnxAdapter:
     """One strict executor for all package-declared ONNX embedding modalities."""
 
@@ -121,25 +151,62 @@ class OnnxAdapter:
         declared = validate_providers(config.runtime_contract.get("execution_providers"))
         import onnxruntime as ort
         providers = execution_providers_for_device(ort, config.requested_device, declared)
+        self._contract = deepcopy(config.runtime_contract)
         self._phase("setup")
         try:
-            self._session = ort.InferenceSession(
-                str(config.model_path),
-                providers=providers,
-            )
+            if providers[0] == "CUDAExecutionProvider":
+                from EmbeddingsArea.runtime.cuda import preload_cuda
+
+                preload_cuda(ort)
+            if providers[0] == "CoreMLExecutionProvider":
+                self._session = self._create_fixed_coreml_session(ort, config.model_path, providers)
+            else:
+                self._session = create_onnx_session(ort, config.model_path, providers)
             if hasattr(self._session, "disable_fallback"):
                 self._session.disable_fallback()
             if self._session.get_providers() != providers:
                 raise RuntimeError(f"Requested session providers {providers}, received {self._session.get_providers()}.")
         except Exception as exc:
             raise ExecutionFailure(f"Failed to load ONNX model at {config.model_path}: {exc}") from exc
-        self._contract = dict(config.runtime_contract)
         self._package_directory = config.package_directory or config.model_path.parent
         self._budget = max(1, int(config.prepared_batch_budget_bytes))
         self._phase("validation")
         self._validate_graph_contract()
         self._phase("idle")
         self._output_name = str(dict(self._contract["output"])["name"])
+
+    def _create_fixed_coreml_session(self, ort, model_path: Path, providers: list[str]):
+        # Validate the original graph before specializing its dynamic batch.
+        # This CPU session is used only for metadata, never for inference.
+        self._session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+        try:
+            self._validate_graph_contract()
+            symbols = {}
+            declared = {tensor["name"]: tensor["shape"] for tensor in self._contract["inputs"]}
+            for meta in self._session.get_inputs():
+                for index, dimension in enumerate(meta.shape):
+                    if isinstance(dimension, int):
+                        continue
+                    expected = 1 if index == 0 else declared[meta.name][index]
+                    if not isinstance(dimension, str) or not dimension or not isinstance(expected, int):
+                        raise RuntimeError("CoreML requires resolvable named input dimensions.")
+                    if dimension in symbols and symbols[dimension] != expected:
+                        raise RuntimeError("CoreML input dimension has conflicting sizes in the model contract.")
+                    symbols[dimension] = expected
+        finally:
+            self._session = None
+        options = ort.SessionOptions()
+        for symbol, size in sorted(symbols.items()):
+            options.add_free_dimension_override_by_name(symbol, size)
+        session = create_onnx_session(ort, model_path, providers, sess_options=options,
+                                      coreml_options={"MLComputeUnits": "CPUAndGPU",
+                                                      "RequireStaticInputShapes": "1"})
+        # Existing batching splits requests into single-item calls and keeps
+        # order, preparation, finite-value and normalization checks unchanged.
+        for tensor in [*self._contract["inputs"], self._contract["output"]]:
+            if tensor["shape"][0] in {"batch", "dynamic"}:
+                tensor["shape"][0] = 1
+        return session
 
     def _validate_graph_contract(self) -> None:
         assert self._session is not None

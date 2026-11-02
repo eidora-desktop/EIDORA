@@ -127,6 +127,12 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
         from EmbeddingsArea.clustering.process_runner import probe_runtime
         report["clustering_methods"] = probe_runtime()
 
+        checkpoint("onnx-subprocess")
+        from shared.onnx_runtime_audit import audit_onnx_runtime
+        report["onnx_runtime"] = audit_onnx_runtime(
+            Path(temporary.name) / "onnx-runtime", output_path,
+        )
+
         checkpoint("export-formats")
         from shared.export_runtime_audit import audit_export_runtimes
         report["export_formats"] = audit_export_runtimes(

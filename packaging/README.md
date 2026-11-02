@@ -38,6 +38,55 @@ documents, and Windows/Linux artwork remains independent.
 - `runtime-requirements.txt` and `release-tools.txt` pin dependencies and build tools.
 - `resource-manifest.toml` lists runtime resources and dynamically loaded modules.
 
+### ONNX execution providers
+
+Windows and Linux x64 use `onnxruntime-gpu==1.26.0` with CUDA 12.8 and
+cuDNN 9.10.2. macOS retains its standard `onnxruntime` pins and CoreML/CPU policy.
+The GPU distribution also provides CPU execution; never install both ORT
+distributions into one build environment. Use a fresh environment when moving
+from the old CPU-only dependencies.
+
+Keep the CUDA pins in `pyproject.toml` and `runtime-requirements.txt` aligned.
+ORT 1.27+ GPU wheels on PyPI default to CUDA 13, which excludes older NVIDIA
+architectures. cuDNN 9.10.2 supports Pascal (including the GeForce MX350), as well
+as newer architectures. Changing either requires renewed hardware validation.
+See the [ORT CUDA requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html)
+and [cuDNN support matrix](https://docs.nvidia.com/deeplearning/cudnn/backend/v9.10.2/reference/support-matrix.html).
+Users still need a compatible NVIDIA driver; no system CUDA toolkit is required.
+For this CUDA 12.8 stack, use driver 570.65+ on Windows or 570.26+ on Linux.
+
+`automation/onnx_bundle.py` collects NVIDIA runtime libraries and licenses,
+including cuDNN engines, NVRTC companions, and nvJitLink. Libraries are placed in
+the bootloader's native search directory; inference preloads them only for CUDA
+sessions. The build rejects missing libraries or a CPU-only ORT environment.
+The CUDA payload is approximately 2.6 GiB on Windows / 2.9 GiB on Linux before
+compression, including ORT. Application size guards are 4,000 / 4,500 MiB;
+macOS size guards remain unchanged.
+
+The packaged self-test checks CUDA plugin loading and CPU inference on Windows
+and Linux even when CI has no GPU. Apple Silicon checks actual CoreML inference;
+Intel Macs check CPU. The audit verifies numerical results at batches 1, 2, and
+32, checks unit-length embeddings, and uses profiling to reject silent substitution
+of CPU for an accelerator. It shares the adapter's explicit CoreML MLProgram
+configuration; the older NeuralNetwork format can violate the normalization
+tolerance through precision loss.
+The graph deliberately omits Conv/AveragePool padding. This exercises the
+CoreML-only compatibility retry for ORT's missing MLProgram `pad` input, including
+the macOS `onnx` / `ml-dtypes` bundle dependencies. Keep this omission in the
+fixture: explicit padding would hide the VGG16 compiler regression.
+This small graph checks the runtime, not every Model Zoo model. On NVIDIA
+hardware, also run the packaged worker explicitly (paths must be writable):
+
+```bash
+EIDORA --internal-worker onnx-audit /path/to/audit /path/to/result.json --provider cuda
+```
+
+Use `EIDORA.exe` on Windows. Require exit status zero and `ok: true` in the JSON,
+then test a real declared-CUDA Model Zoo package on both older and newer GPUs.
+Record CPU-only startup/inference too. GPU-less CI must not be reported as CUDA
+inference validation. Model configs independently control provider eligibility;
+a CPU-only declaration continues to hide CUDA even in a CUDA-capable bundle.
+
 Linux DEB `Installed-Size` describes the uncompressed installed payload, not the
 download size. Count symbolic links themselves without following their targets,
 round each file/link to KiB, and include payload directories, launchers, and icons.
