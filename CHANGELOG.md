@@ -6,6 +6,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Re-enable the welcome tour after app updates or replacing an installation,
+  including reinstalls of the same version.
 - Open Microsoft Store's updates page from Windows Help/About update actions;
   keep website update checks on macOS and Linux.
 - Show the release version in website update results instead of the date and channel label.

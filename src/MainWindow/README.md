@@ -51,9 +51,12 @@ starts the tour after the window and all controllers are ready. On first package
 startup, the cancellable starter setup creates and opens this example directly;
 subsequent launches keep the project chooser. `tour_repository.py`
 stores whether a tour has been shown in the user's application-data folder,
-independently of projects. Manual tours and cancellation count as having seen
-onboarding; Help always allows replay. Pending launches stop on project changes
-and shutdown.
+independently of projects. The flag applies to the current app version and
+installed executable, so updates and replacing an installation re-enable the
+tour on the next example opening. AppImage uses the outer file rather than its
+temporary mount; source runs have a separate identity. Manual tours and
+cancellation count as having seen onboarding; Help always allows replay.
+Pending launches stop on project changes and shutdown.
 
 The chooser also offers explicit MET example creation, a New Project dialog with
 a visible destination, and Storage inspection/maintenance. Storage controllers
