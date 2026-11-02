@@ -10,6 +10,7 @@ WEBSITE_URL = "https://eidora.org"
 DOWNLOADS_URL = f"{WEBSITE_URL}/download/"
 RELEASES_URL = f"{WEBSITE_URL}/releases/"
 UPDATE_CATALOG_URL = f"{WEBSITE_URL}/updates.json"
+MICROSOFT_STORE_UPDATES_URL = "ms-windows-store://downloadsandupdates"
 
 
 def _version(value: str) -> tuple[int, int, int]:

@@ -4,7 +4,8 @@
 and connects project changes between them. Project operations use `ProjectService`.
 `project_chooser_controller.py` owns the standalone startup project list; `help_panel_controller.py`
 owns About, and `update_panel_controller.py` binds explicit website update checks
-inside it. `navigation.py` is Qt-facing navigation data.
+on macOS/Linux and opens Microsoft Store's updates page on Windows.
+`navigation.py` is Qt-facing navigation data.
 
 Normal startup constructs all workspaces before showing the main window.
 This lets Qt select the graphics surface before the window becomes visible;

@@ -43,7 +43,8 @@ class HelpPanelController:
         self._about = QtGui.QAction("About EIDORA…", window)
         self._about.setMenuRole(QtGui.QAction.MenuRole.AboutRole)
         self._about.triggered.connect(self.show_about)
-        self._updates = QtGui.QAction("Check for Updates…", window)
+        update_label = "Check in Microsoft Store…" if sys.platform == "win32" else "Check for Updates…"
+        self._updates = QtGui.QAction(update_label, window)
         self._updates.setMenuRole(QtGui.QAction.MenuRole.ApplicationSpecificRole)
         self._updates.triggered.connect(self.check_updates)
         button = window.findChild(QtWidgets.QPushButton, "button_help")
@@ -90,7 +91,11 @@ class HelpPanelController:
         self._update_panel = UpdatePanelController(dialog)
         try:
             if check_updates:
-                self._update_panel.check()
+                if sys.platform == "win32":
+                    # Present About before handing focus to the external Store.
+                    QtCore.QTimer.singleShot(0, dialog, self._update_panel.check)
+                else:
+                    self._update_panel.check()
             dialog.exec()
         finally:
             self._update_panel.dispose()
