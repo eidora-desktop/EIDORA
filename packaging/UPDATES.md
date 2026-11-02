@@ -38,8 +38,9 @@ publicly available. Windows can remain at an older version during certification.
 
 ## Application behavior
 
-Opening About does not access the network. Selecting Check for Updates from the
-Help menu or About dialog fetches the catalog asynchronously with timeouts.
+Opening About does not access the network or launch Microsoft Store. On macOS
+and Linux, selecting Check for Updates from the Help menu or About dialog
+fetches the catalog asynchronously with timeouts.
 An explicitly recommended prototype or preview is eligible for update checks.
 Numeric comparison handles versions such as 0.9.0 and 0.10.0 correctly.
 
@@ -49,8 +50,17 @@ and connection-error states have separate messages. View Update opens
 from the fixed website origin, never from arbitrary response links.
 Closing the dialog cancels the request and disconnects its exact signal handlers.
 
+On Windows, the Help action and About button read “Check in Microsoft Store…”.
+They open `ms-windows-store://downloadsandupdates`, leaving availability checks
+and installation to the Store. The app does not query the website catalog or
+report an installed Windows build as up to date. If Windows cannot open the
+Store URI, the dialog asks the user to open Microsoft Store manually; the button
+remains available for retry. This handoff also applies to Windows development
+builds and does not claim that an EXE or sideloaded package is Store-managed.
+
 There is no automatic installer or startup polling. Linux and macOS users follow
-the website's manual installation guidance. Windows users follow the Store link.
+the website's manual installation guidance. The website's Windows catalog entry
+continues to support public download guidance, independently of the app's Store action.
 If the website catalog has not been deployed yet, a 404 is reported as unavailable
 update information, never as “up to date.”
 

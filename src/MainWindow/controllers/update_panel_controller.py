@@ -6,16 +6,18 @@ import sys
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from application_info.release_client import ReleaseClient
-from application_info.service import DOWNLOADS_URL, parse_release, platform_key
+from application_info.service import DOWNLOADS_URL, MICROSOFT_STORE_UPDATES_URL, parse_release, platform_key
 from eidora_version import __version__
 
 
 class UpdatePanelController:
-    """Bind the About dialog's explicit update check to the website catalog."""
+    """Route explicit update actions to Microsoft Store or the website catalog."""
 
     def __init__(self, dialog: QtWidgets.QDialog):
-        self._client = ReleaseClient(dialog)
+        self._client = None if sys.platform == "win32" else ReleaseClient(dialog)
         self._check = dialog.findChild(QtWidgets.QPushButton, "button_check_updates")
+        if sys.platform == "win32":
+            self._check.setText("Check in Microsoft Store…")
         self._status = dialog.findChild(QtWidgets.QLabel, "label_update_status")
         self._downloads = dialog.findChild(QtWidgets.QPushButton, "button_view_downloads")
         self._notes = dialog.findChild(QtWidgets.QPushButton, "button_release_notes")
@@ -26,9 +28,12 @@ class UpdatePanelController:
             (self._check.clicked, self.check),
             (self._downloads.clicked, self._open_downloads),
             (self._notes.clicked, self._open_notes),
-            (self._client.received, self._received),
-            (self._client.failed, self._failed),
         ]
+        if self._client is not None:
+            self._connections.extend([
+                (self._client.received, self._received),
+                (self._client.failed, self._failed),
+            ])
         for signal, slot in self._connections:
             signal.connect(slot)
         self._status.hide()
@@ -36,6 +41,9 @@ class UpdatePanelController:
         self._notes.hide()
 
     def check(self) -> None:
+        if self._client is None:
+            self._open_store()
+            return
         if self._busy:
             return
         self._download_url = DOWNLOADS_URL
@@ -53,6 +61,15 @@ class UpdatePanelController:
         self._downloads.hide()
         self._notes.hide()
         self._client.check()
+
+    def _open_store(self) -> None:
+        if QtGui.QDesktopServices.openUrl(QtCore.QUrl(MICROSOFT_STORE_UPDATES_URL)):
+            self._status.setText("Microsoft Store opened. Check for EIDORA updates there.")
+        else:
+            self._status.setText(
+                "Could not open Microsoft Store. Open Microsoft Store manually and check for EIDORA updates."
+            )
+        self._status.show()
 
     def _finish(self, message: str) -> None:
         self._busy = False
@@ -75,13 +92,10 @@ class UpdatePanelController:
         if release.newer:
             message = f"EIDORA {release.version} is available."
         elif release.version == __version__:
-            message = "You have the latest available version of EIDORA."
+            message = f"You have the latest available version of EIDORA ({release.version})."
         else:
             message = f"Your version is newer than the available release ({release.version})."
-        message += f"\n{release.channel.capitalize()} release · {release.published_at}"
-        if sys.platform == "win32":
-            message += "\nWindows updates are installed through Microsoft Store."
-        elif release.newer:
+        if release.newer:
             message += "\nDownload and install the update from eidora.org."
         self._finish(message)
         self._download_url, self._notes_url = release.download_url, release.notes_url
@@ -103,7 +117,8 @@ class UpdatePanelController:
             self._status.setText("Could not open your browser. Please visit eidora.org/download/.")
 
     def dispose(self) -> None:
-        self._client.cancel()
+        if self._client is not None:
+            self._client.cancel()
         for signal, slot in self._connections:
             signal.disconnect(slot)
         self._connections.clear()

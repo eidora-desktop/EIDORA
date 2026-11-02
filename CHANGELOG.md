@@ -4,6 +4,12 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Open Microsoft Store's updates page from Windows Help/About update actions;
+  keep website update checks on macOS and Linux.
+- Show the release version in website update results instead of the date and channel label.
+
 ## 0.2.4 — 2026-11-01
 
 Experimental release for macOS Apple Silicon and Intel, and Linux x64.
