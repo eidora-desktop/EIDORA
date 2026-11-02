@@ -8,6 +8,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Keep bundled CUDA libraries once when PyInstaller hooks also collect their wheel paths.
+
 - Prevent CoreML dynamic execution-plan failures and native compiler crashes
   with validated single-item batch specialization and static-shape CoreML partitions,
   retaining strict output validation and CPU execution for unsupported graph sections.
