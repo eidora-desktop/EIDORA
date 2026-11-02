@@ -136,8 +136,8 @@ Patch `0.2.4` was published on 2026-11-01 as
 [`v0.2.4`](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.4).
 Patch `0.2.5` was published for macOS Apple Silicon and Intel, and Linux x64,
 on 2026-11-02 as [`v0.2.5`](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.5).
-Windows Store package `1.2.5.0` is prepared but not yet submitted; the confirmed
-Store release remains `0.2.4`. The published tag and installers retain build
+The maintainer confirmed Windows Store availability of `0.2.5` (package
+`1.2.5.0`) on 2026-11-02. The published tag and installers retain build
 commit `aa922d691637b1e95e869a8d5247ff9da08846d8`; this publication record does not
 change their contents. Future changes require a new version.
 

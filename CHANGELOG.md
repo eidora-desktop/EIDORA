@@ -6,8 +6,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## 0.2.5 — 2026-11-02
 
-Published for macOS Apple Silicon and Intel, and Linux x64.
-Windows Store package 1.2.5.0 is prepared; Store availability remains at 0.2.4.
+Published for macOS Apple Silicon and Intel, Linux x64, and Windows x64
+through Microsoft Store (package 1.2.5.0).
 This patch preserves the existing project format.
 
 Prototype software. Use at your own risk. Stability and backward compatibility are not guaranteed.
