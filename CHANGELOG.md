@@ -4,6 +4,11 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Re-enable the welcome tour after app updates or replacing an installation,
+  including reinstalls of the same version.
+
 ## 0.2.4 — 2026-11-01
 
 Experimental release for macOS Apple Silicon and Intel, and Linux x64.

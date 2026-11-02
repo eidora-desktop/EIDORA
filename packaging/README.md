@@ -216,7 +216,9 @@ from `build/starter` before fetching a corrected pin locally.
 Packaged startup installs the starter once per workspace, including custom
 `EIDORA_WORKSPACE_ROOT` locations, and opens the newly created example directly.
 The welcome tour starts once the window and workspaces are ready. Later launches,
-or cancelled/failed setup, show the chooser. Setup is cancellable and
+or cancelled/failed setup, show the chooser. Updating or replacing the app resets
+the tour's saved state, so it starts again when the MET example is next opened.
+Setup is cancellable and
 keeps partial extraction hidden. A workspace receipt prevents upgrades or removal
 of the user's copy from automatically installing another. Existing project names
 are preserved; a collision receives the usual numeric suffix. Source-checkout
