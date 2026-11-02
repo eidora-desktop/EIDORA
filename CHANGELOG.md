@@ -4,10 +4,21 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.5 — Prepared
+
+Prepared for macOS Apple Silicon and Intel, Linux x64, and Windows Store x64.
+This patch preserves the existing project format.
+
+Prototype software. Use at your own risk. Stability and backward compatibility are not guaranteed.
+
 ### Fixed
 
 - Re-enable the welcome tour after app updates or replacing an installation,
   including reinstalls of the same version.
+- Use Qt 6.11.2 on macOS to fix native cursor crashes when refreshing models and
+  starting runs on macOS 27.2 (QTBUG-147602).
+- Coalesce model download progress and update progress bars without repeatedly
+  rescanning the Model Zoo's installed catalog.
 - Open Microsoft Store's updates page from Windows Help/About update actions;
   keep website update checks on macOS and Linux.
 - Show the release version in website update results instead of the date and channel label.

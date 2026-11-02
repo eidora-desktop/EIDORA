@@ -33,6 +33,7 @@ class ModelInstallCoordinator(QtCore.QObject):
     """Own Model Zoo downloads independently of the dialog that starts them."""
 
     changed = QtCore.Signal(str)
+    progress_changed = QtCore.Signal(str)
     completed = QtCore.Signal(object, object)
 
     def __init__(self, activity_manager: ActivityManager | None = None) -> None:
@@ -124,11 +125,22 @@ class ModelInstallCoordinator(QtCore.QObject):
         catalog: object,
         cancel_event: threading.Event,
     ) -> None:
+        last_progress = -1
+
+        def report_progress(value: int) -> None:
+            nonlocal last_progress
+            progress = max(0, min(100, int(value)))
+            # Large downloads report every chunk. Queue only changed percentages,
+            # not thousands of identical GUI events.
+            if progress != last_progress:
+                last_progress = progress
+                self._signals.progress.emit(entry.id, progress)
+
         try:
             catalog.install_discoverable_model(
                 entry,
                 cancel_event=cancel_event,
-                progress_callback=lambda value: self._signals.progress.emit(entry.id, int(value)),
+                progress_callback=report_progress,
             )
         except Exception as exc:  # noqa: BLE001
             self._signals.finished.emit(entry, str(exc))
@@ -141,8 +153,12 @@ class ModelInstallCoordinator(QtCore.QObject):
         pending = self.pending(model_id)
         if pending is None:
             return
-        pending.progress = max(0, min(100, int(progress)))
-        self.changed.emit(pending.id)
+        progress = max(0, min(100, int(progress)))
+        if progress == pending.progress:
+            return
+        pending.progress = progress
+        # Byte progress must not trigger Model Zoo catalog/installed-state scans.
+        self.progress_changed.emit(pending.id)
 
     def _apply_finished(self, entry: object, error: object) -> None:
         if not isinstance(entry, ModelCatalogEntry):

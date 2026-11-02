@@ -132,9 +132,11 @@ Patch `0.2.2` was published for macOS and Linux on 2026-10-29 as
 [`v0.2.2`](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.2).
 Patch `0.2.3` was published for macOS and Linux on 2026-10-30 as
 [`v0.2.3`](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.3).
-The next prepared patch is `0.2.4`, targeting macOS Apple Silicon and Intel,
+Patch `0.2.4` was published on 2026-11-01 as
+[`v0.2.4`](https://github.com/eidora-desktop/EIDORA/releases/tag/v0.2.4).
+The next prepared patch is `0.2.5`, targeting macOS Apple Silicon and Intel,
 Windows Store x64, and Linux x64. Build fresh candidates from the reviewed
-0.2.4 source; do not replace published files. Record the publication date and
+0.2.5 source; do not replace published files. Record the publication date and
 actual platform availability only after release review.
 
 Prototype status does not remove release checks: verify core workflows and
