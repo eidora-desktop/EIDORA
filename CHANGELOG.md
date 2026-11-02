@@ -8,6 +8,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ### Fixed
 
+- Use patched ONNX 1.22.0 for macOS model compatibility processing.
+
 - Keep bundled CUDA libraries once when PyInstaller hooks also collect their wheel paths.
 
 - Prevent CoreML dynamic execution-plan failures and native compiler crashes
