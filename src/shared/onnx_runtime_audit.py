@@ -22,6 +22,10 @@ _MODEL = "CAk6ugMKIQoGcGl4ZWxzCgZ3ZWlnaHQSCWNvbnZvbHZlZCIEQ29udgobCgljb252b2x2ZW
 def probe(directory: Path, provider: str | None = None) -> dict:
     import ctypes
     import numpy as np
+    if provider in {"cuda", "cuda-load"}:
+        from EmbeddingsArea.runtime.onnx_loader import activate_cuda_runtime
+
+        activate_cuda_runtime()
     import onnxruntime as ort
     from EmbeddingsArea.runtime.adapters.onnx import create_onnx_session
 
@@ -29,25 +33,28 @@ def probe(directory: Path, provider: str | None = None) -> dict:
     available = ort.get_available_providers()
     report = {"runtime": ort.__version__, "available_providers": available}
     if sys.platform in {"win32", "linux"} and getattr(sys, "frozen", False):
-        if "CUDAExecutionProvider" not in available:
-            raise RuntimeError("The packaged runtime is missing CUDAExecutionProvider.")
+        from EmbeddingsArea.runtime.cuda_install import installed_runtime
+
+        report["cuda_runtime"] = "installed" if installed_runtime() else "optional; not installed"
+        report["cuda_inference"] = "not tested; requires --provider cuda on NVIDIA hardware"
+    if provider in {"cuda", "cuda-load"}:
         from EmbeddingsArea.runtime.cuda import preload_cuda
 
+        if "CUDAExecutionProvider" not in available:
+            raise RuntimeError("The optional GPU runtime is missing CUDAExecutionProvider.")
         preload_cuda(ort)
         filename = "onnxruntime_providers_cuda.dll" if sys.platform == "win32" else "libonnxruntime_providers_cuda.so"
         # Loading the native plugin catches missing dependencies on GPU-less CI.
         ctypes.CDLL(str(Path(ort.__file__).parent / "capi" / filename))
         report["cuda_library_load"] = "passed"
-        report["cuda_inference"] = "not tested; requires --provider cuda on NVIDIA hardware"
+        if provider == "cuda-load":
+            report["cuda_inference"] = "not tested; native library loading only"
+            return report
     if provider is None:
         provider = "coreml" if sys.platform == "darwin" and platform.machine().lower() in {"arm64", "aarch64"} else "cpu"
     name = {"cpu": "CPUExecutionProvider", "cuda": "CUDAExecutionProvider", "coreml": "CoreMLExecutionProvider"}[provider]
     if name not in available:
         raise RuntimeError(f"Required provider {name} is unavailable: {available}")
-    if provider == "cuda":
-        from EmbeddingsArea.runtime.cuda import preload_cuda
-
-        preload_cuda(ort)
     providers = [name] if provider == "cpu" else [name, "CPUExecutionProvider"]
     options = ort.SessionOptions()
     options.enable_profiling = True
@@ -101,7 +108,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("result", type=Path)
-    parser.add_argument("--provider", choices=("cpu", "cuda", "coreml"))
+    parser.add_argument("--provider", choices=("cpu", "cuda", "cuda-load", "coreml"))
     args = parser.parse_args(argv)
     try:
         result = {"ok": True, **probe(args.directory, args.provider)}

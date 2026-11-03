@@ -45,6 +45,13 @@ The editable install makes Python source changes available without reinstalling.
 It also provides the `eidora-desktop` command. Commands below assume the virtual
 environment is active and the current directory is the repository root.
 
+Windows and Linux x64 start with CPU execution and offer **Enable NVIDIA GPU…**
+in the model-run dialog when a compatible NVIDIA device is detected. GPU setup
+downloads and verifies ONNX Runtime's CUDA provider and the required NVIDIA
+libraries; no system CUDA toolkit is needed. Source installs use the same setup.
+macOS uses its
+existing CoreML support. See [GPU packaging](packaging/README.md#onnx-execution-providers).
+
 [pyproject.toml](pyproject.toml) declares application and development dependencies.
 [packaging/runtime-requirements.txt](packaging/runtime-requirements.txt) pins the
 runtime versions used by Source Gate and release builds. When investigating a

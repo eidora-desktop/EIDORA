@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "automation"))
 from eidora_version import __version__
 from resource_inventory import release_resources
 from prepare_macos_icon import validate_macos_icon
-from onnx_bundle import cuda_bundle_files, remove_duplicate_cuda_libraries
+from onnx_bundle import cuda_bundle_files, remove_cuda_runtime_libraries
 
 
 with MANIFEST_PATH.open("rb") as stream:
@@ -232,8 +232,8 @@ analysis.datas = [
     if _keep_qt_entry(entry)
     and not (entry[2] == "SYMLINK" and "arrow_flight" in Path(entry[0]).name.lower())
 ]
-analysis.datas = remove_duplicate_cuda_libraries(analysis.datas, analysis.binaries)
-analysis.binaries = remove_duplicate_cuda_libraries(analysis.binaries, analysis.binaries)
+analysis.datas = remove_cuda_runtime_libraries(analysis.datas)
+analysis.binaries = remove_cuda_runtime_libraries(analysis.binaries)
 pyz = PYZ(analysis.pure)
 
 windows_version_info = None

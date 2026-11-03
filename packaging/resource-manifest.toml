@@ -36,6 +36,7 @@ patterns = [
 name = "application-data"
 patterns = [
   "src/MainWindow/tour_text.toml",
+  "src/EmbeddingsArea/runtime/cuda-downloads.json",
   "src/DiscoveryArea/palettes.json",
   "src/DiscoveryArea/palettes.LICENSE.txt",
 ]

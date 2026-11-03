@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "id": "cuda12.8-cudnn9.10.2-ort1.26-v2",
+  "onnxruntime": "1.26.0",
+  "platforms": {
+    "windows-x86_64": {
+      "wheels": [
+        {
+          "package": "nvidia-cublas-cu12",
+          "version": "12.8.4.1",
+          "url": "https://files.pythonhosted.org/packages/70/61/7d7b3c70186fb651d0fbd35b01dbfc8e755f69fd58f817f3d0f642df20c3/nvidia_cublas_cu12-12.8.4.1-py3-none-win_amd64.whl",
+          "size": 567544208,
+          "sha256": "47e9b82132fa8d2b4944e708049229601448aaad7e6f296f630f2d1a32de35af"
+        },
+        {
+          "package": "nvidia-cuda-runtime-cu12",
+          "version": "12.8.90",
+          "url": "https://files.pythonhosted.org/packages/30/a5/a515b7600ad361ea14bfa13fb4d6687abf500adc270f19e89849c0590492/nvidia_cuda_runtime_cu12-12.8.90-py3-none-win_amd64.whl",
+          "size": 944318,
+          "sha256": "c0c6027f01505bfed6c3b21ec546f69c687689aad5f1a377554bc6ca4aa993a8"
+        },
+        {
+          "package": "nvidia-cuda-nvrtc-cu12",
+          "version": "12.8.93",
+          "url": "https://files.pythonhosted.org/packages/45/51/52a3d84baa2136cc8df15500ad731d74d3a1114d4c123e043cb608d4a32b/nvidia_cuda_nvrtc_cu12-12.8.93-py3-none-win_amd64.whl",
+          "size": 73586838,
+          "sha256": "7a4b6b2904850fe78e0bd179c4b655c404d4bb799ef03ddc60804247099ae909"
+        },
+        {
+          "package": "nvidia-cufft-cu12",
+          "version": "11.3.3.83",
+          "url": "https://files.pythonhosted.org/packages/7d/ec/ce1629f1e478bb5ccd208986b5f9e0316a78538dd6ab1d0484f012f8e2a1/nvidia_cufft_cu12-11.3.3.83-py3-none-win_amd64.whl",
+          "size": 192216559,
+          "sha256": "7a64a98ef2a7c47f905aaf8931b69a3a43f27c55530c698bb2ed7c75c0b42cb7"
+        },
+        {
+          "package": "nvidia-curand-cu12",
+          "version": "10.3.9.90",
+          "url": "https://files.pythonhosted.org/packages/b9/75/70c05b2f3ed5be3bb30b7102b6eb78e100da4bbf6944fd6725c012831cab/nvidia_curand_cu12-10.3.9.90-py3-none-win_amd64.whl",
+          "size": 62765309,
+          "sha256": "f149a8ca457277da854f89cf282d6ef43176861926c7ac85b2a0fbd237c587ec"
+        },
+        {
+          "package": "nvidia-cudnn-cu12",
+          "version": "9.10.2.21",
+          "url": "https://files.pythonhosted.org/packages/3d/90/0bd6e586701b3a890fd38aa71c387dab4883d619d6e5ad912ccbd05bfd67/nvidia_cudnn_cu12-9.10.2.21-py3-none-win_amd64.whl",
+          "size": 692992268,
+          "sha256": "c6288de7d63e6cf62988f0923f96dc339cea362decb1bf5b3141883392a7d65e"
+        },
+        {
+          "package": "nvidia-nvjitlink-cu12",
+          "version": "12.8.93",
+          "url": "https://files.pythonhosted.org/packages/ed/d7/34f02dad2e30c31b10a51f6b04e025e5dd60e5f936af9045a9b858a05383/nvidia_nvjitlink_cu12-12.8.93-py3-none-win_amd64.whl",
+          "size": 268553710,
+          "sha256": "bd93fbeeee850917903583587f4fc3a4eafa022e34572251368238ab5e6bd67f"
+        }
+      ],
+      "installed_size_limit": 3758096384,
+      "onnxruntime_wheels": {
+        "cp311": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/ef/26/a417b7a1cdbbf56a389bfcd399255be23f30e5721e3e519472fe8dde9c99/onnxruntime_gpu-1.26.0-cp311-cp311-win_amd64.whl",
+          "size": 226539455,
+          "sha256": "cc5329aad02d9745cc3ae9cdb185bfa1aad242a7bf89b8c471280002ec40f98a"
+        },
+        "cp312": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/a4/e4/9b378a5466ea0bed65e5beb8e09254973c580a6522810a38afbcc45e5105/onnxruntime_gpu-1.26.0-cp312-cp312-win_amd64.whl",
+          "size": 226548963,
+          "sha256": "5f49c44689894650990e4c8a857d2edafc276fbd79bba57ceb224bd18d25d491"
+        },
+        "cp313": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/67/3f/59f1777a394625ecc9a85636de57dc47c25dbb5f888da050f1463955a0ce/onnxruntime_gpu-1.26.0-cp313-cp313-win_amd64.whl",
+          "size": 226548083,
+          "sha256": "6ab9f9c741d2e239b2e321ab0d389c04329d4ab7f11e3b92dd3aa7db1c59dee4"
+        },
+        "cp314": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/41/e7/923298431e669567d7ccc2a4c898b6534a47641a051569fd97165fe6d9b8/onnxruntime_gpu-1.26.0-cp314-cp314-win_amd64.whl",
+          "size": 229142768,
+          "sha256": "3e592439b0183d303c2374517b5b392599a3d50b2dc9de949b9b15731ac921c9"
+        }
+      }
+    },
+    "linux-x86_64": {
+      "wheels": [
+        {
+          "package": "nvidia-cublas-cu12",
+          "version": "12.8.4.1",
+          "url": "https://files.pythonhosted.org/packages/dc/61/e24b560ab2e2eaeb3c839129175fb330dfcfc29e5203196e5541a4c44682/nvidia_cublas_cu12-12.8.4.1-py3-none-manylinux_2_27_x86_64.whl",
+          "size": 594346921,
+          "sha256": "8ac4e771d5a348c551b2a426eda6193c19aa630236b418086020df5ba9667142"
+        },
+        {
+          "package": "nvidia-cuda-runtime-cu12",
+          "version": "12.8.90",
+          "url": "https://files.pythonhosted.org/packages/0d/9b/a997b638fcd068ad6e4d53b8551a7d30fe8b404d6f1804abf1df69838932/nvidia_cuda_runtime_cu12-12.8.90-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+          "size": 954765,
+          "sha256": "adade8dcbd0edf427b7204d480d6066d33902cab2a4707dcfc48a2d0fd44ab90"
+        },
+        {
+          "package": "nvidia-cuda-nvrtc-cu12",
+          "version": "12.8.93",
+          "url": "https://files.pythonhosted.org/packages/05/6b/32f747947df2da6994e999492ab306a903659555dddc0fbdeb9d71f75e52/nvidia_cuda_nvrtc_cu12-12.8.93-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl",
+          "size": 88040029,
+          "sha256": "a7756528852ef889772a84c6cd89d41dfa74667e24cca16bb31f8f061e3e9994"
+        },
+        {
+          "package": "nvidia-cufft-cu12",
+          "version": "11.3.3.83",
+          "url": "https://files.pythonhosted.org/packages/1f/13/ee4e00f30e676b66ae65b4f08cb5bcbb8392c03f54f2d5413ea99a5d1c80/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
+          "size": 193118695,
+          "sha256": "4d2dd21ec0b88cf61b62e6b43564355e5222e4a3fb394cac0db101f2dd0d4f74"
+        },
+        {
+          "package": "nvidia-curand-cu12",
+          "version": "10.3.9.90",
+          "url": "https://files.pythonhosted.org/packages/fb/aa/6584b56dc84ebe9cf93226a5cde4d99080c8e90ab40f0c27bda7a0f29aa1/nvidia_curand_cu12-10.3.9.90-py3-none-manylinux_2_27_x86_64.whl",
+          "size": 63619976,
+          "sha256": "b32331d4f4df5d6eefa0554c565b626c7216f87a06a4f56fab27c3b68a830ec9"
+        },
+        {
+          "package": "nvidia-cudnn-cu12",
+          "version": "9.10.2.21",
+          "url": "https://files.pythonhosted.org/packages/ba/51/e123d997aa098c61d029f76663dedbfb9bc8dcf8c60cbd6adbe42f76d049/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_x86_64.whl",
+          "size": 706758467,
+          "sha256": "949452be657fa16687d0930933f032835951ef0892b37d2d53824d1a84dc97a8"
+        },
+        {
+          "package": "nvidia-nvjitlink-cu12",
+          "version": "12.8.93",
+          "url": "https://files.pythonhosted.org/packages/f6/74/86a07f1d0f42998ca31312f998bd3b9a7eff7f52378f4f270c8679c77fb9/nvidia_nvjitlink_cu12-12.8.93-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl",
+          "size": 39254836,
+          "sha256": "81ff63371a7ebd6e6451970684f916be2eab07321b73c9d244dc2b4da7f73b88"
+        }
+      ],
+      "installed_size_limit": 3758096384,
+      "onnxruntime_wheels": {
+        "cp311": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/dc/0f/696b4f94a282952239ffed39db78cb17a00ad993acd929cfac010a09759b/onnxruntime_gpu-1.26.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "size": 276956564,
+          "sha256": "4fa231294c2643911d2a7d16469c4808b0bdcdc4b5f4063d3a53744ce25b683a"
+        },
+        "cp312": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/94/fd/59bee7cffaa435da44fefdeb63e29c61de4dbfa4b279852f59cd02c042ae/onnxruntime_gpu-1.26.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "size": 276971796,
+          "sha256": "3c01119ed4d9449d60367fa8ccffcd02bd3fe736754284e4b198d131f54edad6"
+        },
+        "cp313": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/dd/97/fe8979f44b9275654b42f7bb556e30789b71a1b22998c83b540df2b1b774/onnxruntime_gpu-1.26.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "size": 276974871,
+          "sha256": "cfda2fad535595bfc3e570eb588092717711dcb2957656d814695e0c9ceb1508"
+        },
+        "cp313t": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/89/96/360328e3c463f7ea08e853c4239c397e83363dd0204de71a710dc1a544bd/onnxruntime_gpu-1.26.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "size": 276992052,
+          "sha256": "bcf6f347cad9f88a9a625c2b352cf9de927528aedb627ebbc089a201f1990b94"
+        },
+        "cp314": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/fd/c8/aa2dc0e79bba577f37d5448bcb32fea79977e07506684d8138c19a0f1077/onnxruntime_gpu-1.26.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "size": 276978254,
+          "sha256": "9e6e4fb1ec9ae1cf456534d9115f106ab2a1ae96fa513b4ed0f4795302b4a2c6"
+        },
+        "cp314t": {
+          "package": "onnxruntime-gpu",
+          "version": "1.26.0",
+          "url": "https://files.pythonhosted.org/packages/97/91/93ffe5431d154989f5e04864a25a97eea480997d771232bcbbc538188241/onnxruntime_gpu-1.26.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+          "size": 276991545,
+          "sha256": "56dc7b73954ff4bdc71f5b8ab306b6f61be5d007881b6ef423a609e2b9cd088b"
+        }
+      }
+    }
+  }
+}

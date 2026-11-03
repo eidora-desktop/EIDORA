@@ -15,6 +15,8 @@ SOURCES = ("src/EmbeddingsArea/preparation_contract.py", "src/EmbeddingsArea/mod
            "src/EmbeddingsArea/runtime/preparers.py", "src/EmbeddingsArea/runtime/adapters/onnx.py",
            "src/EmbeddingsArea/runtime/adapters/base.py", "src/EmbeddingsArea/runtime/contracts.py",
            "src/EmbeddingsArea/runtime/cuda.py", "src/EmbeddingsArea/runtime/coreml.py",
+           "src/EmbeddingsArea/runtime/cuda_install.py", "src/EmbeddingsArea/runtime/cuda-downloads.json",
+           "src/EmbeddingsArea/runtime/onnx_loader.py",
            "src/EmbeddingsArea/runtime/package_validation.py", "src/shared/bibtex.py")
 DOCS = ("ONNX_CONFIG_SCHEMA.md", "ONNX_MODEL_REQUIREMENTS.md", "ONNX_MODEL_REQUIREMENTS_AGENTS.md", "ONNX_PREPARATION_OPTIONS.md")
 

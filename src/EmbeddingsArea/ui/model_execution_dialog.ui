@@ -71,6 +71,12 @@
     </widget>
    </item>
    <item alignment="Qt::AlignmentFlag::AlignHCenter">
+    <widget class="QPushButton" name="button_enable_cuda">
+     <property name="text"><string>Enable NVIDIA GPU…</string></property>
+     <property name="visible"><bool>false</bool></property>
+    </widget>
+   </item>
+   <item alignment="Qt::AlignmentFlag::AlignHCenter">
     <widget class="QPushButton" name="button_reset_preparation">
      <property name="text">
       <string>Reset to Model Defaults</string>

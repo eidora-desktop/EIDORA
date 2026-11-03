@@ -37,7 +37,7 @@
     "native_arch": "x86_64",
     "icon_file": "eidora.ico",
     "installer_extra": "",
-    "max_bundle_mib": 4000,
+    "max_bundle_mib": 800,
     "artifact": "eidora-windows-x86_64",
     "target": "windows"
   },
@@ -51,7 +51,7 @@
     "native_arch": "x86_64",
     "icon_file": "eidora-256.png",
     "installer_extra": "--appimagetool build-output/tools/appimagetool",
-    "max_bundle_mib": 4500,
+    "max_bundle_mib": 1100,
     "artifact": "eidora-linux-x86_64",
     "target": "linux"
   }
