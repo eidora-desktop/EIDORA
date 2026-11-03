@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.6 — Prepared
+
 ### Changed
 
 - Make ONNX Runtime's CUDA provider and NVIDIA libraries an optional, verified download on Windows and Linux
@@ -12,13 +14,9 @@ Release-relevant changes are tracked here. Version selection follows the [versio
   isolated inference check. CPU execution works without downloading GPU support;
   macOS CoreML behavior is unchanged.
 
-## 0.2.6 — Prepared
-
 ### Fixed
 
 - Use patched ONNX 1.22.0 for macOS model compatibility processing.
-
-- Keep bundled CUDA libraries once when PyInstaller hooks also collect their wheel paths.
 
 - Prevent CoreML dynamic execution-plan failures and native compiler crashes
   with validated single-item batch specialization and static-shape CoreML partitions,
@@ -30,10 +28,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
   precision to pass validation instead of unnecessarily restarting on CPU.
   Handle its missing-padding compiler error for models such as VGG16 using a
   temporary equivalent graph, preserving downloaded packages and checksums.
-- Include the CUDA-enabled ONNX Runtime and its CUDA 12/cuDNN dependencies in
-  Windows and Linux bundles, retaining CPU execution and older NVIDIA GPU support.
-  Validate the native CUDA payload and library loading during packaging, and
-  exercise actual CoreML inference in Apple Silicon release self-tests.
+- Exercise actual CoreML inference in Apple Silicon release self-tests and
+  retain CPU execution on Intel Macs.
 
 ## 0.2.5 — 2026-11-02
 
