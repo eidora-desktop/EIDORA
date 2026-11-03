@@ -46,7 +46,7 @@ h11==0.16.0
     # via httpcore
 h5py==3.16.0
     # via eidora-desktop (pyproject.toml)
-hf-xet==1.6.0
+hf-xet==1.8.0
     # via huggingface-hub
 httpcore==1.0.9
     # via httpx
