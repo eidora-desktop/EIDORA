@@ -33,7 +33,7 @@ dependencies = [
   "scikit-learn>=1.4",
   "scipy>=1.11",
   "tokenizers>=0.19",
-  "trimap==1.1.5",
+  "trimap==1.2.0",
   "PyYAML>=6",
   "umap-learn>=0.5",
 ]

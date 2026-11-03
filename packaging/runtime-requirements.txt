@@ -184,7 +184,7 @@ tqdm==4.70.1
     # via
     #   huggingface-hub
     #   umap-learn
-trimap==1.1.5
+trimap==1.2.0
     # via eidora-desktop (pyproject.toml)
 typing-extensions==4.16.0
     # via
