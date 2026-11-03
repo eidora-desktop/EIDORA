@@ -21,6 +21,10 @@ def validate(directory, request):
     if request.get("metadata_only"):
         report["publication_ready"] = False
         return report
+    if "CUDAExecutionProvider" in request.get("providers", spec.execution_providers):
+        from EmbeddingsArea.runtime.onnx_loader import activate_cuda_runtime
+
+        activate_cuda_runtime()
     import numpy as np
     import onnxruntime as ort
     from EmbeddingsArea.runtime.preparers import prepare_batch

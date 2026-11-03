@@ -15,7 +15,7 @@ from shared.qt.widgets import require_child
 
 
 class ModelExecutionDialogController:
-    def __init__(self, session, project, *, run_id: str | None = None, model_id: str = "", discard_on_cancel: bool = False) -> None:
+    def __init__(self, session, project, *, run_id: str | None = None, model_id: str = "", discard_on_cancel: bool = False, activity_manager=None) -> None:
         self._session = session
         self._project = project
         self._created = run_id is None or discard_on_cancel
@@ -44,6 +44,14 @@ class ModelExecutionDialogController:
         self._parameter_readers: dict[tuple[str, str], callable] = {}
         self._parameter_widgets = {}
         self._load(configuration)
+        from EmbeddingsArea.controllers.cuda_setup_controller import CudaSetupController
+
+        self._cuda_setup = CudaSetupController(
+            require_child(self.dialog, QtWidgets.QPushButton, "button_enable_cuda"),
+            activity_manager=activity_manager,
+            declared=bool(self._model and "CUDAExecutionProvider" in self._model.runtime_contract.get("execution_providers", [])),
+        )
+        self._cuda_setup.ready.connect(self._cuda_ready)
         require_child(self.dialog, QtWidgets.QPushButton, "button_reset_preparation").clicked.connect(self._reset_preparation)
         self._name.textChanged.connect(self._update_availability)
         self._run.clicked.connect(self._accept)
@@ -51,12 +59,21 @@ class ModelExecutionDialogController:
         self._update_availability()
 
     def exec(self) -> str | None:
-        accepted = self.dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted
+        try:
+            accepted = self.dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted
+        finally:
+            self._cuda_setup.close()
         if accepted:
             self._created = False
             return self.run_id
         self._discard_unused_draft()
         return None
+
+    def _cuda_ready(self) -> None:
+        device = self._device_combo
+        if device.findData("cuda") < 0:
+            device.addItem("CUDA (NVIDIA GPU)", "cuda")
+        device.setCurrentIndex(device.findData("cuda"))
 
     def _load(self, configuration) -> None:
         self._name.setText(configuration.run.label)
@@ -151,6 +168,7 @@ class ModelExecutionDialogController:
         saved = {(value.scope, value.parameter_id): value.value for value in configuration.parameter_values}
         if model.runtime_adapter_id.startswith("onnx") or model.backend.casefold() == "onnx":
             device = QtWidgets.QComboBox(self.dialog)
+            self._device_combo = device
             from EmbeddingsArea.runtime.adapters.onnx import execution_device_availability, unavailable_device_reason
             availability = execution_device_availability(model.runtime_contract.get("execution_providers", ["CPUExecutionProvider"]))
             for label, key in (("Auto", "auto"), ("CPU", "cpu"), ("CUDA (NVIDIA GPU)", "cuda"), ("CoreML (Apple GPU / Neural Engine)", "coreml")):

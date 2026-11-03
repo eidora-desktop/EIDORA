@@ -40,13 +40,21 @@ documents, and Windows/Linux artwork remains independent.
 
 ### ONNX execution providers
 
-Windows and Linux x64 use `onnxruntime-gpu==1.26.0` with CUDA 12.8 and
-cuDNN 9.10.2. macOS retains its standard `onnxruntime` pins and CoreML/CPU policy.
-The GPU distribution also provides CPU execution; never install both ORT
-distributions into one build environment. Use a fresh environment when moving
-from the old CPU-only dependencies.
+Windows and Linux x64 ship CPU-only `onnxruntime==1.26.0`. Optional GPU setup
+downloads `onnxruntime-gpu==1.26.0` with CUDA 12.8 and cuDNN 9.10.2.
+macOS retains its standard `onnxruntime` pins and CoreML/CPU policy.
+Never install both ORT distributions into one build environment. Use a fresh
+environment when moving from the old bundled GPU dependencies.
 
-Keep the CUDA pins in `pyproject.toml` and `runtime-requirements.txt` aligned.
+The base application includes neither the ONNX CUDA adapter nor NVIDIA libraries.
+`src/EmbeddingsArea/runtime/cuda-downloads.json` pins each platform's official PyPI
+wheel URL, byte size, and SHA-256, including a GPU ONNX Runtime wheel for the running
+Python ABI. Runtime installation never resolves unpinned dependencies or invokes
+pip. Source installs use the same GPU setup.
+The optional ONNX Python package, native extension, and provider libraries stay
+together under `python/onnxruntime`. Fresh CUDA workers select that package before
+importing ONNX; a process that already imported the base runtime cannot switch.
+CPU workers continue using the base runtime, including after a failed CUDA attempt.
 ORT 1.27+ GPU wheels on PyPI default to CUDA 13, which excludes older NVIDIA
 architectures. cuDNN 9.10.2 supports Pascal (including the GeForce MX350), as well
 as newer architectures. Changing either requires renewed hardware validation.
@@ -55,16 +63,34 @@ and [cuDNN support matrix](https://docs.nvidia.com/deeplearning/cudnn/backend/v9
 Users still need a compatible NVIDIA driver; no system CUDA toolkit is required.
 For this CUDA 12.8 stack, use driver 570.65+ on Windows or 570.26+ on Linux.
 
-`automation/onnx_bundle.py` collects NVIDIA runtime libraries and licenses,
-including cuDNN engines, NVRTC companions, and nvJitLink. Libraries are placed in
-the bootloader's native search directory; inference preloads them only for CUDA
-sessions. The build rejects missing libraries or a CPU-only ORT environment.
-The CUDA payload is approximately 2.6 GiB on Windows / 2.9 GiB on Linux before
-compression, including ORT. Application size guards are 4,000 / 4,500 MiB;
-macOS size guards remain unchanged.
+The model-run dialog offers **Enable NVIDIA GPU…** only for a model declaring CUDA
+and after an isolated driver query detects a compatible NVIDIA device. Opening the
+dialog makes no network requests. Setup shows the download size before downloading,
+supports cancellation and retry, and checks real CUDA inference in a child process.
+The option remains hidden on macOS, unsupported architectures, and systems without
+a working NVIDIA driver/device. After successful setup, CUDA is selected for the run.
 
-The packaged self-test checks CUDA plugin loading and CPU inference on Windows
-and Linux even when CI has no GPU. Apple Silicon checks actual CoreML inference;
+The GPU runtime and its licenses are installed under the platform's local generic
+data folder at `EIDORA/EIDORA Desktop/runtimes/<runtime-id>/<platform>-<python-abi>`. This path is
+independent of installation location, projects, and Model Zoo storage, and is the
+same in GUI and child processes. MSIX and AppImage contents are never modified.
+Wheels are downloaded and extracted one at a time into staging; size/hash validation,
+safe extraction, a process lock, and atomic publication prevent partial activation.
+An explicit retry verifies installed file hashes and repairs corruption. Failed or
+cancelled attempts clean their staging files; a completed download survives a failed
+GPU check so users can update their driver and retry without downloading it again.
+
+`automation/onnx_bundle.py` removes NVIDIA libraries and ONNX GPU providers collected
+by hooks and rejects remaining copies, a missing CPU extension/download manifest,
+or a build environment containing the GPU distribution. Application size
+guards are 800 MiB on Windows and 1,100 MiB on Linux, excluding the starter archive;
+macOS guards remain unchanged. Changing the runtime manifest requires a new runtime
+ID and native validation of both platform downloads. Retain the matching ONNX pin.
+
+The base packaged self-test checks CPU inference on Windows and Linux without any
+GPU download. A separate `onnx-audit --provider cuda-load` worker checks optional
+CUDA plugin loading on GPU-less CI after installing the optional runtime.
+Apple Silicon checks actual CoreML inference;
 Intel Macs check CPU. The audit verifies numerical results at batches 1, 2, and
 32, checks unit-length embeddings, and uses profiling to reject silent substitution
 of CPU for an accelerator. It shares the adapter's explicit CoreML MLProgram
@@ -74,8 +100,8 @@ The graph deliberately omits Conv/AveragePool padding. This exercises the
 CoreML-only compatibility retry for ORT's missing MLProgram `pad` input, including
 the macOS `onnx` / `ml-dtypes` bundle dependencies. Keep this omission in the
 fixture: explicit padding would hide the VGG16 compiler regression.
-This small graph checks the runtime, not every Model Zoo model. On NVIDIA
-hardware, also run the packaged worker explicitly (paths must be writable):
+This small graph checks the runtime, not every Model Zoo model. After optional
+setup on NVIDIA hardware, also run the packaged worker explicitly (paths must be writable):
 
 ```bash
 EIDORA --internal-worker onnx-audit /path/to/audit /path/to/result.json --provider cuda

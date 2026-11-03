@@ -220,6 +220,7 @@ class EmbeddingsAreaController:
             run_id=run_id,
             model_id=model_id,
             discard_on_cancel=discard_on_cancel,
+            activity_manager=self._activity_manager,
         )
         submitted = controller.exec()
         if submitted is None:

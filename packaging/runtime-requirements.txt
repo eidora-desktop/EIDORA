@@ -102,15 +102,8 @@ numpy==2.5.3 ; sys_platform != "darwin" or platform_machine != "x86_64"
     #   scikit-learn
     #   scipy
     #   umap-learn
-# CUDA 12.8 / cuDNN 9.10 retain Pascal support; keep aligned with pyproject.toml.
-onnxruntime-gpu==1.26.0; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
-nvidia-cudnn-cu12==9.10.2.21; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
-nvidia-cublas-cu12==12.8.4.1; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
-nvidia-cuda-runtime-cu12==12.8.90; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
-nvidia-cuda-nvrtc-cu12==12.8.93; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
-nvidia-cufft-cu12==11.3.3.83; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
-nvidia-curand-cu12==10.3.9.90; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
-nvidia-nvjitlink-cu12==12.8.93; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
+# CPU-only base; optional GPU runtime versions live in cuda-downloads.json.
+onnxruntime==1.26.0; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
 
 odfpy==1.4.1
     # via eidora-desktop (pyproject.toml)

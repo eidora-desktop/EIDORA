@@ -4,6 +4,14 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Changed
+
+- Make ONNX Runtime's CUDA provider and NVIDIA libraries an optional, verified download on Windows and Linux
+  instead of including them in every installer. Offer GPU setup only after detecting
+  a compatible NVIDIA device, with download progress, cancellation, retry, and an
+  isolated inference check. CPU execution works without downloading GPU support;
+  macOS CoreML behavior is unchanged.
+
 ## 0.2.6 — Prepared
 
 ### Fixed

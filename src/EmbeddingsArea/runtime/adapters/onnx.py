@@ -40,18 +40,32 @@ def execution_device_availability(declared=None) -> dict[str, bool]:
         import onnxruntime as ort
     except Exception:
         return {"auto": False, "cpu": False, "cuda": False, "coreml": False}
-    available = set(ort.get_available_providers())
-    available &= _platform_execution_providers()
+    available = _available_providers(ort)
     available &= set(declared if declared is not None else _DEVICE_PROVIDERS.values())
     result = {device: provider in available for device, provider in _DEVICE_PROVIDERS.items()}
     result["auto"] = any(result.values())
     return result
 
 
+def _available_providers(ort) -> set[str]:
+    allowed = _platform_execution_providers()
+    available = set(ort.get_available_providers()) & allowed
+    if "CUDAExecutionProvider" in allowed:
+        from EmbeddingsArea.runtime.cuda_install import runtime_available
+
+        # The GUI/CPU process uses the base runtime; CUDA is loaded only in a
+        # fresh worker. Its availability therefore comes from the download.
+        if runtime_available():
+            available.add("CUDAExecutionProvider")
+        else:
+            available.discard("CUDAExecutionProvider")
+    return available
+
+
 def unavailable_device_reason(device: object) -> str:
     normalized = str(device or "auto").strip().casefold()
     if normalized == "cuda":
-        return "CUDA is unavailable. It requires an NVIDIA GPU and a CUDA-enabled ONNX Runtime build."
+        return "CUDA is unavailable. Use Enable NVIDIA GPU to download GPU support on a compatible NVIDIA device."
     if normalized == "coreml":
         return "CoreML is unavailable. It requires an Apple Silicon Mac and the ONNX Runtime CoreML provider."
     if normalized == "cpu":
@@ -61,8 +75,7 @@ def unavailable_device_reason(device: object) -> str:
 
 def execution_providers_for_device(ort: Any, requested_device: object, declared=None) -> list[str]:
     device = str(requested_device or "auto").strip().casefold()
-    available = set(ort.get_available_providers())
-    available &= _platform_execution_providers()
+    available = _available_providers(ort)
     available &= set(declared if declared is not None else _DEVICE_PROVIDERS.values())
     if "CPUExecutionProvider" not in available:
         raise RuntimeError("The required CPUExecutionProvider is unavailable.")
@@ -149,7 +162,25 @@ class OnnxAdapter:
         if not config.runtime_contract or config.runtime_contract.get("schema_version") != 3:
             raise RuntimeError("ONNX execution requires an EIDORA schema v3 runtime contract.")
         declared = validate_providers(config.runtime_contract.get("execution_providers"))
-        import onnxruntime as ort
+        use_cuda = config.requested_device == "cuda"
+        if (config.requested_device == "auto" and "CUDAExecutionProvider" in declared
+                and "CUDAExecutionProvider" in _platform_execution_providers()):
+            from EmbeddingsArea.runtime.cuda_install import runtime_available
+
+            use_cuda = runtime_available()
+        if use_cuda:
+            from EmbeddingsArea.runtime.onnx_loader import activate_cuda_runtime
+
+            # Native import can fail or crash too. Mark setup before loading so
+            # the parent can discard the GPU attempt and restart on CPU.
+            self._phase("setup")
+            try:
+                activate_cuda_runtime()
+                import onnxruntime as ort
+            except Exception as exc:
+                raise ExecutionFailure(str(exc)) from exc
+        else:
+            import onnxruntime as ort
         providers = execution_providers_for_device(ort, config.requested_device, declared)
         self._contract = deepcopy(config.runtime_contract)
         self._phase("setup")

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dialog_cuda_setup</class>
+ <widget class="QDialog" name="dialog_cuda_setup">
+  <property name="windowTitle"><string>NVIDIA GPU support</string></property>
+  <property name="minimumSize"><size><width>480</width><height>180</height></size></property>
+  <layout class="QVBoxLayout" name="layout_setup">
+   <item><widget class="QLabel" name="label_status">
+    <property name="text"><string>Download NVIDIA GPU support</string></property>
+    <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+    <property name="wordWrap"><bool>true</bool></property>
+   </widget></item>
+   <item><widget class="QProgressBar" name="progress_download"><property name="value"><number>0</number></property></widget></item>
+   <item><layout class="QHBoxLayout" name="layout_buttons">
+    <item><widget class="QPushButton" name="button_download"><property name="text"><string>Download and enable</string></property></widget></item>
+    <item><widget class="QPushButton" name="button_cancel"><property name="text"><string>Close</string></property></widget></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
