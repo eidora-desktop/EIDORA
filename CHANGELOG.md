@@ -4,7 +4,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
-## 0.2.6 — Prepared
+## 0.2.6 — 2026-11-03
 
 ### Changed
 
