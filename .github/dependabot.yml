@@ -3,10 +3,19 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
+      interval: monthly
+      time: "10:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 1
+    groups:
+      github-actions:
+        applies-to: version-updates
+        patterns:
+          - "*"
   - package-ecosystem: pip
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    # Runtime upgrades need coordinated platform pins and application validation.
+    # Zero disables version PRs only; security PRs remain enabled in repo settings.
+    open-pull-requests-limit: 0
