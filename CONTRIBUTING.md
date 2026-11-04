@@ -48,6 +48,30 @@ contribution may wait for maintainer approval before CI runs. CI approval only
 allows validation; it does not approve merging or signing. Fix failures rather
 than weakening checks or requesting privileged CI access.
 
+## Dependency updates
+
+Dependabot proposes security fixes for maintainer review. Keep Dependabot alerts
+and security updates enabled in the repository's security settings; these settings
+are separate from `.github/dependabot.yml`. Security fixes are not delayed by the
+routine update schedule. Dependabot does not enable auto-merge; merging requires
+explicit maintainer approval.
+
+Routine Python version-update PRs are disabled. Plan runtime upgrades in small,
+tested batches with a concrete reason, such as a security fix, needed feature, or
+compatibility repair. Keep `pyproject.toml` and `packaging/runtime-requirements.txt`
+consistent, preserving platform-specific pins. Qt upgrades must coordinate PySide6,
+its companion packages, the matching native SDK, and the renderer build; ONNX/CUDA
+and NumPy/Numba upgrades also need their compatibility constraints checked.
+Run the maintainer tests and affected workflow checks before merging, and validate
+packaged behavior on affected platforms before release. Passing the public Source
+Gate alone does not establish runtime compatibility.
+
+GitHub Actions version updates are checked monthly at 10:00 Europe/Berlin and
+combined into at most one open routine update PR. Review upstream changes,
+including breaking changes, retain commit-SHA pins, and validate affected workflows.
+Security-fix PRs are separate from this routine grouping and limit. All dependency
+PRs follow the same maintainer review and CI requirements as application changes.
+
 ## Review and official distribution
 
 The maintainer reviews contributions, including workflows, dependencies,
