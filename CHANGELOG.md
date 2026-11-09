@@ -4,6 +4,20 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.2.7 — Prepared
+
+### Changed
+
+- Size Figures map and guideline grids in millimetres, with square cells and a 25% minimum visible fraction for the last cell.
+- Open Canvas Layers settings with a dedicated arrow beside each visibility checkbox, and close them when clicking outside the popover.
+
+### Fixed
+
+- Avoid repainting the Layers bar on the first mouse-opened settings popover.
+- Give Figures legends separate side and alignment controls, and size the layout to fit rendered labels.
+- Keep the startup project chooser visible with an opening indicator until the main window is ready.
+- Draw checkboxes on every row in the Canvas Layers settings for Pins, Tooltips, and Marked Areas, including after scrolling.
+
 ## 0.2.6 — 2026-11-03
 
 ### Changed

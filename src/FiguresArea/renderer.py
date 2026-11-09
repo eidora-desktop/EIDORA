@@ -27,6 +27,7 @@ from matplotlib.figure import Figure
 from matplotlib import font_manager
 from matplotlib import image as mpimg
 from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnnotationBbox, HPacker, OffsetImage, TextArea, VPacker
 from matplotlib.ticker import FixedFormatter, FixedLocator, NullFormatter
@@ -89,7 +90,6 @@ class FigureMatplotlibRenderer:
     """Compile a FiguresArea composition into one authoritative Matplotlib figure."""
 
     _ELEMENT_BAND_MM = 12.0
-    _LEGEND_BAND_MM = 22.0
 
     def export(
         self,
@@ -129,42 +129,66 @@ class FigureMatplotlibRenderer:
             composition,
             caption_width_in=subplot_width_in,
         )
-        axis_bands_in = self._axis_decoration_bands_inches(cells, settings)
-        cell_width_in = (
-            cell_element_bands_in["left"]
-            + axis_bands_in["left"]
-            + subplot_width_in
-            + cell_element_bands_in["right"]
-            + axis_bands_in["right"]
+        axis_bands_in = self._axis_decoration_bands_inches(settings)
+        cell_bands_in = {side: band + axis_bands_in[side] for side, band in cell_element_bands_in.items()}
+        dpi = max(int(settings.export_dpi), 36)
+        figure = Figure(figsize=(1 / dpi, 1 / dpi), dpi=dpi)
+        legend_renderer = FigureCanvasAgg(figure).get_renderer()
+        legends = {}
+        for element in composition.figure_elements.values():
+            if not element.visible or element.kind != "legend":
+                continue
+            if element.source_cell is not None and element.source_cell not in cells:
+                continue
+            width_in = subplot_width_in if element.source_cell is not None else columns * subplot_width_in
+            legend = self._create_legend(figure, element, composition, width_in)
+            if legend is not None:
+                bbox = legend.get_window_extent(legend_renderer)
+                legends[element.element_id] = (element, legend, bbox.width / dpi, bbox.height / dpi)
+        local_legends = [entry for entry in legends.values() if entry[0].source_cell is not None]
+        global_legends = [entry for entry in legends.values() if entry[0].source_cell is None]
+        cell_bands_in, legend_rects = self._layout_legends(
+            local_legends, settings, subplot_width_in, subplot_height_in, cell_bands_in, dpi,
         )
-        cell_height_in = (
-            cell_element_bands_in["top"]
-            + axis_bands_in["top"]
-            + subplot_height_in
-            + cell_element_bands_in["bottom"]
-            + axis_bands_in["bottom"]
-        )
+        cell_width_in = cell_bands_in["left"] + subplot_width_in + cell_bands_in["right"]
+        cell_height_in = cell_bands_in["top"] + subplot_height_in + cell_bands_in["bottom"]
+        grid_width_in = columns * cell_width_in + (columns - 1) * subplot_gap_in
+        grid_height_in = rows * cell_height_in + (rows - 1) * subplot_gap_in
         margins_in = self._reserved_margins_inches(
             composition,
             caption_width_in=max(columns * subplot_width_in, subplot_width_in),
         )
-        outer_margin_in = self._margin_mm_to_inches(getattr(settings, "margin_mm", 0.0))
-        for side in margins_in:
-            margins_in[side] += outer_margin_in
-        figure_width_in = (columns * cell_width_in) + (max(columns - 1, 0) * subplot_gap_in) + margins_in["left"] + margins_in["right"]
-        figure_height_in = (rows * cell_height_in) + (max(rows - 1, 0) * subplot_gap_in) + margins_in["top"] + margins_in["bottom"]
-        dpi = max(int(settings.export_dpi), 36)
-        figure = Figure(figsize=(figure_width_in, figure_height_in), dpi=dpi)
+        global_bands_in, global_legend_rects = self._layout_legends(
+            global_legends,
+            settings,
+            grid_width_in - cell_bands_in["left"] - cell_bands_in["right"],
+            grid_height_in - cell_bands_in["top"] - cell_bands_in["bottom"],
+            cell_bands_in,
+            dpi,
+        )
+        legend_rects.update(global_legend_rects)
+        outer_margin_in = self._margin_mm_to_inches(settings.margin_mm)
+        margins_in = {
+            side: margin + global_bands_in[side] - cell_bands_in[side] + outer_margin_in
+            for side, margin in margins_in.items()
+        }
+        figure_width_in = grid_width_in + margins_in["left"] + margins_in["right"]
+        figure_height_in = grid_height_in + margins_in["top"] + margins_in["bottom"]
+        figure.set_size_inches(figure_width_in, figure_height_in)
         figure.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
         canvas_width_px = max(int(figure.bbox.width), 1)
         canvas_height_px = max(int(figure.bbox.height), 1)
         plot_rects: dict[tuple[int, int], tuple[int, int, int, int]] = {}
+        plot_origins: dict[tuple[int, int] | None, tuple[float, float]] = {
+            None: (margins_in["left"] + cell_bands_in["left"], margins_in["bottom"] + cell_bands_in["bottom"]),
+        }
         pin_specs: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
         for (row, column), cell in sorted(cells.items()):
             cell_left_in = margins_in["left"] + ((column - min_column) * (cell_width_in + subplot_gap_in))
             cell_bottom_in = margins_in["bottom"] + ((max_row - row) * (cell_height_in + subplot_gap_in))
-            left_in = cell_left_in + cell_element_bands_in["left"] + axis_bands_in["left"]
-            bottom_in = cell_bottom_in + cell_element_bands_in["bottom"] + axis_bands_in["bottom"]
+            left_in = cell_left_in + cell_bands_in["left"]
+            bottom_in = cell_bottom_in + cell_bands_in["bottom"]
+            plot_origins[(row, column)] = (left_in, bottom_in)
             rect = [
                 left_in / figure_width_in,
                 bottom_in / figure_height_in,
@@ -192,6 +216,16 @@ class FigureMatplotlibRenderer:
             plot_rects,
             canvas_size_px=(canvas_width_px, canvas_height_px),
         )
+        for element_id, (element, legend, width_in, height_in) in legends.items():
+            x, y = legend_rects[element_id]
+            origin_x, origin_y = plot_origins[element.source_cell]
+            x += origin_x
+            y += origin_y
+            legend.set_bbox_to_anchor((x / figure_width_in, y / figure_height_in), transform=figure.transFigure)
+            element_rects[element_id] = (
+                round(x * dpi), round((figure_height_in - y - height_in) * dpi),
+                math.ceil(width_in * dpi), math.ceil(height_in * dpi),
+            )
         pin_geometries = self._pin_geometries_from_artists(
             figure,
             pin_specs,
@@ -261,11 +295,8 @@ class FigureMatplotlibRenderer:
                         edgecolors=[edge_colors[index] for index in indices] if border_width > 0 else "none",
                     )
             camera = self._safe_dict(cell.render_state.get("camera"))
-            overview_xlim = self._axis_limits(xs)
-            overview_ylim = self._axis_limits(ys)
             axes.set_xlim(*self._camera_or_axis_limits(camera, "x", xs))
             axes.set_ylim(*self._camera_or_axis_limits(camera, "y", ys))
-            axes._eidora_map_grid_origin = (min(overview_xlim), min(overview_ylim))
         # Figure cells use Matplotlib's standard fill behavior. The camera
         # bounds choose the visible data; they do not letterbox the plot cell.
         axes.set_aspect("auto")
@@ -307,25 +338,32 @@ class FigureMatplotlibRenderer:
 
         xlim = axes.get_xlim()
         ylim = axes.get_ylim()
-        grid_resolution = max(float(getattr(settings, "grid_resolution", 1.0)), 0.01)
-        origin = getattr(axes, "_eidora_map_grid_origin", (min(xlim), min(ylim)))
-        x_origin, y_origin = self._map_grid_origin_tuple(origin, xlim, ylim)
-        x_major = self._grid_boundaries_for_limits(xlim, grid_resolution, origin=x_origin)
-        y_major = self._grid_boundaries_for_limits(ylim, grid_resolution, origin=y_origin)
-        x_centers = self._grid_cell_centers_for_limits(xlim, grid_resolution, origin=x_origin)
-        y_centers = self._grid_cell_centers_for_limits(ylim, grid_resolution, origin=y_origin)
-        axes.xaxis.set_major_locator(FixedLocator(x_major))
-        axes.yaxis.set_major_locator(FixedLocator(y_major))
-        axes.xaxis.set_major_formatter(NullFormatter())
-        axes.yaxis.set_major_formatter(NullFormatter())
-        axes.xaxis.set_minor_locator(FixedLocator(x_centers))
-        axes.yaxis.set_minor_locator(FixedLocator(y_centers))
-        if grid_mode == "map":
-            axes.xaxis.set_minor_formatter(FixedFormatter(self._numeric_labels_for_centers(x_centers, grid_resolution, origin=x_origin)))
-            axes.yaxis.set_minor_formatter(FixedFormatter(self._alpha_labels_for_centers(y_centers, grid_resolution, origin=y_origin)))
-        else:
-            axes.xaxis.set_minor_formatter(NullFormatter())
-            axes.yaxis.set_minor_formatter(NullFormatter())
+        cell_size_mm = self._grid_cell_size_mm(settings)
+        tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 1.0)
+        map_labels = grid_mode == "map"
+        for axis, limits, axis_mm, horizontal in (
+            (axes.xaxis, xlim, self._mm_to_inches(settings.width_mm) * 25.4, True),
+            (axes.yaxis, ylim, self._mm_to_inches(settings.height_mm) * 25.4, False),
+        ):
+            start, end = limits
+            units_per_mm = (end - start) / axis_mm
+            cell_count = self._grid_cell_count(axis_mm, cell_size_mm)
+            axis.set_major_locator(FixedLocator([
+                start + index * cell_size_mm * units_per_mm
+                for index in range(1, cell_count)
+            ]))
+            axis.set_major_formatter(NullFormatter())
+            centers = []
+            labels = []
+            if map_labels:
+                for index in range(cell_count):
+                    cell_start_mm = index * cell_size_mm
+                    visible_size_mm = min(cell_size_mm, axis_mm - cell_start_mm)
+                    center_mm = cell_start_mm + visible_size_mm / 2
+                    centers.append(start + center_mm * units_per_mm)
+                    labels.append(str(index + 1) if horizontal else self._index_to_alpha_label(index))
+            axis.set_minor_locator(FixedLocator(centers))
+            axis.set_minor_formatter(FixedFormatter(labels) if map_labels else NullFormatter())
         axes.set_xlim(*xlim)
         axes.set_ylim(*ylim)
         axes.autoscale(enable=False)
@@ -333,9 +371,7 @@ class FigureMatplotlibRenderer:
         axes.set_axisbelow(True)
         self._apply_axis_box(axes, visible=show_axis_box, line_width=axis_box_line_width)
         axes.grid(True, which="major", alpha=0.4, linewidth=grid_line_width)
-        tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 1.0)
         tick_label_margin = max(float(getattr(settings, "tick_label_margin_pt", 0.0)), 0.0)
-        map_labels = grid_mode == "map"
         axes.tick_params(
             axis="both",
             which="major",
@@ -381,7 +417,7 @@ class FigureMatplotlibRenderer:
     ) -> dict[str, tuple[int, int, int, int]]:
         element_rects: dict[str, tuple[int, int, int, int]] = {}
         for element in sorted(composition.figure_elements.values(), key=lambda item: item.order):
-            if not element.visible:
+            if not element.visible or element.kind == "legend":
                 continue
             rect = self._element_rect(element, plot_rects, canvas_size_px, composition.settings)
             element_rects[element.element_id] = rect
@@ -390,9 +426,7 @@ class FigureMatplotlibRenderer:
                 rect,
                 canvas_size_px,
             )
-            if element.kind == "legend":
-                self._render_legend_element(figure, element, composition, rect, canvas_size_px)
-            elif element.kind == "caption":
+            if element.kind == "caption":
                 self._render_caption_element(figure, element, rect, canvas_size_px)
             else:
                 figure.text(
@@ -453,38 +487,72 @@ class FigureMatplotlibRenderer:
             transform=figure.transFigure,
         )
 
-    def _render_legend_element(
-        self,
-        figure: Figure,
-        element: FigureElement,
-        composition: FigureComposition,
-        rect: tuple[int, int, int, int],
-        canvas_size_px: tuple[int, int],
-    ) -> None:
+    def _create_legend(
+        self, figure: Figure, element: FigureElement, composition: FigureComposition, width_in: float,
+    ) -> Legend | None:
         handles, labels = self._legend_handles_for_element(element, composition)
         if not handles:
-            return
-        x, y, width, height = rect
-        canvas_width, canvas_height = canvas_size_px
+            return None
         settings = composition.settings
-        figure.legend(
+        font_size = max(float(settings.legend_font_size), 1.0)
+        columns = min(max(int(settings.legend_columns), 1), len(labels))
+        font_family = font_manager.FontProperties().get_family()[0]
+        # Give each column a readable line length, allowing the page to grow when needed.
+        label_width = max(width_in * figure.dpi / columns, 8 * font_size * figure.dpi / 72)
+        labels = [
+            "\n".join(self._wrapped_caption_text_lines(label, label_width, font_size, figure.dpi, font_family))
+            if self._caption_text_width_px(label, font_size, figure.dpi, font_family) > label_width
+            else label
+            for label in labels
+        ]
+        return figure.legend(
             handles,
             labels,
-            loc=self._legend_location(settings),
-            bbox_to_anchor=(
-                x / canvas_width,
-                1.0 - ((y + height) / canvas_height),
-                width / canvas_width,
-                height / canvas_height,
-            ),
-            bbox_transform=figure.transFigure,
-            frameon=bool(getattr(settings, "legend_frame", True)),
-            fontsize=max(float(getattr(settings, "legend_font_size", 10)), 1.0),
-            ncols=max(int(getattr(settings, "legend_columns", 1)), 1),
+            loc="lower left",
+            frameon=settings.legend_frame,
+            fontsize=font_size,
+            ncols=columns,
             borderaxespad=0.0,
             handlelength=1.2,
             handletextpad=0.5,
         )
+
+    @staticmethod
+    def _layout_legends(
+        legends: list[tuple[FigureElement, Legend, float, float]],
+        settings: FigurePlotSettings,
+        width: float,
+        height: float,
+        bands: dict[str, float],
+        dpi: int,
+    ) -> tuple[dict[str, float], dict[str, tuple[float, float]]]:
+        """Reserve each measured box relative to the lower left of its plot or plot grid."""
+        side, alignment = settings.legend_placement
+        horizontal_fraction, vertical_fraction = {
+            "start": (0.0, 1.0), "center": (0.5, 0.5), "end": (1.0, 0.0),
+        }[alignment]
+        gap = max(settings.legend_margin_mm, 0.0) / 25.4
+        # Keep the frame stroke and rounding inside the exported canvas.
+        padding = max(1.0 / dpi, 1.0 / 72.0)
+        reserved = bands.copy()
+        origins = {}
+        for element, _legend, legend_width, legend_height in legends:
+            x = (width - legend_width) * horizontal_fraction
+            y = (height - legend_height) * vertical_fraction
+            if side == "left":
+                x = -bands["left"] - gap - legend_width
+            elif side == "right":
+                x = width + bands["right"] + gap
+            elif side == "top":
+                y = height + bands["top"] + gap
+            else:
+                y = -bands["bottom"] - gap - legend_height
+            origins[element.element_id] = (x, y)
+            reserved["left"] = max(reserved["left"], -x + padding)
+            reserved["right"] = max(reserved["right"], x + legend_width - width + padding)
+            reserved["bottom"] = max(reserved["bottom"], -y + padding)
+            reserved["top"] = max(reserved["top"], y + legend_height - height + padding)
+        return reserved, origins
 
     @staticmethod
     def _caption_plain_text(element: FigureElement) -> str:
@@ -676,7 +744,7 @@ class FigureMatplotlibRenderer:
     ) -> dict[str, float]:
         margins = {"top": 0.0, "left": 0.0, "right": 0.0, "bottom": 0.0}
         for element in composition.figure_elements.values():
-            if not element.visible or element.source_cell is not None:
+            if not element.visible or element.kind == "legend" or element.source_cell is not None:
                 continue
             element_margin_mm = self._element_margin_mm(element, composition.settings)
             margins[element.direction] = max(
@@ -698,7 +766,7 @@ class FigureMatplotlibRenderer:
     ) -> dict[str, float]:
         bands = {"top": 0.0, "left": 0.0, "right": 0.0, "bottom": 0.0}
         for element in composition.figure_elements.values():
-            if not element.visible or element.source_cell is None:
+            if not element.visible or element.kind == "legend" or element.source_cell is None:
                 continue
             element_margin_mm = self._element_margin_mm(element, composition.settings)
             bands[element.direction] = max(
@@ -714,7 +782,6 @@ class FigureMatplotlibRenderer:
 
     def _axis_decoration_bands_inches(
         self,
-        cells: dict[tuple[int, int], PlotCell],
         settings: FigurePlotSettings,
     ) -> dict[str, float]:
         grid_mode = str(getattr(settings, "grid_mode", "off") or "off").lower()
@@ -722,23 +789,13 @@ class FigureMatplotlibRenderer:
             return {"top": 0.0, "left": 0.0, "right": 0.0, "bottom": 0.0}
         tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 1.0)
         tick_label_margin = max(float(getattr(settings, "tick_label_margin_pt", 0.0)), 0.0)
-        max_x_chars = 1
-        max_y_chars = 1
-        grid_resolution = max(float(getattr(settings, "grid_resolution", 1.0)), 0.01)
-        for cell in cells.values():
-            xs = [point[0] for point in cell.coordinates]
-            ys = [point[1] for point in cell.coordinates]
-            camera = self._safe_dict(cell.render_state.get("camera"))
-            xlim = self._camera_or_axis_limits(camera, "x", xs) if xs else (0.0, 1.0)
-            ylim = self._camera_or_axis_limits(camera, "y", ys) if ys else (0.0, 1.0)
-            x_count = len(self._grid_cell_centers_for_limits(xlim, grid_resolution))
-            y_count = len(self._grid_cell_centers_for_limits(ylim, grid_resolution))
-            max_x_chars = max(max_x_chars, len(str(max(x_count, 1))))
-            max_y_chars = max(max_y_chars, len(self._index_to_alpha_label(max(y_count - 1, 0))))
+        height_mm = self._mm_to_inches(settings.height_mm) * 25.4
+        row_count = self._grid_cell_count(height_mm, self._grid_cell_size_mm(settings))
+        max_y_chars = len(self._index_to_alpha_label(row_count - 1))
         pad_in = tick_label_margin / 72.0
         safety_in = 2.0 / 72.0
         bottom_in = (tick_label_size / 72.0) + pad_in + safety_in
-        left_in = ((tick_label_size * 0.62 * max_y_chars) / 72.0) + pad_in + safety_in
+        left_in = ((tick_label_size * max_y_chars) / 72.0) + pad_in + safety_in
         return {"top": 0.0, "left": left_in, "right": 0.0, "bottom": bottom_in}
 
     @staticmethod
@@ -747,8 +804,6 @@ class FigureMatplotlibRenderer:
             return float(getattr(settings, "main_title_margin_mm", 0.0))
         if element.kind == "plot_title":
             return float(getattr(settings, "subtitle_margin_mm", 0.0))
-        if element.kind == "legend":
-            return max(float(getattr(settings, "legend_margin_mm", 0.0)), 0.0)
         if element.kind == "caption":
             return max(float(getattr(settings, "caption_margin_mm", 0.0)), 0.0)
         return 0.0
@@ -779,8 +834,7 @@ class FigureMatplotlibRenderer:
     def _element_band_inches(element: FigureElement, settings: FigurePlotSettings) -> float:
         if element.kind in {"main_title", "plot_title"}:
             return max(float(element.font_size), 1.0) / 72.0
-        band_mm = FigureMatplotlibRenderer._LEGEND_BAND_MM if element.kind == "legend" else FigureMatplotlibRenderer._ELEMENT_BAND_MM
-        return band_mm / 25.4
+        return FigureMatplotlibRenderer._ELEMENT_BAND_MM / 25.4
 
     @staticmethod
     def _element_band_px_for_width(
@@ -947,22 +1001,6 @@ class FigureMatplotlibRenderer:
         return non_global or items
 
     @staticmethod
-    def _legend_location(settings: FigurePlotSettings) -> str:
-        location = str(getattr(settings, "legend_location", "upper right") or "upper right")
-        if location not in {
-            "upper right",
-            "upper left",
-            "lower right",
-            "lower left",
-            "center right",
-            "center left",
-            "upper center",
-            "lower center",
-        }:
-            return "upper right"
-        return location
-
-    @staticmethod
     def _mm_to_inches(value_mm: float) -> float:
         return max(float(value_mm), 0.1) / 25.4
 
@@ -971,66 +1009,14 @@ class FigureMatplotlibRenderer:
         return max(float(value_mm), 0.0) / 25.4
 
     @staticmethod
-    def _map_grid_origin_tuple(
-        origin: object,
-        xlim: tuple[float, float],
-        ylim: tuple[float, float],
-    ) -> tuple[float, float]:
-        if isinstance(origin, tuple) and len(origin) == 2:
-            try:
-                return float(origin[0]), float(origin[1])
-            except (TypeError, ValueError):
-                pass
-        return min(float(xlim[0]), float(xlim[1])), min(float(ylim[0]), float(ylim[1]))
+    def _grid_cell_count(axis_mm: float, cell_size_mm: float) -> int:
+        # Round up only when at least a quarter of the last cell is visible.
+        return min(math.floor(axis_mm / cell_size_mm + 0.75 + 1e-9), 2000)
 
     @staticmethod
-    def _grid_boundaries_for_limits(limits: tuple[float, float], resolution: float, *, origin: float | None = None) -> list[float]:
-        start = min(float(limits[0]), float(limits[1]))
-        end = max(float(limits[0]), float(limits[1]))
-        step = max(float(resolution), 1e-9)
-        span = end - start
-        if span <= 1e-12:
-            return []
-        if origin is not None:
-            base = float(origin)
-            first_index = max(math.floor(((start - base) / step) + 1e-9), 0)
-            last_index = max(math.ceil(((end - base) / step) - 1e-9), first_index)
-            max_intervals = 2000
-            if last_index - first_index > max_intervals:
-                last_index = first_index + max_intervals
-            return [base + (step * float(index)) for index in range(first_index, last_index + 1)]
-        max_intervals = 2000
-        full_intervals = min(int(math.floor(span / step)), max_intervals)
-        boundaries = [start + (step * float(index)) for index in range(full_intervals + 1)]
-        if not boundaries:
-            boundaries = [start]
-        epsilon = step * 1e-6
-        if (end - boundaries[-1]) > epsilon and len(boundaries) < (max_intervals + 2):
-            boundaries.append(end)
-        else:
-            boundaries[-1] = end
-        boundaries[0] = start
-        return boundaries
-
-    @classmethod
-    def _grid_cell_centers_for_limits(cls, limits: tuple[float, float], resolution: float, *, origin: float | None = None) -> list[float]:
-        boundaries = cls._grid_boundaries_for_limits(limits, resolution, origin=origin)
-        if len(boundaries) < 2:
-            return []
-        step = max(float(resolution), 1e-9)
-        epsilon = step * 1e-9
-        visible_start = min(float(limits[0]), float(limits[1]))
-        visible_end = max(float(limits[0]), float(limits[1]))
-        centers: list[float] = []
-        for index in range(len(boundaries) - 1):
-            left = float(boundaries[index])
-            right = float(boundaries[index + 1])
-            visible_left = max(left, visible_start)
-            visible_right = min(right, visible_end)
-            if visible_right - visible_left <= epsilon:
-                continue
-            centers.append((visible_left + visible_right) * 0.5)
-        return centers
+    def _grid_cell_size_mm(settings: FigurePlotSettings) -> float:
+        size = settings.grid_cell_size_mm
+        return min(max(size, 0.5), 1000.0) if math.isfinite(size) else 10.0
 
     @staticmethod
     def _index_to_alpha_label(index: int) -> str:
@@ -1045,20 +1031,6 @@ class FigureMatplotlibRenderer:
                 break
             value -= 1
         return label
-
-    @classmethod
-    def _numeric_labels_for_centers(cls, centers: list[float], resolution: float, *, origin: float = 0.0) -> list[str]:
-        return [str(cls._global_grid_index(center, resolution, origin=origin) + 1) for center in centers]
-
-    @classmethod
-    def _alpha_labels_for_centers(cls, centers: list[float], resolution: float, *, origin: float = 0.0) -> list[str]:
-        return [cls._index_to_alpha_label(cls._global_grid_index(center, resolution, origin=origin)) for center in centers]
-
-    @staticmethod
-    def _global_grid_index(center: float, resolution: float, *, origin: float = 0.0) -> int:
-        step = max(float(resolution), 1e-9)
-        epsilon = step * 1e-9
-        return max(int(math.floor(((float(center) - float(origin)) / step) + epsilon)), 0)
 
     def _point_size_from_state(self, state: dict[str, Any], settings: FigurePlotSettings, dpi: float) -> float:
         appearance = self._safe_dict(state.get("appearance"))

@@ -30,7 +30,7 @@ class FigurePlotSettings:
     axis_box_line_width: float = 0.0
     grid_mode: Literal["off", "lines", "map"] = "off"
     grid_line_width: float = 0.8
-    grid_resolution: float = 0.5
+    grid_cell_size_mm: float = 10.0
     tick_label_size: int = 10
     tick_label_margin_pt: float = 0.0
     point_size_factor_percent: float = 0.0
@@ -80,6 +80,18 @@ class FigurePlotSettings:
     subplot_caption_font: str = "DejaVu Sans"
     subplot_caption_size: int = 9
     subplot_caption_line_spacing: float = 1.25
+
+    legend_side: Literal["", "left", "right", "top", "bottom"] = ""
+    legend_alignment: Literal["start", "center", "end"] = "start"
+
+    @property
+    def legend_placement(self) -> tuple[str, str]:
+        if self.legend_side:
+            return self.legend_side, self.legend_alignment
+        vertical, horizontal = self.legend_location.split()
+        if horizontal == "center":
+            return ("top" if vertical == "upper" else "bottom"), "center"
+        return horizontal, {"upper": "start", "center": "center", "lower": "end"}[vertical]
 
     @property
     def subplot_size_mm(self) -> float:
