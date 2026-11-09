@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Changed
+
+- Size Figures map and guideline grids in millimetres, with square cells and a 25% minimum visible fraction for the last cell.
+
 ### Fixed
 
 - Give Figures legends separate side and alignment controls, and size the layout to fit rendered labels.

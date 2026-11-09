@@ -129,7 +129,7 @@ class FigureMatplotlibRenderer:
             composition,
             caption_width_in=subplot_width_in,
         )
-        axis_bands_in = self._axis_decoration_bands_inches(cells, settings)
+        axis_bands_in = self._axis_decoration_bands_inches(settings)
         cell_bands_in = {side: band + axis_bands_in[side] for side, band in cell_element_bands_in.items()}
         dpi = max(int(settings.export_dpi), 36)
         figure = Figure(figsize=(1 / dpi, 1 / dpi), dpi=dpi)
@@ -295,11 +295,8 @@ class FigureMatplotlibRenderer:
                         edgecolors=[edge_colors[index] for index in indices] if border_width > 0 else "none",
                     )
             camera = self._safe_dict(cell.render_state.get("camera"))
-            overview_xlim = self._axis_limits(xs)
-            overview_ylim = self._axis_limits(ys)
             axes.set_xlim(*self._camera_or_axis_limits(camera, "x", xs))
             axes.set_ylim(*self._camera_or_axis_limits(camera, "y", ys))
-            axes._eidora_map_grid_origin = (min(overview_xlim), min(overview_ylim))
         # Figure cells use Matplotlib's standard fill behavior. The camera
         # bounds choose the visible data; they do not letterbox the plot cell.
         axes.set_aspect("auto")
@@ -341,25 +338,32 @@ class FigureMatplotlibRenderer:
 
         xlim = axes.get_xlim()
         ylim = axes.get_ylim()
-        grid_resolution = max(float(getattr(settings, "grid_resolution", 1.0)), 0.01)
-        origin = getattr(axes, "_eidora_map_grid_origin", (min(xlim), min(ylim)))
-        x_origin, y_origin = self._map_grid_origin_tuple(origin, xlim, ylim)
-        x_major = self._grid_boundaries_for_limits(xlim, grid_resolution, origin=x_origin)
-        y_major = self._grid_boundaries_for_limits(ylim, grid_resolution, origin=y_origin)
-        x_centers = self._grid_cell_centers_for_limits(xlim, grid_resolution, origin=x_origin)
-        y_centers = self._grid_cell_centers_for_limits(ylim, grid_resolution, origin=y_origin)
-        axes.xaxis.set_major_locator(FixedLocator(x_major))
-        axes.yaxis.set_major_locator(FixedLocator(y_major))
-        axes.xaxis.set_major_formatter(NullFormatter())
-        axes.yaxis.set_major_formatter(NullFormatter())
-        axes.xaxis.set_minor_locator(FixedLocator(x_centers))
-        axes.yaxis.set_minor_locator(FixedLocator(y_centers))
-        if grid_mode == "map":
-            axes.xaxis.set_minor_formatter(FixedFormatter(self._numeric_labels_for_centers(x_centers, grid_resolution, origin=x_origin)))
-            axes.yaxis.set_minor_formatter(FixedFormatter(self._alpha_labels_for_centers(y_centers, grid_resolution, origin=y_origin)))
-        else:
-            axes.xaxis.set_minor_formatter(NullFormatter())
-            axes.yaxis.set_minor_formatter(NullFormatter())
+        cell_size_mm = self._grid_cell_size_mm(settings)
+        tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 1.0)
+        map_labels = grid_mode == "map"
+        for axis, limits, axis_mm, horizontal in (
+            (axes.xaxis, xlim, self._mm_to_inches(settings.width_mm) * 25.4, True),
+            (axes.yaxis, ylim, self._mm_to_inches(settings.height_mm) * 25.4, False),
+        ):
+            start, end = limits
+            units_per_mm = (end - start) / axis_mm
+            cell_count = self._grid_cell_count(axis_mm, cell_size_mm)
+            axis.set_major_locator(FixedLocator([
+                start + index * cell_size_mm * units_per_mm
+                for index in range(1, cell_count)
+            ]))
+            axis.set_major_formatter(NullFormatter())
+            centers = []
+            labels = []
+            if map_labels:
+                for index in range(cell_count):
+                    cell_start_mm = index * cell_size_mm
+                    visible_size_mm = min(cell_size_mm, axis_mm - cell_start_mm)
+                    center_mm = cell_start_mm + visible_size_mm / 2
+                    centers.append(start + center_mm * units_per_mm)
+                    labels.append(str(index + 1) if horizontal else self._index_to_alpha_label(index))
+            axis.set_minor_locator(FixedLocator(centers))
+            axis.set_minor_formatter(FixedFormatter(labels) if map_labels else NullFormatter())
         axes.set_xlim(*xlim)
         axes.set_ylim(*ylim)
         axes.autoscale(enable=False)
@@ -367,9 +371,7 @@ class FigureMatplotlibRenderer:
         axes.set_axisbelow(True)
         self._apply_axis_box(axes, visible=show_axis_box, line_width=axis_box_line_width)
         axes.grid(True, which="major", alpha=0.4, linewidth=grid_line_width)
-        tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 1.0)
         tick_label_margin = max(float(getattr(settings, "tick_label_margin_pt", 0.0)), 0.0)
-        map_labels = grid_mode == "map"
         axes.tick_params(
             axis="both",
             which="major",
@@ -780,7 +782,6 @@ class FigureMatplotlibRenderer:
 
     def _axis_decoration_bands_inches(
         self,
-        cells: dict[tuple[int, int], PlotCell],
         settings: FigurePlotSettings,
     ) -> dict[str, float]:
         grid_mode = str(getattr(settings, "grid_mode", "off") or "off").lower()
@@ -788,23 +789,13 @@ class FigureMatplotlibRenderer:
             return {"top": 0.0, "left": 0.0, "right": 0.0, "bottom": 0.0}
         tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 1.0)
         tick_label_margin = max(float(getattr(settings, "tick_label_margin_pt", 0.0)), 0.0)
-        max_x_chars = 1
-        max_y_chars = 1
-        grid_resolution = max(float(getattr(settings, "grid_resolution", 1.0)), 0.01)
-        for cell in cells.values():
-            xs = [point[0] for point in cell.coordinates]
-            ys = [point[1] for point in cell.coordinates]
-            camera = self._safe_dict(cell.render_state.get("camera"))
-            xlim = self._camera_or_axis_limits(camera, "x", xs) if xs else (0.0, 1.0)
-            ylim = self._camera_or_axis_limits(camera, "y", ys) if ys else (0.0, 1.0)
-            x_count = len(self._grid_cell_centers_for_limits(xlim, grid_resolution))
-            y_count = len(self._grid_cell_centers_for_limits(ylim, grid_resolution))
-            max_x_chars = max(max_x_chars, len(str(max(x_count, 1))))
-            max_y_chars = max(max_y_chars, len(self._index_to_alpha_label(max(y_count - 1, 0))))
+        height_mm = self._mm_to_inches(settings.height_mm) * 25.4
+        row_count = self._grid_cell_count(height_mm, self._grid_cell_size_mm(settings))
+        max_y_chars = len(self._index_to_alpha_label(row_count - 1))
         pad_in = tick_label_margin / 72.0
         safety_in = 2.0 / 72.0
         bottom_in = (tick_label_size / 72.0) + pad_in + safety_in
-        left_in = ((tick_label_size * 0.62 * max_y_chars) / 72.0) + pad_in + safety_in
+        left_in = ((tick_label_size * max_y_chars) / 72.0) + pad_in + safety_in
         return {"top": 0.0, "left": left_in, "right": 0.0, "bottom": bottom_in}
 
     @staticmethod
@@ -1018,66 +1009,14 @@ class FigureMatplotlibRenderer:
         return max(float(value_mm), 0.0) / 25.4
 
     @staticmethod
-    def _map_grid_origin_tuple(
-        origin: object,
-        xlim: tuple[float, float],
-        ylim: tuple[float, float],
-    ) -> tuple[float, float]:
-        if isinstance(origin, tuple) and len(origin) == 2:
-            try:
-                return float(origin[0]), float(origin[1])
-            except (TypeError, ValueError):
-                pass
-        return min(float(xlim[0]), float(xlim[1])), min(float(ylim[0]), float(ylim[1]))
+    def _grid_cell_count(axis_mm: float, cell_size_mm: float) -> int:
+        # Round up only when at least a quarter of the last cell is visible.
+        return min(math.floor(axis_mm / cell_size_mm + 0.75 + 1e-9), 2000)
 
     @staticmethod
-    def _grid_boundaries_for_limits(limits: tuple[float, float], resolution: float, *, origin: float | None = None) -> list[float]:
-        start = min(float(limits[0]), float(limits[1]))
-        end = max(float(limits[0]), float(limits[1]))
-        step = max(float(resolution), 1e-9)
-        span = end - start
-        if span <= 1e-12:
-            return []
-        if origin is not None:
-            base = float(origin)
-            first_index = max(math.floor(((start - base) / step) + 1e-9), 0)
-            last_index = max(math.ceil(((end - base) / step) - 1e-9), first_index)
-            max_intervals = 2000
-            if last_index - first_index > max_intervals:
-                last_index = first_index + max_intervals
-            return [base + (step * float(index)) for index in range(first_index, last_index + 1)]
-        max_intervals = 2000
-        full_intervals = min(int(math.floor(span / step)), max_intervals)
-        boundaries = [start + (step * float(index)) for index in range(full_intervals + 1)]
-        if not boundaries:
-            boundaries = [start]
-        epsilon = step * 1e-6
-        if (end - boundaries[-1]) > epsilon and len(boundaries) < (max_intervals + 2):
-            boundaries.append(end)
-        else:
-            boundaries[-1] = end
-        boundaries[0] = start
-        return boundaries
-
-    @classmethod
-    def _grid_cell_centers_for_limits(cls, limits: tuple[float, float], resolution: float, *, origin: float | None = None) -> list[float]:
-        boundaries = cls._grid_boundaries_for_limits(limits, resolution, origin=origin)
-        if len(boundaries) < 2:
-            return []
-        step = max(float(resolution), 1e-9)
-        epsilon = step * 1e-9
-        visible_start = min(float(limits[0]), float(limits[1]))
-        visible_end = max(float(limits[0]), float(limits[1]))
-        centers: list[float] = []
-        for index in range(len(boundaries) - 1):
-            left = float(boundaries[index])
-            right = float(boundaries[index + 1])
-            visible_left = max(left, visible_start)
-            visible_right = min(right, visible_end)
-            if visible_right - visible_left <= epsilon:
-                continue
-            centers.append((visible_left + visible_right) * 0.5)
-        return centers
+    def _grid_cell_size_mm(settings: FigurePlotSettings) -> float:
+        size = settings.grid_cell_size_mm
+        return min(max(size, 0.5), 1000.0) if math.isfinite(size) else 10.0
 
     @staticmethod
     def _index_to_alpha_label(index: int) -> str:
@@ -1092,20 +1031,6 @@ class FigureMatplotlibRenderer:
                 break
             value -= 1
         return label
-
-    @classmethod
-    def _numeric_labels_for_centers(cls, centers: list[float], resolution: float, *, origin: float = 0.0) -> list[str]:
-        return [str(cls._global_grid_index(center, resolution, origin=origin) + 1) for center in centers]
-
-    @classmethod
-    def _alpha_labels_for_centers(cls, centers: list[float], resolution: float, *, origin: float = 0.0) -> list[str]:
-        return [cls._index_to_alpha_label(cls._global_grid_index(center, resolution, origin=origin)) for center in centers]
-
-    @staticmethod
-    def _global_grid_index(center: float, resolution: float, *, origin: float = 0.0) -> int:
-        step = max(float(resolution), 1e-9)
-        epsilon = step * 1e-9
-        return max(int(math.floor(((float(center) - float(origin)) / step) + epsilon)), 0)
 
     def _point_size_from_state(self, state: dict[str, Any], settings: FigurePlotSettings, dpi: float) -> float:
         appearance = self._safe_dict(state.get("appearance"))

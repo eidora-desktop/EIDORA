@@ -208,7 +208,7 @@ class FigureSettingsPanelController(UiPanelController):
             [("off", "none"), ("lines", "guidelines"), ("map", "map")],
         )
         self._add_double_spin(tree, plot_item, "grid_line_width", "grid width", minimum=0.0, maximum=1000.0, step=0.1)
-        self._add_double_spin(tree, plot_item, "grid_resolution", "grid resolution", minimum=0.1, maximum=1000.0, step=0.1)
+        self._add_double_spin(tree, plot_item, "grid_cell_size_mm", "grid cell size", suffix=" mm", minimum=0.5, maximum=1000.0)
         self._add_spin(tree, plot_item, "tick_label_size", "label size", minimum=1, maximum=200)
         self._add_double_spin(tree, plot_item, "tick_label_margin_pt", "label margin", suffix=" pt", minimum=0.0, maximum=200.0, step=0.1)
 
@@ -526,7 +526,7 @@ class FigureSettingsPanelController(UiPanelController):
         self._set_widget_value("subplot_caption_size", settings.subplot_caption_size)
         self._set_widget_value("subplot_caption_line_spacing", settings.subplot_caption_line_spacing)
         self._set_widget_value("caption_margin_mm", settings.caption_margin_mm)
-        self._set_widget_value("grid_resolution", settings.grid_resolution)
+        self._set_widget_value("grid_cell_size_mm", settings.grid_cell_size_mm)
         self._set_widget_value("tick_label_size", settings.tick_label_size)
         self._set_widget_value("tick_label_margin_pt", settings.tick_label_margin_pt)
         self._set_widget_value("point_size_factor_percent", settings.point_size_factor_percent)
@@ -655,7 +655,7 @@ class FigureSettingsPanelController(UiPanelController):
             subplot_caption_size=self._int_value("subplot_caption_size"),
             subplot_caption_line_spacing=self._double_value("subplot_caption_line_spacing"),
             caption_margin_mm=self._double_value("caption_margin_mm"),
-            grid_resolution=self._double_value("grid_resolution"),
+            grid_cell_size_mm=self._double_value("grid_cell_size_mm"),
             tick_label_size=self._int_value("tick_label_size"),
             tick_label_margin_pt=self._double_value("tick_label_margin_pt"),
             point_size_factor_percent=self._double_value("point_size_factor_percent"),
@@ -949,7 +949,7 @@ class FigureSettingsPanelController(UiPanelController):
         grid_mode = self._combo_value_or_default("grid_mode", "off")
         grid_enabled = grid_mode in {"lines", "map"}
         map_enabled = grid_mode == "map"
-        for key in ("grid_line_width", "grid_resolution"):
+        for key in ("grid_line_width", "grid_cell_size_mm"):
             self._set_setting_enabled(key, grid_enabled)
         for key in ("tick_label_size", "tick_label_margin_pt"):
             self._set_setting_enabled(key, map_enabled)
