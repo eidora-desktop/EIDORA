@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Give Figures legends separate side and alignment controls, and size the layout to fit rendered labels.
+
 ## 0.2.6 — 2026-11-03
 
 ### Changed

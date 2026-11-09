@@ -248,20 +248,12 @@ class FigureSettingsPanelController(UiPanelController):
             [("per_plot", "individual"), ("global", "global")],
         )
         self._add_combo_box(
-            tree,
-            legend_item,
-            "legend_location",
-            "location",
-            [
-                ("upper right", "upper right"),
-                ("upper left", "upper left"),
-                ("lower right", "lower right"),
-                ("lower left", "lower left"),
-                ("center right", "center right"),
-                ("center left", "center left"),
-                ("upper center", "upper center"),
-                ("lower center", "lower center"),
-            ],
+            tree, legend_item, "legend_side", "side",
+            [("left", "left"), ("right", "right"), ("top", "above"), ("bottom", "below")],
+        )
+        self._add_combo_box(
+            tree, legend_item, "legend_alignment", "alignment",
+            [("start", "top"), ("center", "middle"), ("end", "bottom")],
         )
         self._add_check_box(tree, legend_item, "legend_include_point_color", "point color")
         self._add_check_box(tree, legend_item, "legend_include_border_color", "border color")
@@ -508,7 +500,9 @@ class FigureSettingsPanelController(UiPanelController):
         self._set_widget_value("subtitle_size", settings.subtitle_size)
         self._set_widget_value("legend_show", settings.legend_show)
         self._set_widget_value("legend_scope", settings.legend_scope)
-        self._set_widget_value("legend_location", settings.legend_location)
+        legend_side, legend_alignment = settings.legend_placement
+        self._set_widget_value("legend_side", legend_side)
+        self._set_widget_value("legend_alignment", legend_alignment)
         self._set_widget_value("legend_include_point_color", settings.legend_include_point_color)
         self._set_widget_value("legend_include_border_color", settings.legend_include_border_color)
         self._set_widget_value("legend_include_shape", settings.legend_include_shape)
@@ -636,7 +630,8 @@ class FigureSettingsPanelController(UiPanelController):
             subtitle_size=self._int_value("subtitle_size"),
             legend_show=self._checked_value("legend_show"),
             legend_scope=self._combo_value("legend_scope"),
-            legend_location=self._combo_value("legend_location"),
+            legend_side=self._combo_value("legend_side"),
+            legend_alignment=self._combo_value("legend_alignment"),
             legend_include_point_color=self._checked_value("legend_include_point_color"),
             legend_include_border_color=self._checked_value("legend_include_border_color"),
             legend_include_shape=self._checked_value("legend_include_shape"),
@@ -942,9 +937,10 @@ class FigureSettingsPanelController(UiPanelController):
             widget = self._figure_setting_widgets.get(key)
             if isinstance(widget, QtWidgets.QCheckBox):
                 widget.toggled.connect(self._update_dynamic_setting_states)
-        widget = self._figure_setting_widgets.get("grid_mode")
-        if isinstance(widget, QtWidgets.QComboBox):
-            widget.currentIndexChanged.connect(self._update_dynamic_setting_states)
+        for key in ("grid_mode", "legend_side"):
+            widget = self._figure_setting_widgets.get(key)
+            if isinstance(widget, QtWidgets.QComboBox):
+                widget.currentIndexChanged.connect(self._update_dynamic_setting_states)
 
     def _update_dynamic_setting_states(self) -> None:
         rows = self._int_value_or_default("rows", 1)
@@ -963,10 +959,16 @@ class FigureSettingsPanelController(UiPanelController):
         subtitle_enabled = self._checked_value_or_default("subtitle_show", False)
         for key in ("subtitle_location", "subtitle_alignment", "subtitle_margin_mm", "subtitle_font", "subtitle_size"):
             self._set_setting_enabled(key, subtitle_enabled)
+        alignment = self._figure_setting_widgets["legend_alignment"]
+        side = self._combo_value("legend_side")
+        labels = ("left", "center", "right") if side in {"top", "bottom"} else ("top", "middle", "bottom")
+        for index, label in enumerate(labels):
+            alignment.setItemText(index, label)
         legend_enabled = self._checked_value_or_default("legend_show", False)
         for key in (
             "legend_scope",
-            "legend_location",
+            "legend_side",
+            "legend_alignment",
             "legend_include_point_color",
             "legend_include_border_color",
             "legend_include_shape",

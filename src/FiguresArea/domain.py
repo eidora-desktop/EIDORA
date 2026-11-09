@@ -81,6 +81,18 @@ class FigurePlotSettings:
     subplot_caption_size: int = 9
     subplot_caption_line_spacing: float = 1.25
 
+    legend_side: Literal["", "left", "right", "top", "bottom"] = ""
+    legend_alignment: Literal["start", "center", "end"] = "start"
+
+    @property
+    def legend_placement(self) -> tuple[str, str]:
+        if self.legend_side:
+            return self.legend_side, self.legend_alignment
+        vertical, horizontal = self.legend_location.split()
+        if horizontal == "center":
+            return ("top" if vertical == "upper" else "bottom"), "center"
+        return horizontal, {"upper": "start", "center": "center", "lower": "end"}[vertical]
+
     @property
     def subplot_size_mm(self) -> float:
         return self.width_mm

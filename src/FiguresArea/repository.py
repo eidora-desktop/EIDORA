@@ -167,6 +167,8 @@ class FigureTabsRepository:
             "main_title_alignment": {"left", "center", "right"},
             "subtitle_location": {"top", "left", "right", "bottom"},
             "subtitle_alignment": {"left", "center", "right"},
+            "legend_side": {"", "left", "right", "top", "bottom"},
+            "legend_alignment": {"start", "center", "end"},
             "legend_scope": {"global", "per_plot"},
             "legend_location": {
                 "upper right",
