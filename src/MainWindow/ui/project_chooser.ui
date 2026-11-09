@@ -241,17 +241,42 @@
       <item>
        <layout class="QHBoxLayout" name="layout_project_actions">
         <item>
-         <spacer name="spacer_project_actions">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
+         <widget class="QLabel" name="label_opening_project">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Ignored" vsizetype="Preferred">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
           </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>40</width>
-            <height>20</height>
-           </size>
+          <property name="text">
+           <string>Opening project…</string>
           </property>
-         </spacer>
+          <property name="textFormat">
+           <enum>Qt::TextFormat::PlainText</enum>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QProgressBar" name="progress_opening_project">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="maximum">
+           <number>100</number>
+          </property>
+          <property name="value">
+           <number>0</number>
+          </property>
+          <property name="textVisible">
+           <bool>false</bool>
+          </property>
+          <property name="accessibleName">
+           <string>Opening project</string>
+          </property>
+         </widget>
         </item>
         <item>
          <widget class="QPushButton" name="button_open_project">

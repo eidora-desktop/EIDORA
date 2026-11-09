@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Keep the startup project chooser visible with an opening indicator until the main window is ready.
+
 ## 0.2.6 — 2026-11-03
 
 ### Changed
