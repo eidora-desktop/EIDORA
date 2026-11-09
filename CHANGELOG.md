@@ -4,6 +4,14 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Changed
+
+- Open Canvas Layers settings with a dedicated arrow beside each visibility checkbox, and close them when clicking outside the popover.
+
+### Fixed
+
+- Avoid repainting the Layers bar on the first mouse-opened settings popover.
+
 ## 0.2.6 — 2026-11-03
 
 ### Changed
