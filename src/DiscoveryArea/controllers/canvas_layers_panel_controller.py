@@ -13,25 +13,43 @@ from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
 
 
-class _LayerSettingsHoverFilter(QtCore.QObject):
+class _LayerSettingsKeyFilter(QtCore.QObject):
     def __init__(self, owner: "CanvasLayersPanelController", layer: str) -> None:
         super().__init__(owner.widget)
         self._owner = owner
         self._layer = layer
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        if (
-            event.type() == QtCore.QEvent.Type.KeyPress
-            and obj is self._owner._layer_settings_checkboxes[self._layer]
-            and event.key() in (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter)
-            and not (event.modifiers() & ~QtCore.Qt.KeyboardModifier.KeypadModifier)
+        if event.type() != QtCore.QEvent.Type.KeyPress or (
+            event.modifiers() & ~QtCore.Qt.KeyboardModifier.KeypadModifier
         ):
+            return False
+        enter_keys = (QtCore.Qt.Key.Key_Return, QtCore.Qt.Key.Key_Enter)
+        if obj is self._owner._layer_settings_checkboxes[self._layer] and event.key() in enter_keys:
             self._owner._open_layer_settings(self._layer)
             return True
-        if event.type() == QtCore.QEvent.Type.Enter:
-            self._owner._handle_layer_settings_hover_entered(self._layer)
-        elif event.type() == QtCore.QEvent.Type.Leave:
-            self._owner._schedule_layer_settings_hide(self._layer)
+        if obj is self._owner._layer_settings_buttons[self._layer]:
+            if event.key() in (*enter_keys, QtCore.Qt.Key.Key_Space):
+                if not event.isAutoRepeat():
+                    self._owner._toggle_layer_settings(self._layer, focus_settings=True)
+                return True
+            if (
+                event.key() == QtCore.Qt.Key.Key_Escape
+                and self._owner._active_layer_settings_layer == self._layer
+            ):
+                self._owner._dismiss_layer_settings(self._layer)
+                return True
+        return False
+
+
+class _LayerSettingsClickFilter(QtCore.QObject):
+    def __init__(self, owner: "CanvasLayersPanelController") -> None:
+        super().__init__(owner.widget)
+        self._owner = owner
+
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        if event.type() in (QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.MouseButtonDblClick):
+            self._owner._close_layer_settings_if_clicked_outside(event)
         return False
 
 
@@ -55,13 +73,9 @@ class CanvasLayersPanelController(UiPanelController):
         self._layer_settings_view_provider: Callable[[str], QtWidgets.QWidget | None] | None = None
         self._layer_settings_popups: dict[str, QtWidgets.QWidget] = {}
         self._layer_settings_checkboxes: dict[str, QtWidgets.QCheckBox] = {}
-        self._layer_settings_hover_filters: dict[str, _LayerSettingsHoverFilter] = {}
+        self._layer_settings_buttons: dict[str, QtWidgets.QPushButton] = {}
+        self._layer_settings_click_filter = _LayerSettingsClickFilter(self)
         self._tooltip_settings_popup: QtWidgets.QWidget | None = None
-        self._layer_settings_hide_timer = QtCore.QTimer(self._widget)
-        self._layer_settings_hide_timer.setSingleShot(True)
-        self._layer_settings_hide_timer.setInterval(120)
-        self._pending_layer_settings_hide: str | None = None
-        self._layer_settings_hide_timer.timeout.connect(self._hide_layer_settings_popup_if_left)
         self._active_layer_settings_layer: str | None = None
         self._layer_settings_show_generation = 0
         self._checkboxes = [
@@ -108,10 +122,15 @@ class CanvasLayersPanelController(UiPanelController):
     def _configure_layer_settings_popovers(self) -> None:
         for layer, (checkbox_name, _ui_path) in self._LAYER_SETTINGS.items():
             checkbox = require_child(self._widget, QtWidgets.QCheckBox, checkbox_name)
-            hover_filter = _LayerSettingsHoverFilter(self, layer)
-            checkbox.installEventFilter(hover_filter)
             self._layer_settings_checkboxes[layer] = checkbox
-            self._layer_settings_hover_filters[layer] = hover_filter
+            button = require_child(self._widget, QtWidgets.QPushButton, f"button_{layer}_settings")
+            button.clicked.connect(
+                lambda _checked=False, current_layer=layer: self._toggle_layer_settings(current_layer)
+            )
+            self._layer_settings_buttons[layer] = button
+            key_filter = _LayerSettingsKeyFilter(self, layer)
+            checkbox.installEventFilter(key_filter)
+            button.installEventFilter(key_filter)
             action = QtGui.QAction(f"{checkbox.text()} Settings…", checkbox)
             action.triggered.connect(
                 lambda _checked=False, current_layer=layer: self._open_layer_settings(current_layer)
@@ -122,16 +141,26 @@ class CanvasLayersPanelController(UiPanelController):
 
     def _open_layer_settings(self, layer: str) -> None:
         """Explicit access keeps Space available for the layer visibility toggle."""
-        self._layer_settings_hide_timer.stop()
         self._show_layer_settings_popup(layer)
         popup = self._layer_settings_popups[layer]
         popup.activateWindow()
         popup.focusNextChild()
 
+    def _toggle_layer_settings(self, layer: str, *, focus_settings: bool = False) -> None:
+        popup = self._layer_settings_popups.get(layer)
+        if popup is not None and popup.isVisible():
+            self._dismiss_layer_settings(layer)
+        elif focus_settings:
+            self._open_layer_settings(layer)
+        else:
+            # Mouse users can focus a control directly inside the tool window.
+            # Activating the window here repaints the main shell on first open.
+            self._show_layer_settings_popup(layer)
+
     def _dismiss_layer_settings(self, layer: str) -> None:
         self._hide_layer_settings_popup(layer)
         self._widget.window().activateWindow()
-        self._layer_settings_checkboxes[layer].setFocus(QtCore.Qt.FocusReason.ShortcutFocusReason)
+        self._layer_settings_buttons[layer].setFocus(QtCore.Qt.FocusReason.ShortcutFocusReason)
 
     def _configure_crop_controls(self) -> None:
         self._crop_combo = require_child(self._widget, QtWidgets.QComboBox, "combo_crop_preset")
@@ -181,10 +210,6 @@ class CanvasLayersPanelController(UiPanelController):
                 self._crop_combo.setCurrentIndex(index)
 
     def _on_areas_toggled(self, checked: bool) -> None:
-        if not checked:
-            self._hide_layer_settings_popup("areas")
-        else:
-            self._show_layer_settings_popup_if_hovered("areas")
         if callable(self._areas_visibility_callback):
             self._areas_visibility_callback(bool(checked))
 
@@ -192,10 +217,6 @@ class CanvasLayersPanelController(UiPanelController):
         self._areas_visibility_callback = callback
 
     def _on_pins_toggled(self, checked: bool) -> None:
-        if not checked:
-            self._hide_layer_settings_popup("pins")
-        else:
-            self._show_layer_settings_popup_if_hovered("pins")
         if callable(self._pins_visibility_callback):
             self._pins_visibility_callback(bool(checked))
 
@@ -203,10 +224,6 @@ class CanvasLayersPanelController(UiPanelController):
         self._pins_visibility_callback = callback
 
     def _on_tooltips_toggled(self, checked: bool) -> None:
-        if not checked:
-            self._hide_layer_settings_popup("tooltip")
-        else:
-            self._show_layer_settings_popup_if_hovered("tooltip")
         if callable(self._tooltips_visibility_callback):
             self._tooltips_visibility_callback(bool(checked))
 
@@ -218,25 +235,6 @@ class CanvasLayersPanelController(UiPanelController):
         provider: Callable[[str], QtWidgets.QWidget | None] | None,
     ) -> None:
         self._layer_settings_view_provider = provider
-
-    def _handle_layer_settings_hover_entered(self, layer: str) -> None:
-        active = self._layer_settings_popups.get(self._active_layer_settings_layer)
-        focus = QtWidgets.QApplication.focusWidget()
-        if active is not None and active.isVisible() and focus is not None and active.isAncestorOf(focus):
-            # Moving the pointer must not replace settings being used by keyboard.
-            return
-        self._layer_settings_hide_timer.stop()
-        checkbox = self._layer_settings_checkboxes[layer]
-        if checkbox.isChecked():
-            self._show_layer_settings_popup(layer)
-
-    def _show_layer_settings_popup_if_hovered(self, layer: str) -> None:
-        checkbox = self._layer_settings_checkboxes[layer]
-        if checkbox.underMouse():
-            QtCore.QTimer.singleShot(
-                0,
-                lambda: self._handle_layer_settings_hover_entered(layer),
-            )
 
     def _show_tooltip_settings_popup(self) -> None:
         self._show_layer_settings_popup("tooltip")
@@ -251,17 +249,15 @@ class CanvasLayersPanelController(UiPanelController):
                 else None
             )
             if popup is None:
-                popup = load_ui(self.package, ui_path, self._widget.window())
-            else:
-                popup.setParent(self._widget.window())
-            popup.setWindowFlags(
+                popup = load_ui(self.package, ui_path)
+            popup.setParent(
+                self._widget.window(),
                 QtCore.Qt.WindowType.Tool
-                | QtCore.Qt.WindowType.FramelessWindowHint
+                | QtCore.Qt.WindowType.FramelessWindowHint,
             )
             popup.setWindowModality(QtCore.Qt.WindowModality.NonModal)
             popup.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
             mark_ephemeral_window(popup)
-            popup.installEventFilter(self._layer_settings_hover_filters[layer])
             popup.setWindowTitle(f"{self._layer_settings_checkboxes[layer].text()} Settings")
             dismiss = QtGui.QShortcut(QtGui.QKeySequence("Esc"), popup)
             dismiss.activated.connect(lambda current_layer=layer: self._dismiss_layer_settings(current_layer))
@@ -277,12 +273,13 @@ class CanvasLayersPanelController(UiPanelController):
         for other_layer in self._LAYER_SETTINGS:
             if other_layer != layer:
                 self._hide_layer_settings_popup(other_layer)
+        QtWidgets.QApplication.instance().installEventFilter(self._layer_settings_click_filter)
         self._active_layer_settings_layer = layer
         self._layer_settings_show_generation += 1
         generation = self._layer_settings_show_generation
         self._present_layer_settings_popup(layer, popup)
         # Tool windows can lose their first expose while Qt is still dispatching
-        # the checkbox enter/toggle event, especially beside a native Quick host.
+        # the activating event, especially beside a native Quick host.
         # Re-present once the originating event has returned.
         QtCore.QTimer.singleShot(
             0,
@@ -309,8 +306,6 @@ class CanvasLayersPanelController(UiPanelController):
             return
         if self._active_layer_settings_layer != layer:
             return
-        # Explicit settings access also works for hidden layers. Toggle/page
-        # changes already invalidate this callback through the generation.
         if not self._widget.isVisible():
             return
         if self._layer_settings_popups.get(layer) is not popup:
@@ -344,50 +339,43 @@ class CanvasLayersPanelController(UiPanelController):
         popup.resize(width, height)
         popup.move(x, y)
 
-    def _schedule_layer_settings_hide(self, layer: str) -> None:
-        self._pending_layer_settings_hide = layer
-        self._layer_settings_hide_timer.start()
-
-    def _hide_layer_settings_popup_if_left(self) -> None:
-        layer = self._pending_layer_settings_hide
-        if layer is None:
-            return
-        checkbox = self._layer_settings_checkboxes[layer]
+    def _close_layer_settings_if_clicked_outside(self, event: QtGui.QMouseEvent) -> None:
+        layer = self._active_layer_settings_layer
         popup = self._layer_settings_popups.get(layer)
-        focus = QtWidgets.QApplication.focusWidget()
-        if popup is not None and focus is not None and popup.isAncestorOf(focus):
+        if popup is None or not popup.isVisible():
             return
-        cursor = QtGui.QCursor.pos()
-        if checkbox.rect().contains(checkbox.mapFromGlobal(cursor)):
+        position = event.globalPosition().toPoint()
+        if popup.rect().contains(popup.mapFromGlobal(position)):
             return
-        if popup is not None and popup.isVisible() and popup.rect().contains(popup.mapFromGlobal(cursor)):
+        # Let the active arrow handle its own toggle on release.
+        button = self._layer_settings_buttons[layer]
+        if event.button() == QtCore.Qt.MouseButton.LeftButton and button.rect().contains(
+            button.mapFromGlobal(position)
+        ):
             return
-        active_popup = QtWidgets.QApplication.activePopupWidget()
+        child_popup = QtWidgets.QApplication.activePopupWidget()
         if (
-            popup is not None
-            and active_popup is not None
-            and (active_popup is popup or popup.isAncestorOf(active_popup))
+            child_popup is not None
+            and popup.isAncestorOf(child_popup)
+            and child_popup.rect().contains(child_popup.mapFromGlobal(position))
         ):
             return
         self._hide_layer_settings_popup(layer)
 
     def _hide_layer_settings_popup(self, layer: str) -> None:
-        if self._pending_layer_settings_hide == layer:
-            self._layer_settings_hide_timer.stop()
-            self._pending_layer_settings_hide = None
         popup = self._layer_settings_popups.get(layer)
         if popup is not None:
             popup.hide()
 
         if self._active_layer_settings_layer == layer:
+            QtWidgets.QApplication.instance().removeEventFilter(self._layer_settings_click_filter)
             self._active_layer_settings_layer = None
             self._layer_settings_show_generation += 1
 
     def close_layer_settings_popups(self) -> None:
         """Immediately hide every top-level settings window owned by this panel."""
 
-        self._layer_settings_hide_timer.stop()
-        self._pending_layer_settings_hide = None
+        QtWidgets.QApplication.instance().removeEventFilter(self._layer_settings_click_filter)
         self._active_layer_settings_layer = None
         self._layer_settings_show_generation += 1
         for popup in tuple(self._layer_settings_popups.values()):
@@ -470,9 +458,5 @@ class CanvasLayersPanelController(UiPanelController):
             self._load_camera_callback(Path(str(path)))
 
     def _on_show_thumbnails_toggled(self, checked: bool) -> None:
-        if not checked:
-            self._hide_layer_settings_popup("previews")
-        else:
-            self._show_layer_settings_popup_if_hovered("previews")
         if not checked and callable(self._render_selection_changed_callback):
             self._render_selection_changed_callback("points_fast")
