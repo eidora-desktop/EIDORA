@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Draw checkboxes on every row in the Canvas Layers settings for Pins, Tooltips, and Marked Areas, including after scrolling.
+
 ## 0.2.6 — 2026-11-03
 
 ### Changed

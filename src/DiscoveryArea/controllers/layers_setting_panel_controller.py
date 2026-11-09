@@ -326,7 +326,16 @@ class LayersSettingPanelController(UiPanelController):
             all_areas_share=all_areas_share,
         )
 
+    @staticmethod
+    def _set_checkable_view_style(view: QtWidgets.QAbstractItemView) -> None:
+        # The macOS item-view style can leave check indicators undrawn.
+        # Keep painting and hit-testing on the same style.
+        style = QtWidgets.QStyleFactory.create("Fusion")
+        style.setParent(view)
+        view.setStyle(style)
+
     def _configure_marked_areas_tree(self, tree: QtWidgets.QTreeWidget) -> None:
+        self._set_checkable_view_style(tree)
         tree.setColumnCount(5)
         tree.setHeaderLabels(["Label", "Share", "Selection", "Polygon", "Color"])
         header = tree.header()
@@ -804,6 +813,7 @@ class LayersSettingPanelController(UiPanelController):
             add_thumbnails.clicked.connect(self._request_create_thumbnails)
         selected = self._field_list(fields, mode)
         if selected is not None:
+            self._set_checkable_view_style(selected)
             selected.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
             checked = list(self._pin_settings.tooltip_fields if mode == "tooltip" else self._pin_settings.pin_fields)
             self._populate_field_list(selected, checked_fields=checked)
