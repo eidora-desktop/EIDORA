@@ -400,6 +400,17 @@ class AppearancePanelController(UiPanelController):
         content = scroll.widget() if scroll is not None else None
         if content is None or content.layout() is None:
             return
+        fill_stack = require_child(self._widget, QtWidgets.QStackedWidget, "stack_fill_color")
+        mapped_stack = require_child(self._widget, QtWidgets.QStackedWidget, "stack_point_color_mode")
+        fill_group = require_child(self._widget, QtWidgets.QFrame, "group_fill_color")
+        policy = fill_group.sizePolicy()
+        has_fill_table = fill_stack.currentIndex() == 2 or (
+            fill_stack.currentIndex() == 1 and mapped_stack.currentIndex() == 0
+        )
+        policy.setVerticalPolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding if has_fill_table else QtWidgets.QSizePolicy.Policy.Fixed
+        )
+        fill_group.setSizePolicy(policy)
         content.setMinimumHeight(0)
         content.layout().invalidate()
         content.layout().activate()

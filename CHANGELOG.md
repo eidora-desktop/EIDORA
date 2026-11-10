@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Changed
+
+- Use the available height for Mapped and Custom Fill Color tables in Discovery Appearance.
+
 ## 0.2.7 — Prepared
 
 ### Changed
