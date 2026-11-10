@@ -33,6 +33,8 @@ def create_source_thumbnails(
             raise ThumbnailGenerationCancelled("")
 
     check_cancelled()
+    if progress_callback is not None:
+        progress_callback("prepare", 0, 0, "Resolving thumbnail inputs…")
     source_content_type = getattr(summary.source, "content_type", MediaContentType.IMAGE)
     assets = {}
     for asset in media_repository.ready_assets_for_sources((summary.source.id,)):
@@ -64,6 +66,7 @@ def create_source_thumbnails(
     if metadata_path.exists():
         identities = ItemRepository(metadata_path).item_ids_for_assets(assets)
         for asset_id, item_id in identities.items():
+            check_cancelled()
             asset = assets[asset_id]
             inputs_by_metadata.setdefault(item_id, ThumbnailGenerationInput(
                 asset.absolute_path, item_id, asset.content_type.value,

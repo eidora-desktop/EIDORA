@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+### Fixed
+
+- Limit thumbnail progress updates so large collections do not flood the interface during automatic or manual thumbnail creation.
+
 ## 0.2.7 — Prepared
 
 ### Changed

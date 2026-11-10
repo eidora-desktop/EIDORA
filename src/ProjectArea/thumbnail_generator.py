@@ -145,13 +145,6 @@ def create_thumbnail_variant(
                 item = next(input_iterator, None)
                 if item is not None:
                     current_file = item.path.name
-                    _emit(
-                        progress_callback,
-                        "message",
-                        done,
-                        failed + missing,
-                        f"Processing {current_file}…",
-                    )
                     processor = _process_video if normalized_media_type == "video" else _process_image
                     pending.add(pool.submit(
                         processor,
@@ -183,10 +176,16 @@ def create_thumbnail_variant(
                                 errors.append(str(exc))
                         submit_next()
                     now = time.monotonic()
-                    if done == len(matched) or done - last_reported >= report_every or now - last_reported_at >= 1.0:
+                    # Bound progress traffic even when inputs finish very quickly.
+                    elapsed = now - last_reported_at
+                    if done == len(matched) or (
+                        done != last_reported
+                        and elapsed >= 0.1
+                        and (done - last_reported >= report_every or elapsed >= 1.0)
+                    ):
                         detail = f" Current file: {current_file}." if current_file and done < len(matched) else ""
                         _emit(progress_callback, "step", done, failed + missing,
-                              f"Processed {done}/{len(matched)} files ({failed + missing} skipped).{detail}")
+                              f"Processed {done:,}/{len(matched):,} files ({failed + missing:,} skipped).{detail}")
                         last_reported = done
                         last_reported_at = now
             except BaseException:
