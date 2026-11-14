@@ -1004,7 +1004,8 @@ class DiscoveryService:
             return canonical_ids
         columns, numeric_columns = required_filter_columns(filters)
         try:
-            text_values, numeric_values = DiscoveryMetadataAccess(project).values_for_ids(
+            access = DiscoveryMetadataAccess(project)
+            text_values, numeric_values = access.values_for_ids(
                 canonical_ids,
                 columns=columns,
                 numeric_columns=numeric_columns,
@@ -1017,6 +1018,7 @@ class DiscoveryService:
             numeric_values,
             canonical_ids,
             filter_matching_from_state_payload(payload),
+            multiple_values=access.multiple_values_for_ids(canonical_ids, columns=columns),
         )
         if mask is None:
             return canonical_ids

@@ -8,9 +8,8 @@ compact, revision-checked plans from one selected metadata column.
 discovers and installs models.
 
 Finish planning reads before publication. Prepared associations are written in
-2,000-row batches through one connection; creating metadata attaches the media
-database to a metadata-owned transaction so allocated IDs and links commit
-together. Folder discovery streams into disposable SQLite storage before the
+2,000-row batches through one connection; matching attaches the media database to a metadata-owned transaction so
+approved associations commit together. Folder discovery streams into disposable SQLite storage before the
 catalog transaction starts. Never feed a live second-connection reader into a
 write transaction: rollback-journal cache spilling can stall the second batch.
 
@@ -63,17 +62,25 @@ before using canonical metadata IDs for groups, Discovery, or thumbnails.
 Keep model/backend imports lazy and heavy work off the GUI thread.
 Preserve explicit accelerator choices; unavailable explicit devices must fail clearly.
 
-Model inputs may be linked indexed assets or metadata text columns.
-Listing input choices does not materialize text or allocate items. Preparation
-runs in the existing background workflow: metadata text is materialized then and
-uses its existing row IDs; linked assets retain their linked IDs; and unlinked
-assets are excluded. No metadata rows or media links are manufactured by
-embedding execution. Scanning alone still only indexes assets. Prepared-run
-ordinals continue to map to permanent IDs through run inputs; the persisted
-`metadata_row_id` name is retained for compatibility. An explicit later media
-link affects future run preparation, never rewrites IDs inside existing saved
-results. Whole assets are the current analysis unit; future segment-producing
-workflows must allocate separate identities for their units.
+Model inputs may be registered assets or metadata text columns, including source
+records before any items exist. **Available assets** prepares one observation per
+asset; **Matched existing items** selects the usable inputs of existing items.
+Ambiguous assignments require an explicit choice. A model with several modalities
+can pair media paths against a selected metadata key without publishing links.
+Only complete input combinations are processed; shared images can accompany distinct
+text records. One selected modality also works without existing identities.
+
+**Review Inputs** prepares the run in a background worker and reports planned
+vectors, item reuse, new items on success, and unused inputs. **Run Model** starts
+the reviewed preparation. Changing settings requires another review. Canceling
+cleans the prepared draft. Preparation creates no items. Only successful vectors
+publish item bindings and media associations in the same transaction as the run.
+Repeated observations reuse unambiguous identities; failed publication rolls back.
+Source, metadata, and file revisions guard against stale prepared input.
+
+Artifact ordinals remain the mapping into run inputs. Relocating media updates
+future preparation and preview lookup without rewriting saved run provenance.
+Deleting a source or vector set does not implicitly delete its items.
 
 Completed vector-data and clustering card menus expose **Citations…**.
 `provenance.py` formats saved model metadata, execution/preprocessing settings,

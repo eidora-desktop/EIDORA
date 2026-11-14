@@ -344,10 +344,27 @@ class VectorDataPanelController(UiPanelController):
         if self._session is None: return
         from EmbeddingsArea.controllers.embedding_import_dialog_controller import EmbeddingImportDialogController
         from EmbeddingsArea.exchange.importer import IMPORT_FILE_FILTER
-        source, _selected = QtWidgets.QFileDialog.getOpenFileName(self._widget, "Import Embeddings", "", IMPORT_FILE_FILTER)
-        if source and EmbeddingImportDialogController(self._session.service, Path(source)).exec():
+        sources, _selected = QtWidgets.QFileDialog.getOpenFileNames(self._widget, "Import Embeddings", "", IMPORT_FILE_FILTER)
+        if not sources:
+            return
+        groups = [sources]
+        if len(sources) > 1:
+            choice, accepted = QtWidgets.QInputDialog.getItem(
+                self._widget, "Import embedding files", "These files contain",
+                ["Parts of one embedding set", "Separate embedding sets"], 0, False,
+            )
+            if not accepted:
+                return
+            if choice == "Separate embedding sets":
+                groups = [[source] for source in sources]
+        for group in groups:
+            controller = EmbeddingImportDialogController(self._session.service, [Path(source) for source in group], process_manager=getattr(self._activity_manager,"processes",None))
+            if not controller.exec():
+                break
             self.refresh()
-            if self._metadata_changed: self._metadata_changed()
+            self.select_output("embedding", controller.imported_run_id)
+            if self._metadata_changed:
+                self._metadata_changed()
 
     @QtCore.Slot(str, str, int, str)
     def _progress(self, kind, identity, value, detail):

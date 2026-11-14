@@ -27,7 +27,6 @@ from EmbeddingsArea.domain import (
     EmbeddingRunState,
     MediaContentType,
     MediaLinkPreview,
-    MediaMetadataMergePreview,
     MediaMatchStrategy,
     MediaSource,
     MediaSourceKind,
@@ -353,46 +352,78 @@ class EmbeddingRunService:
         for source in sources.values():
             if source.source_kind == MediaSourceKind.METADATA_COLUMN:
                 self._media_library.scan_source(source.id)
-        pairs = [
-            (asset, link)
-            for asset, link in self._media_links.assets_with_optional_links(refreshed.selected_source_ids)
-            if sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN
-            or link is not None
-        ]
-        populated = {asset.source_id for asset, _link in pairs}
-        if any(source_id not in populated for source_id in sources):
-            raise ValueError(
-                "Each selected asset source must contain linked items. "
-                "Link assets or choose a nonempty metadata column."
-            )
+        from project.item_repository import ItemRepository
+        from EmbeddingsArea.item_binding import existing_item_bindings
+        from EmbeddingsArea.input_preparation import pair_model_inputs, match_input_records
+
+        parameters = {(value.scope, value.parameter_id): value.value for value in configuration.parameter_values}
+        scope = parameters.get(("run", "input_scope"), "assets")
+        pairing_field = parameters.get(("run", "pairing_field"), "") if len(sources) > 1 else ""
+        active = set(ItemRepository(self._project.paths.metadata_database).active_ids())
+        pairs = self._media_links.assets_with_optional_links(refreshed.selected_source_ids)
+        available_assets = {asset.id for asset, _ in pairs}
+        if scope == "assets":
+            grouped = {}
+            for asset, link in pairs:
+                grouped.setdefault(asset.id, (asset, set()))[1].update([link.metadata_row_id] if link else [])
+            selected = []
+            for asset, records in grouped.values():
+                if pairing_field and sources[asset.source_id].source_kind != MediaSourceKind.METADATA_COLUMN:
+                    records = set()
+                records = records & active or records
+                if len(records) > 1:
+                    raise ValueError("A media asset matches several records. Choose matched existing items or resolve its input matching first.")
+                selected.append((asset, next(iter(records)) if records else None))
+        elif scope == "items":
+            selected = []
+            for source in sources.values():
+                if source.source_kind == MediaSourceKind.METADATA_COLUMN:
+                    selected.extend((asset, int(asset.source_key)) for asset, _ in pairs if asset.source_id == source.id)
+                    continue
+                resolved = self._media_library.assets_for_items(active, source_ids=(source.id,))
+                for item_id, assets in resolved.items():
+                    if len(assets) != 1:
+                        raise ValueError(f"Item {item_id} has several inputs in {source.label}. Match one input per item.")
+                    selected.append((assets[0], item_id))
+        else:
+            raise ValueError("Choose available assets or matched existing items.")
         source_revisions = {source_id: self._media_library.require_source(source_id).source_revision
                             for source_id in sources}
-        inputs = []
-        for ordinal, (asset, link) in enumerate(pairs):
-            if sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN:
-                item_id = int(asset.source_key)
-            else:
-                item_id = link.metadata_row_id
-            inputs.append(EmbeddingRunInput(
-                run_id=refreshed.id,
-                ordinal=ordinal,
-                media_item_id=asset.id,
-                source_id=asset.source_id,
-                source_key=asset.source_key,
-                absolute_path=asset.absolute_path,
-                content_type=asset.content_type,
-                metadata_row_id=item_id,
-                size_bytes=asset.size_bytes,
-                mtime_ns=asset.mtime_ns,
-                link_revision=source_revisions[asset.source_id],
-            ))
+        inputs = [EmbeddingRunInput(
+            run_id=refreshed.id, ordinal=ordinal, media_item_id=asset.id, source_id=asset.source_id,
+            source_key=asset.source_key, absolute_path=asset.absolute_path, content_type=asset.content_type,
+            metadata_row_id=int(asset.source_key) if sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN else identity,
+            size_bytes=asset.size_bytes, mtime_ns=asset.mtime_ns, link_revision=source_revisions[asset.source_id],
+        ) for ordinal, (asset, identity) in enumerate(selected)]
         model = self._catalog.get_model(refreshed.selected_model_id)
+        if model.runtime_contract.get("components") and pairing_field:
+            record_sources = {identity for identity, source in sources.items()
+                              if source.source_kind == MediaSourceKind.METADATA_COLUMN}
+            if not record_sources:
+                raise ValueError("Select a metadata text source for record matching.")
+            inputs = match_input_records(inputs, self._media_library.metadata_text_values(pairing_field), record_sources)
+        # Pairing can expand one image into several source observations. Give each
+        # prepared observation its own ordinal before resolving reusable identities.
+        inputs = [replace(item, ordinal=index) for index, item in enumerate(inputs)]
+        bindings = existing_item_bindings(self._project.paths.metadata_database, inputs)
+        inputs = [replace(item, metadata_row_id=bindings[item.ordinal] or item.metadata_row_id)
+                  for item in inputs if scope != "items" or bindings[item.ordinal] is not None]
+        if not inputs or set(sources) - {item.source_id for item in inputs}:
+            raise ValueError("No usable inputs for every selected source. Check matching and input scope.")
         if model.runtime_contract.get("components"):
-            from EmbeddingsArea.input_preparation import pair_model_inputs
-
-            inputs = pair_model_inputs(inputs, {
-                source_id: source.content_type.value for source_id, source in sources.items()
-            })
+            inputs = pair_model_inputs(inputs, {identity: source.content_type.value for identity, source in sources.items()})
+        inputs = [replace(item, ordinal=index) for index, item in enumerate(inputs)]
+        reuse = existing_item_bindings(self._project.paths.metadata_database, inputs)
+        observations = [("record", item.metadata_row_id) if item.metadata_row_id is not None
+                        else ("asset", item.media_item_id) for item in inputs]
+        if len(observations) != len(set(observations)):
+            raise ValueError("Each vector must have a distinct observation. Check the selected inputs.")
+        reused_ids = [identity for identity in reuse.values() if identity is not None]
+        if len(reused_ids) != len(set(reused_ids)):
+            raise ValueError("Each vector must have a distinct item within its vector set. Check the selected inputs.")
+        used_assets = {part.media_item_id for item in inputs for part in item.components or (item,)}
+        reused_count = len(reused_ids)
+        skipped_count = len(available_assets - used_assets)
         queued = replace(
             refreshed,
             state=EmbeddingRunState.QUEUED,
@@ -412,7 +443,8 @@ class EmbeddingRunService:
         write_text_atomic(snapshot_path, json.dumps(snapshot, sort_keys=True, default=str))
         queued = replace(queued, prepared_signature=signature)
         self._runs_repository.save_prepared_run(queued, inputs)
-        return EmbeddingRunPreparation(run=queued, input_count=len(inputs))
+        return EmbeddingRunPreparation(run=queued, input_count=len(inputs), reused_count=reused_count,
+            new_count=len(inputs) - reused_count, skipped_count=skipped_count)
 
     def run_embedding_run(
         self,
@@ -632,7 +664,20 @@ class EmbeddingRunService:
             artifact_path=str(result.artifact_path),
             error_message="",
         )
-        self._runs_repository.upsert_run(completed)
+        import numpy as np
+        try:
+            with np.load(result.artifact_path, allow_pickle=False) as artifact:
+                completed_ordinals = set(int(value) for value in artifact['object_ids'])
+            if self._snapshot_signature(self._snapshot_payload(run, configuration, snapshot_inputs)) != run.prepared_signature:
+                raise ValueError("Inputs or metadata changed during execution. Prepare the run again.")
+            self._runs_repository.publish_generated_run(
+                completed, [item for item in snapshot_inputs if item.ordinal in completed_ordinals],
+                self._project.paths.metadata_database, expected_metadata_revision=current_snapshot["metadata_revision"])
+        except Exception as exc:
+            Path(result.artifact_path).unlink(missing_ok=True)
+            self._runs_repository.upsert_run(replace(running, state=EmbeddingRunState.FAILED,
+                error_message=str(exc), updated_at=_utc_now()))
+            raise
         return completed
 
     def pause_run(self, run_id: str) -> EmbeddingRun:
@@ -829,7 +874,16 @@ class EmbeddingRunService:
             effective = resolve_contract(model.runtime_contract, {
                 value.parameter_id: value.value for value in configuration.parameter_values if value.scope == "preprocess"
             })
+        from MetadataArea.repository import MetadataRepository
+        paths = {part.absolute_path for item in inputs for part in item.components or (item,)}
+        files = {}
+        for path in sorted(paths):
+            stat = path.stat()
+            files[str(path)] = (stat.st_size, stat.st_mtime_ns)
         return {
+            "metadata_revision": MetadataRepository(self._project.paths.metadata_database).revision(),
+            "source_revisions": {identity: self._media_library.require_source(identity).source_revision for identity in run.selected_source_ids},
+            "input_files": files,
             "effective_contract": effective,
             "run_id": run.id,
             "prepared_revision": run.prepared_revision,
@@ -1267,32 +1321,6 @@ class EmbeddingsService:
 
     def inspect_embedding_run_checkpoint(self, run_id: str) -> dict[str, int | bool]:
         return self.runs.inspect_run_checkpoint(run_id)
-
-    def preview_metadata_from_source(
-        self,
-        source_id: str,
-        *,
-        existing_identifier_column: str = "",
-        incoming_identifier_column: str = "",
-    ) -> MediaMetadataMergePreview:
-        return self.media_library.preview_metadata_from_source(
-            source_id,
-            existing_identifier_column=existing_identifier_column,
-            incoming_identifier_column=incoming_identifier_column,
-        )
-
-    def create_metadata_from_source(
-        self,
-        source_id: str,
-        *,
-        existing_identifier_column: str = "",
-        incoming_identifier_column: str = "",
-    ) -> dict[str, object]:
-        return self.media_library.create_metadata_from_source(
-            source_id,
-            existing_identifier_column=existing_identifier_column,
-            incoming_identifier_column=incoming_identifier_column,
-        )
 
     def remove_media_source(self, source_id: str) -> None:
         self.media_library.remove_source(source_id)

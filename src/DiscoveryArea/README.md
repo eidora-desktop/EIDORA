@@ -18,12 +18,17 @@ Keep metadata IDs canonical and arrays aligned. A snapshot restores its complete
 saved state, including disabled controls; absent state must reset previous values.
 Camera bounds and snapshot crop framing are separate concepts.
 
+Metadata fields are listed once per table. Resolve their values from each plotted
+item through parent links (for example, vector item → face → photo), preserving
+the vector's item identity and row count. Agreeing paths coalesce; conflicting
+parents leave an empty value. Old relationship field IDs remain aliases to stable
+table fields in saved tooltip, pin, appearance, filter, and slicer settings.
+
 Canvas toolbar controls have accessible names and explicit Tab order. In the
-Layers bar, Space toggles visibility and Enter opens that layer's settings without
-changing visibility. A right-click settings menu provides the same action.
-Escape closes settings and returns focus to the layer checkbox. Existing hover
-access remains available; moving the pointer does not dismiss settings while
-their controls have keyboard focus.
+Layers bar, the checkbox toggles visibility and the adjacent arrow toggles
+settings, even for a hidden layer. Enter on the checkbox and its right-click
+menu also open settings. Clicking outside the popover closes it.
+Escape in the settings window closes it and returns focus to the arrow.
 
 Mapped appearance always exposes saved group fields, including clustering results
 with more categories than the ordinary metadata limit. Point and border mappings

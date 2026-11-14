@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
+import logging
 import queue
 import threading
 
@@ -28,9 +29,13 @@ from shared.qt.widgets import require_child
 class EmbeddingImportDialogController:
     """Inspect, link, and publish one already-selected embedding file."""
 
-    def __init__(self, service, source_path: Path) -> None:
+    def __init__(self, service, source_path: Path, *, process_manager=None) -> None:
+        self.process_manager = process_manager
+        self.publication_reserved = False
         self.service = service
-        self.source_path = Path(source_path)
+        self.exchange = service.exchange
+        self.source_paths = tuple(Path(path) for path in source_path) if isinstance(source_path, (list, tuple)) else (Path(source_path),)
+        self.source_path = self.source_paths[0]
         self.dialog = load_ui("EmbeddingsArea", "ui/embedding_import_dialog.ui")
         self.dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
 
@@ -63,6 +68,19 @@ class EmbeddingImportDialogController:
         self.linking_group = self._widget(
             QtWidgets.QGroupBox, "group_import_linking"
         )
+        self.conflict_combo = self._widget(QtWidgets.QComboBox, "combo_conflict_policy")
+        for label,key in [("Resolve different metadata values…", "ask"), ("Keep existing values", "keep"), ("Use incoming nonempty values", "incoming")]:
+            self.conflict_combo.addItem(label,key)
+        self.conflict_combo.currentIndexChanged.connect(self._linking_changed)
+        self.table_combo = self._widget(QtWidgets.QComboBox, "combo_destination_table")
+        from MetadataArea.table_repository import list_tables
+        for table in list_tables(self.exchange.metadata.database_path):
+            self.table_combo.addItem(table.name, table.id)
+        self.table_combo.currentIndexChanged.connect(self._destination_changed)
+        self.adjust_button = self._widget(QtWidgets.QCheckBox, "check_adjust_matching")
+        self.vector_combo = self._widget(QtWidgets.QComboBox, "combo_vector_source")
+        self.identifier_combo = self._widget(QtWidgets.QComboBox, "combo_identifier_source")
+        self.adjust_button.toggled.connect(self.linking_group.setVisible)
         self.skip_check = self._widget(QtWidgets.QCheckBox, "check_skip")
         self.progress = self._widget(QtWidgets.QProgressBar, "progress_exchange")
         self.apply_button = self._widget(QtWidgets.QPushButton, "button_apply")
@@ -88,7 +106,7 @@ class EmbeddingImportDialogController:
         self.future = None
         self.future_kind = ""
         self.cancel_event = threading.Event()
-        self.progress_events: queue.SimpleQueue[tuple[int, str]] = queue.SimpleQueue()
+        self.progress_events: queue.Queue[tuple[int, str]] = queue.Queue(maxsize=1)
         self.timer = QtCore.QTimer(self.dialog)
         self.timer.setInterval(75)
         self.timer.timeout.connect(self._poll)
@@ -100,6 +118,7 @@ class EmbeddingImportDialogController:
         self.sidecar_path: Path | None = None
         self.identifier_probe: EmbeddingImportCompanionProbe | None = None
         self.changed = False
+        self.imported_run_id = ""
         self.close_after_abort = False
         self._populating = False
 
@@ -109,6 +128,8 @@ class EmbeddingImportDialogController:
             self.identifier_file_combo.currentIndexChanged,
             self._schema_changed,
         )
+        self._connect(self.vector_combo.currentIndexChanged, self._schema_changed)
+        self._connect(self.identifier_combo.currentIndexChanged, self._schema_changed)
         self._connect(self.metadata_combo.currentIndexChanged, self._linking_changed)
         self._connect(self.skip_check.toggled, self._linking_changed)
         self._connect(self.apply_button.clicked, self._commit)
@@ -132,7 +153,7 @@ class EmbeddingImportDialogController:
             self.timer.stop()
             self.cancel_event.set()
             self.executor.shutdown(wait=True, cancel_futures=True)
-            self.service.exchange.cleanup_import(self.inspection)
+            self.exchange.cleanup_import(self.inspection)
             for signal, callback in reversed(self.connections):
                 try:
                     signal.disconnect(callback)
@@ -142,7 +163,7 @@ class EmbeddingImportDialogController:
     def _load_source(self, path: Path) -> None:
         if self.future is not None:
             return
-        self.service.exchange.cleanup_import(self.inspection)
+        self.exchange.cleanup_import(self.inspection)
         self.source_path = Path(path)
         self.probe = None
         self.inspection = None
@@ -153,23 +174,10 @@ class EmbeddingImportDialogController:
         self.file_label.setToolTip(str(self.source_path))
         self.name_edit.setText(self.source_path.stem)
         self.source_summary_label.setText("Inspecting…")
-        try:
-            self.probe = self.service.exchange.probe_import(
-                self.source_path, sidecar_path=self.sidecar_path
-            )
-        except Exception as exc:
-            self.source_summary_label.setText("Unsupported or unreadable")
-            self.preview_status.setText(str(exc))
-            self.progress.setValue(0)
-            return
-        self._update_source_summary()
-        self._populate_options(self.probe)
-        if self._interpretation_ready():
-            self._prepare()
-        else:
-            self.preview_status.setText(
-                "Vector data is ambiguous. Add a schema sidecar that names the vector field."
-            )
+        self._start("probe", lambda: self.exchange.probe_import(
+            self.source_paths if len(self.source_paths) > 1 else self.source_path,
+            sidecar_path=self.sidecar_path,
+        ), "Detecting vector fields…")
 
     def _populate_options(self, probe: EmbeddingImportProbe) -> None:
         self._populating = True
@@ -179,9 +187,24 @@ class EmbeddingImportDialogController:
                 or self.identifier_path is not None
             )
 
+            self.vector_combo.clear()
+            if not probe.default_vector_key:
+                self.vector_combo.addItem("Choose vector field…", "")
+            for key in probe.vector_candidates:
+                self.vector_combo.addItem(key, key)
+            if probe.wide_vector_columns:
+                self.vector_combo.addItem(f"{len(probe.wide_vector_columns)} numeric columns", "<columns>")
+            selected = self.vector_combo.findData(probe.default_vector_key or ("<columns>" if probe.wide_vector_columns else ""))
+            self.vector_combo.setCurrentIndex(max(0, selected))
+            self.identifier_combo.clear()
+            self.identifier_combo.addItem("Generate record IDs", "")
+            for key in probe.identifier_candidates:
+                self.identifier_combo.addItem(key, key)
+            self.identifier_combo.setCurrentIndex(max(0, self.identifier_combo.findData(probe.default_identifier_key)))
             self.metadata_combo.clear()
-            self.metadata_combo.addItem("By metadata row order", "")
-            for label, name in self.service.exchange.list_import_identifier_columns():
+            self.metadata_combo.addItem("Create new records", "<new>")
+            self.metadata_combo.addItem("Pair by row order (explicit)", "")
+            for label, name in self.exchange.list_import_identifier_columns():
                 self.metadata_combo.addItem(label, name)
         finally:
             self._populating = False
@@ -190,11 +213,11 @@ class EmbeddingImportDialogController:
         if self.probe is None:
             return EmbeddingImportInterpretation()
         return EmbeddingImportInterpretation(
-            vector_key=self.probe.default_vector_key,
-            identifier_key=self.probe.default_identifier_key,
+            vector_key=(str(self.vector_combo.currentData() or "") if self.vector_combo.currentData() != "<columns>" else ""),
+            identifier_key=str(self.identifier_combo.currentData() or ""),
             vector_columns=(
                 ()
-                if self.probe.default_vector_key
+                if self.vector_combo.currentData() != "<columns>"
                 else self.probe.wide_vector_columns
             ),
             identifier_path=self.identifier_path,
@@ -206,7 +229,7 @@ class EmbeddingImportDialogController:
 
     def _interpretation_ready(self) -> bool:
         vector_ready = self.probe is not None and bool(
-            self.probe.default_vector_key or self.probe.wide_vector_columns
+            self.vector_combo.currentData()
         )
         identifier_ready = (
             self.identifier_path is None
@@ -221,14 +244,14 @@ class EmbeddingImportDialogController:
             or not self._interpretation_ready()
         ):
             return
-        self.service.exchange.cleanup_import(self.inspection)
+        self.exchange.cleanup_import(self.inspection)
         self.inspection = None
         self.plan = None
         probe = self.probe
         interpretation = self._interpretation()
         self._start(
             "prepare",
-            lambda: self.service.exchange.prepare_import(
+            lambda: self.exchange.prepare_import(
                 probe,
                 interpretation,
                 progress_callback=self._queue_progress,
@@ -241,22 +264,27 @@ class EmbeddingImportDialogController:
         if self.inspection is None or self.future is not None:
             return
         empty = (
-            not self.service.exchange.metadata.is_initialized()
-            or self.service.exchange.metadata.count_rows() == 0
+            not self.exchange.metadata.is_initialized()
+            or self.exchange.metadata.count_rows() == 0
         )
-        if empty:
+        if empty or self.metadata_combo.currentData() == "<new>":
             strategy = "create_metadata"
             column = ""
         else:
             column = str(self.metadata_combo.currentData() or "")
             strategy = "identifier" if column else "row_order"
+        inspection = self.inspection
+        allow_partial = self.skip_check.isChecked()
+        conflict_policy = self.conflict_combo.currentData()
         self._start(
             "link",
-            lambda: self.service.exchange.preview_import_links(
-                self.inspection,
+            lambda: self.exchange.preview_import_links(
+                inspection,
                 strategy=strategy,
                 metadata_column=column,
-                allow_partial=self.skip_check.isChecked(),
+                allow_partial=allow_partial,
+                create_unmatched=not allow_partial,
+                conflict_policy=conflict_policy,
             ),
             "Checking metadata links…",
         )
@@ -264,12 +292,20 @@ class EmbeddingImportDialogController:
     def _commit(self) -> None:
         if self.plan is None or not self.plan.can_import:
             return
+        if self.process_manager is not None:
+            try:
+                self.process_manager.begin_metadata_publication()
+            except ValueError as exc:
+                self.preview_status.setText(str(exc))
+                return
+            self.publication_reserved = True
         plan = self.plan
+        label = self.name_edit.text()
         self._start(
             "commit",
-            lambda: self.service.exchange.commit_import(
+            lambda: self.exchange.commit_import(
                 plan,
-                label=self.name_edit.text(),
+                label=label,
                 progress_callback=self._queue_progress,
                 should_cancel=self.cancel_event.is_set,
             ),
@@ -292,6 +328,10 @@ class EmbeddingImportDialogController:
         self.identifier_file_combo.setEnabled(False)
         self.metadata_combo.setEnabled(False)
         self.skip_check.setEnabled(False)
+        self.conflict_combo.setEnabled(False)
+        self.table_combo.setEnabled(False)
+        self.vector_combo.setEnabled(False)
+        self.identifier_combo.setEnabled(False)
         self.future = self.executor.submit(function)
         self.timer.start()
 
@@ -311,36 +351,37 @@ class EmbeddingImportDialogController:
         kind = self.future_kind
         self.timer.stop()
         self.abort_button.setEnabled(False)
+        self.conflict_combo.setEnabled(True)
+        self.table_combo.setEnabled(True)
+        self.vector_combo.setEnabled(True)
+        self.identifier_combo.setEnabled(True)
+        self.metadata_combo.setEnabled(True)
         self.identifier_file_button.setEnabled(True)
         self.sidecar_file_button.setEnabled(True)
         self.identifier_file_combo.setEnabled(
             self.identifier_path is not None
             and self.identifier_file_combo.count() > 1
         )
-        has_metadata = (
-            self.service.exchange.metadata.is_initialized()
-            and self.service.exchange.metadata.count_rows() > 0
-        )
-        has_identifiers = (
-            self.inspection is not None
-            and self.inspection.source_has_identifiers
-        )
-        self.metadata_combo.setEnabled(has_metadata and has_identifiers)
-        self.skip_check.setEnabled(
-            has_metadata
-            and has_identifiers
-            and bool(self.metadata_combo.currentData())
-        )
         self.progress.setRange(0, 100)
         try:
             result = future.result()
             self.progress.setValue(100)
-            if kind == "prepare":
+            if kind == "probe":
+                self.probe = result
+                self._update_source_summary()
+                self._populate_options(result)
+                if self._interpretation_ready():
+                    self._prepare()
+                else:
+                    self.preview_status.setText("Choose the vector field under Adjust matching.")
+                    self.adjust_button.setChecked(True)
+            elif kind == "prepare":
                 self.inspection = result
                 self._update_source_summary(result)
                 self._configure_linking_after_prepare()
             elif kind == "link":
                 self.plan = result
+                self.conflict_combo.setVisible(bool(result.conflicts))
                 self.linking_label.setText(result.message)
                 self.skip_check.setVisible(
                     result.strategy == "identifier"
@@ -358,6 +399,7 @@ class EmbeddingImportDialogController:
                 self.apply_button.setEnabled(result.can_import)
             else:
                 self.changed = True
+                self.imported_run_id = result.id
                 self.inspection = None
                 self.plan = None
                 self.dialog.accept()
@@ -371,19 +413,23 @@ class EmbeddingImportDialogController:
                 self.dialog.reject()
                 return
         except Exception as exc:
+            logging.getLogger(__name__).exception("Embedding import %s failed", kind)
             self.plan = None
             self.apply_button.setEnabled(False)
             self.preview_status.setText(str(exc))
             self.progress.setValue(0)
         finally:
+            if kind == "commit" and self.publication_reserved:
+                self.publication_reserved = False
+                self.process_manager.end_metadata_publication()
             self.close_after_abort = False
 
     def _configure_linking_after_prepare(self) -> None:
         if self.inspection is None:
             return
         empty = (
-            not self.service.exchange.metadata.is_initialized()
-            or self.service.exchange.metadata.count_rows() == 0
+            not self.exchange.metadata.is_initialized()
+            or self.exchange.metadata.count_rows() == 0
         )
         for widget in (
             self.metadata_combo,
@@ -395,37 +441,24 @@ class EmbeddingImportDialogController:
         has_identifiers = self.inspection.source_has_identifiers
         counts_match = (
             not empty
-            and self.service.exchange.metadata.count_rows()
+            and self.exchange.metadata.count_rows()
             == self.inspection.row_count
         )
-        self.metadata_combo.setEnabled(not empty and has_identifiers)
+        self.metadata_combo.setEnabled(not empty)
         self.metadata_combo.setToolTip(
             "Leave this set to row order to link vector row 1 to metadata row 1."
             if counts_match
             else "Row-order matching is unavailable because the row counts differ."
         )
         self._set_identifier_file_visible(not has_identifiers or self.identifier_path is not None)
-        if empty:
-            self.linking_label.setText(
-                f"Create {self.inspection.row_count:,} metadata rows using the embedding identifiers."
-            )
-        elif not has_identifiers:
-            self.metadata_combo.setEnabled(False)
-            self.skip_check.setEnabled(False)
-            if not counts_match:
-                self.linking_label.setText(
-                    "Add an identifier/index file; row-order matching requires equal counts."
-                )
-                self.apply_button.setEnabled(False)
-                self._populate_preview(None)
-                return
-        elif len(self.inspection.complete_metadata_columns) == 1:
-            index = self.metadata_combo.findData(
-                self.inspection.complete_metadata_columns[0]
-            )
-            self.metadata_combo.setCurrentIndex(index)
-        else:
-            self.metadata_combo.setCurrentIndex(0)
+        self._populating = True
+        try:
+            if not empty and has_identifiers and len(self.inspection.complete_metadata_columns) == 1:
+                self.metadata_combo.setCurrentIndex(self.metadata_combo.findData(self.inspection.complete_metadata_columns[0]))
+            else:
+                self.metadata_combo.setCurrentIndex(0)
+        finally:
+            self._populating = False
         self._request_link()
 
     def _populate_preview(self, plan: EmbeddingImportPlan | None) -> None:
@@ -444,10 +477,10 @@ class EmbeddingImportDialogController:
             if plan is None:
                 status = "not linked"
             elif plan.strategy == "create_metadata":
-                status = "new metadata row"
+                status = "new item"
             else:
                 metadata_id = int(matches[sample.row_index]) if matches is not None else -1
-                status = str(metadata_id) if metadata_id >= 0 else "unmatched"
+                status = (str(metadata_id) if self.exchange.metadata.table_id == "metadata" else "matched") if metadata_id >= 0 else "unmatched"
             vector = json.dumps(list(sample.vector))
             if self.inspection.dimensions > len(sample.vector):
                 vector = vector[:-1] + ", …]"
@@ -460,6 +493,31 @@ class EmbeddingImportDialogController:
                 ]
             )
         self.preview_table.resizeColumnsToContents()
+
+    def _destination_changed(self):
+        if self.future is not None:
+            return
+        from EmbeddingsArea.exchange.service import EmbeddingExchangeService
+        from MetadataArea.repository import MetadataRepository
+        self.exchange = EmbeddingExchangeService(
+            self.exchange.project, self.exchange.runs,
+            MetadataRepository(self.exchange.metadata.database_path, table_id=self.table_combo.currentData()),
+        )
+        self._populating = True
+        try:
+            self.metadata_combo.clear()
+            self.metadata_combo.addItem("Create new records", "<new>")
+            self.metadata_combo.addItem("Pair by row order (explicit)", "")
+            for label, name in self.exchange.list_import_identifier_columns():
+                self.metadata_combo.addItem(label, name)
+            if self.inspection:
+                key = self.inspection.interpretation.identifier_key
+                index = self.metadata_combo.findData(key)
+                if index >= 0:
+                    self.metadata_combo.setCurrentIndex(index)
+        finally:
+            self._populating = False
+        self._request_link()
 
     def _schema_changed(self, *_args) -> None:
         if not self._populating and self.future is None:
@@ -497,7 +555,7 @@ class EmbeddingImportDialogController:
         )
         if path:
             try:
-                probe = self.service.exchange.probe_import_identifiers(Path(path))
+                probe = self.exchange.probe_import_identifiers(Path(path))
             except Exception as exc:
                 self.preview_status.setText(str(exc))
                 return
@@ -577,12 +635,23 @@ class EmbeddingImportDialogController:
             self.close_after_abort = True
             self._request_abort()
             return
-        self.service.exchange.cleanup_import(self.inspection)
+        self.exchange.cleanup_import(self.inspection)
         self.inspection = None
         self.dialog.reject()
 
     def _queue_progress(self, value: int, message: str) -> None:
-        self.progress_events.put((max(0, min(100, int(value))), str(message)))
+        event = (max(0, min(99, int(value))), str(message))
+        try:
+            self.progress_events.put_nowait(event)
+        except queue.Full:
+            try:
+                self.progress_events.get_nowait()
+            except queue.Empty:
+                pass
+            try:
+                self.progress_events.put_nowait(event)
+            except queue.Full:
+                pass
 
     def _update_source_summary(
         self,

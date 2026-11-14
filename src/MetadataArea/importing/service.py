@@ -11,6 +11,7 @@ import tempfile
 import unicodedata
 import uuid
 
+from MetadataArea.domain import MetadataValue
 from MetadataArea.importing.domain import (
     MetadataColumnMapping,
     MetadataColumnSchema,
@@ -25,6 +26,8 @@ from MetadataArea.importing.domain import (
 )
 from MetadataArea.importing.readers import iter_records, probe_source, source_fingerprint
 from MetadataArea.repository import MetadataRepository
+from MetadataArea.value_storage import decode_value, encode_value
+from MetadataArea.values import display_value, validate_list
 
 
 class MetadataImportCancelled(RuntimeError):
@@ -55,7 +58,7 @@ class MetadataImportService:
         database = staging / "import.sqlite"
         columns: list[str] = []
         seen_columns: set[str] = set()
-        samples: list[dict[str, str]] = []
+        samples: list[dict[str, MetadataValue]] = []
         row_count = 0
         connection = sqlite3.connect(database)
         try:
@@ -109,7 +112,7 @@ class MetadataImportService:
                 )
                 connection.executemany(
                     "INSERT INTO source_cells (row_index, column_name, value) VALUES (?, ?, ?)",
-                    ((row_index, name, value) for name, value in record.items()),
+                    ((row_index, name, encode_value(value)) for name, value in record.items()),
                 )
                 if len(samples) < 25:
                     samples.append(record)
@@ -119,12 +122,16 @@ class MetadataImportService:
                         hint = probe.row_count_hint
                         value = min(90, int(row_count / hint * 90)) if hint else 0
                         progress_callback(value, f"Inspected {row_count:,} metadata rows…")
+            columns = self._expand_empty_collections(connection, columns, should_cancel)
+            samples = [json.loads(row[0]) for row in connection.execute(
+                "SELECT payload_json FROM source_rows ORDER BY row_index LIMIT 25")]
             connection.commit()
             if row_count == 0:
                 raise ValueError("The selected metadata source contains no records.")
             if not columns:
                 raise ValueError("The selected metadata source contains no fields.")
-            schemas = tuple(self._infer_schemas(connection, columns))
+            schemas = tuple(self._infer_schemas(connection, columns,
+                infer_text_lists=probe.format_key in {"delimited", "xlsx", "ods"}))
             current_fingerprint = source_fingerprint(probe.source_path)
             if current_fingerprint != probe.source_fingerprint:
                 raise ValueError("The metadata source changed during inspection. Inspect it again.")
@@ -177,7 +184,7 @@ class MetadataImportService:
                     target_name=target,
                     value_type=types.get(source, "text"),
                     value_format=formats.get(source, ""),
-                    example=examples.get(source, ""),
+                    example=display_value(examples.get(source, "")),
                 )
             )
         return tuple(mappings)
@@ -203,7 +210,8 @@ class MetadataImportService:
         """Return whether replacing every current item would break saved identity references."""
 
         existing_ids = self.repository.fetch_ids()
-        return bool(existing_ids and self._replacement_blockers(existing_ids, set()))
+        return bool(existing_ids and (self.repository.table_id != 'metadata'
+                                     or self._replacement_blockers(existing_ids, set())))
 
     def preview_import(
         self,
@@ -213,6 +221,7 @@ class MetadataImportService:
         mappings: tuple[MetadataColumnMapping, ...] | None = None,
         source_identifier_column: str = "",
         project_identifier_column: str = "",
+        conflict_policy: str = "ask",
         should_cancel: Callable[[], bool] | None = None,
     ) -> MetadataImportPlan:
         self._raise_if_cancelled(should_cancel)
@@ -229,7 +238,8 @@ class MetadataImportService:
         messages = self._validate_mappings(inspection, mappings, set(existing_columns))
         if preset == MetadataImportPreset.INITIAL and existing_rows:
             messages.append("Initial import is available only when project metadata is empty.")
-        elif preset != MetadataImportPreset.INITIAL and not existing_rows:
+        elif (preset != MetadataImportPreset.INITIAL and not existing_rows
+              and not (preset == MetadataImportPreset.REPLACE_TABLE and self.repository.table_id != 'metadata')):
             messages.append("Import metadata before appending, updating, or replacing items.")
         fingerprint = self.repository.metadata_fingerprint()
         with closing(sqlite3.connect(inspection.staging_path / "import.sqlite")) as stage:
@@ -247,12 +257,19 @@ class MetadataImportService:
             matching_required = preset in {
                 MetadataImportPreset.APPEND,
                 MetadataImportPreset.UPDATE,
-            }
+                MetadataImportPreset.MERGE,
+            } or (preset == MetadataImportPreset.REPLACE_TABLE
+                  and self.repository.table_id != 'metadata' and existing_rows > 0)
             if matching_required or matching_requested:
                 if source_identifier_column not in inspection.columns:
                     messages.append("Choose an incoming identifier column.")
                 elif project_identifier_column not in {column.name for column in self.repository.list_columns()}:
                     messages.append("Choose an existing identifier column.")
+                elif (any(schema.name == source_identifier_column and schema.value_type == "list"
+                          for schema in inspection.schemas)
+                      or any(column.name == project_identifier_column and column.value_type == "list"
+                             for column in self.repository.list_columns())):
+                    messages.append("Matching requires a single identifier per record, not a list.")
                 else:
                     matched, duplicate_incoming, duplicate_existing, empty_incoming, empty_existing = self._build_identifier_matches(
                         stage, source_identifier_column, project_identifier_column, should_cancel,
@@ -289,11 +306,16 @@ class MetadataImportService:
                 project_identifier_column=project_identifier_column,
                 metadata_fingerprint=fingerprint, preview_token=token, impact=impact,
                 can_import=not messages, messages=tuple(messages),
+                conflict_policy=conflict_policy,
             )
             if plan.can_import:
-                unchanged, changed = self._build_final_rows(stage, plan, should_cancel)
+                unchanged, changed, conflicts = self._build_final_rows(stage, plan, should_cancel)
                 plan = replace(plan, impact=replace(impact, unchanged_rows=unchanged,
                     columns_updated=tuple(name for name in impact.columns_updated if name in changed)))
+                if conflicts:
+                    plan = replace(plan, conflicts=tuple(sorted(conflicts.items())))
+                    if conflict_policy == "ask":
+                        plan = replace(plan, can_import=False, messages=("Choose how to resolve different metadata values.",))
                 if not stage.execute("SELECT 1 FROM final_rows LIMIT 1").fetchone():
                     plan = replace(plan, can_import=False, messages=("The import would produce an empty metadata table.",))
             stage.commit()
@@ -328,10 +350,15 @@ class MetadataImportService:
             if fingerprint != plan.metadata_fingerprint:
                 raise ValueError("Project metadata changed after validation. Check the import again.")
             if plan.preset == MetadataImportPreset.REPLACE_TABLE:
-                blockers = self._replacement_blockers(removed_ids, removed_columns)
+                blockers = self._replacement_blockers(removed_ids, removed_columns, connection=connection)
                 if blockers:
                     raise ValueError("\n".join(blockers))
 
+        from MetadataArea.source_repository import content_fingerprint
+        source_path = plan.inspection.probe.source_path
+        provenance = None
+        if self.repository.table_id != "metadata":
+            provenance = (str(source_path.resolve()), content_fingerprint(source_path))
         validate_publication()
         if progress_callback is not None:
             progress_callback(15, "Publishing metadata…")
@@ -342,6 +369,7 @@ class MetadataImportService:
                 [schema.name for schema in schemas],
                 schemas,
                 validate_publication=validate_publication,
+                source_provenance=provenance,
                 groups_database=self.project.paths.metadata_groups_database,
                 media_database=self.project.paths.media / "media_index.db",
                 should_cancel=should_cancel,
@@ -373,7 +401,7 @@ class MetadataImportService:
         if inspection is not None:
             self._remove_staging(inspection.staging_path)
 
-    def preview_rows(self, plan: MetadataImportPlan, limit: int = 25) -> list[tuple[int, dict[str, str]]]:
+    def preview_rows(self, plan: MetadataImportPlan, limit: int = 25) -> list[tuple[int, dict[str, MetadataValue]]]:
         connection = sqlite3.connect(plan.inspection.staging_path / "import.sqlite")
         try:
             rows = connection.execute(
@@ -388,7 +416,7 @@ class MetadataImportService:
         self,
         plan: MetadataImportPlan,
         limit: int = 25,
-    ) -> list[tuple[int, dict[str, str], dict[str, str]]]:
+    ) -> list[tuple[int, dict[str, MetadataValue], dict[str, MetadataValue]]]:
         """Return staged source values beside resulting values for a bounded preview."""
 
         connection = sqlite3.connect(plan.inspection.staging_path / "import.sqlite")
@@ -485,6 +513,7 @@ class MetadataImportService:
         high_water = self.repository.id_high_water_mark()
         unchanged_rows = 0
         changed_columns: set[str] = set()
+        conflicts = {}
 
         for row in self.repository.iter_rows():
             self._raise_if_cancelled(should_cancel)
@@ -498,7 +527,14 @@ class MetadataImportService:
             else:
                 source = self._stage_record(stage, source_index)
                 output = self._apply_mappings(row.values, source, mappings, final_columns,
-                                              preserve_blanks=plan.preset == MetadataImportPreset.UPDATE)
+                                              preserve_blanks=plan.preset in {MetadataImportPreset.UPDATE, MetadataImportPreset.MERGE})
+                if plan.preset == MetadataImportPreset.MERGE:
+                    for name,value in output.items():
+                        old=row.values.get(name, "")
+                        if old and value and old != value:
+                            conflicts[name]=conflicts.get(name,0)+1
+                            if plan.conflict_policy == "keep":
+                                output[name]=old
             if set(output) == set(row.values) and all(
                 output.get(name, "") == row.values.get(name, "") for name in output
             ):
@@ -528,27 +564,28 @@ class MetadataImportService:
                     (next_id, json.dumps(output, ensure_ascii=False)),
                 )
                 next_id += 1
-        return unchanged_rows, changed_columns
+        return unchanged_rows, changed_columns, conflicts
 
     @staticmethod
     def _apply_mappings(
-        existing: dict[str, str],
-        source: dict[str, str],
+        existing: dict[str, MetadataValue],
+        source: dict[str, MetadataValue],
         mappings: list[MetadataColumnMapping],
         final_columns: list[str],
         *,
         preserve_blanks: bool = False,
-    ) -> dict[str, str]:
-        output = {name: str(existing.get(name, "")) for name in final_columns}
+    ) -> dict[str, MetadataValue]:
+        output = {name: existing.get(name, "") for name in final_columns}
         for mapping in mappings:
-            incoming = str(source.get(mapping.source_name, ""))
-            if incoming.strip() and mapping.value_type in {"datetime", "list"}:
+            incoming = source.get(mapping.source_name, "")
+            present = isinstance(incoming, list) or bool(display_value(incoming).strip())
+            if present and mapping.value_type in {"datetime", "list"}:
                 incoming = MetadataImportService._normalize_typed_value(
                     incoming,
                     mapping.value_type,
                     mapping.value_format,
                 )
-            if incoming.strip() or not preserve_blanks:
+            if present or not preserve_blanks:
                 output[mapping.target_name] = incoming
         return output
 
@@ -602,9 +639,7 @@ class MetadataImportService:
             ),
         }
 
-    def _replacement_blockers(self, removed_ids, removed_columns, impact=None) -> list[str]:
-        from MetadataArea.importing.dependencies import replacement_blockers
-
+    def _replacement_blockers(self, removed_ids, removed_columns, impact=None, connection=None) -> list[str]:
         impact = self._dependency_impact(removed_ids, removed_columns) if impact is None else impact
         labels = {
             "affected_groups": "group memberships",
@@ -619,7 +654,9 @@ class MetadataImportService:
             f"Cannot replace: removal affects {count:,} {labels[kind]}. Retain their items and columns."
             for kind, count in impact.items() if count
         ]
-        messages.extend(replacement_blockers(self.project, removed_ids, removed_columns))
+        from MetadataArea.importing.dependencies import source_replacement_blockers
+        messages.extend(source_replacement_blockers(self.project, self.repository.table_id,
+                                                   removed_ids, removed_columns, connection))
         return messages
 
     def _count_media_links(self, ids: list[int], columns: set[str]) -> int:
@@ -710,7 +747,7 @@ class MetadataImportService:
             connection.close()
 
     @staticmethod
-    def _stage_record(connection: sqlite3.Connection, row_index: int) -> dict[str, str]:
+    def _stage_record(connection: sqlite3.Connection, row_index: int) -> dict[str, MetadataValue]:
         row = connection.execute("SELECT payload_json FROM source_rows WHERE row_index = ?", (row_index,)).fetchone()
         return {} if row is None else json.loads(str(row[0]))
 
@@ -753,6 +790,13 @@ class MetadataImportService:
             if not mapping.enabled:
                 continue
             value_type = mapping.value_type
+            has_lists = stage.execute(
+                "SELECT 1 FROM source_cells WHERE column_name=? AND typeof(value)='blob' LIMIT 1",
+                (mapping.source_name,),
+            ).fetchone()
+            if has_lists and value_type != "list":
+                messages.append(f"Field {mapping.source_name!r} contains structured lists; use the List type.")
+                continue
             if value_type == "text":
                 continue
             if value_type in {"datetime", "list"} and not mapping.value_format:
@@ -765,7 +809,8 @@ class MetadataImportService:
                 (mapping.source_name,),
             ):
                 MetadataImportService._raise_if_cancelled(should_cancel)
-                value = str(raw_value).strip()
+                decoded = decode_value(raw_value)
+                value = decoded if isinstance(decoded, list) else decoded.strip()
                 if value_type in {"datetime", "list"}:
                     try:
                         MetadataImportService._normalize_typed_value(
@@ -796,8 +841,8 @@ class MetadataImportService:
         return unicodedata.normalize("NFC", "" if value is None else str(value)).strip()
 
     @staticmethod
-    def _normalize_record(record: dict[str, str]) -> dict[str, str]:
-        output: dict[str, str] = {}
+    def _normalize_record(record: dict[str, MetadataValue]) -> dict[str, MetadataValue]:
+        output: dict[str, MetadataValue] = {}
         used: set[str] = set()
         for index, (raw_name, raw_value) in enumerate(record.items(), 1):
             base = str(raw_name).strip() or f"column_{index}"
@@ -809,11 +854,39 @@ class MetadataImportService:
                 candidate = f"{base}_{suffix}"
                 suffix += 1
             used.add(candidate.casefold())
-            output[candidate] = "" if raw_value is None else str(raw_value)
+            output[candidate] = raw_value if isinstance(raw_value, list) else display_value(raw_value)
         return output
 
     @staticmethod
-    def _infer_schemas(connection: sqlite3.Connection, columns: list[str]) -> Iterator[MetadataColumnSchema]:
+    def _expand_empty_collections(connection, columns, should_cancel):
+        """An empty object collection uses its known leaf columns, not a spare column."""
+        empty = {}
+        for name in columns:
+            leaves = [column for column in columns if column.startswith(name + ".")]
+            if leaves and not connection.execute(
+                "SELECT 1 FROM source_cells WHERE column_name=? AND value!=? LIMIT 1", (name, encode_value([]))
+            ).fetchone():
+                empty[name] = leaves
+        if not empty:
+            return columns
+        for row_index, raw in connection.execute("SELECT row_index,payload_json FROM source_rows ORDER BY row_index"):
+            MetadataImportService._raise_if_cancelled(should_cancel)
+            record = json.loads(raw)
+            for parent, leaves in empty.items():
+                if record.pop(parent, None) == []:
+                    for name in leaves:
+                        record.setdefault(name, [])
+                        connection.execute("INSERT OR IGNORE INTO source_cells VALUES (?,?,?)",
+                                           (row_index, name, encode_value(record[name])))
+            connection.execute("UPDATE source_rows SET payload_json=? WHERE row_index=?",
+                               (json.dumps(record, ensure_ascii=False), row_index))
+        for name in empty:
+            connection.execute("DELETE FROM source_cells WHERE column_name=?", (name,))
+            connection.execute("DELETE FROM source_columns WHERE name=?", (name,))
+        return [column for column in columns if column not in empty]
+
+    @staticmethod
+    def _infer_schemas(connection: sqlite3.Connection, columns: list[str], *, infer_text_lists=True) -> Iterator[MetadataColumnSchema]:
         for name in columns:
             values = connection.execute(
                 "SELECT value FROM source_cells WHERE column_name = ?", (name,)
@@ -821,7 +894,11 @@ class MetadataImportService:
             nonempty = 0
             all_int = all_float = all_bool = all_date = all_list = True
             nullable = False
+            has_lists = False
             for (raw,) in values:
+                if isinstance(raw, bytes):
+                    has_lists = True
+                    continue
                 value = str(raw).strip()
                 if not value:
                     nullable = True
@@ -834,7 +911,10 @@ class MetadataImportService:
                 all_list = all_list and MetadataImportService._is_list(value)
             kind = "text"
             value_format = ""
-            if nonempty and all_bool:
+            if has_lists:
+                kind = "list"
+                value_format = "structured"
+            elif nonempty and all_bool:
                 kind = "boolean"
             elif nonempty and all_int:
                 kind = "integer"
@@ -843,7 +923,7 @@ class MetadataImportService:
             elif nonempty and all_date:
                 kind = "datetime"
                 value_format = "iso8601"
-            elif nonempty and all_list:
+            elif infer_text_lists and nonempty and all_list:
                 kind = "list"
                 value_format = "auto"
             unique = int(connection.execute(
@@ -894,7 +974,7 @@ class MetadataImportService:
         return len(items) >= 2 and all(items)
 
     @staticmethod
-    def _normalize_typed_value(value: str, value_type: str, value_format: str) -> str:
+    def _normalize_typed_value(value: MetadataValue, value_type: str, value_format: str) -> MetadataValue:
         if value_type == "datetime":
             return MetadataImportService._normalize_datetime(value, value_format)
         if value_type == "list":
@@ -953,8 +1033,24 @@ class MetadataImportService:
         return "".join(output)
 
     @staticmethod
-    def _normalize_list(value: str, value_format: str) -> str:
+    def _normalize_list(value, value_format: str) -> list:
+        if isinstance(value, list):
+            validate_list(value)
+            return value
+        if value_format == "structured":
+            return [value]
         text = value.strip()
+        if value_format in {"auto", "json"}:
+            try:
+                decoded = json.loads(text)
+            except ValueError:
+                decoded = None
+            if isinstance(decoded, list):
+                validate_list(decoded)
+                return decoded
+            if value_format == "json":
+                # A field may contain scalar values in some records and lists in others.
+                return [value]
         bracketed = text.startswith("[") and text.endswith("]")
         if text.startswith("[") != text.endswith("]"):
             raise ValueError("list brackets are not balanced.")
@@ -973,12 +1069,14 @@ class MetadataImportService:
             separator = ""
         if not separator:
             if bracketed and content:
-                return f"[{content}]"
+                return [content]
+            if bracketed and not content:
+                return []
             raise ValueError("value does not contain the selected list separator.")
         items = [item.strip() for item in content.split(separator)]
         if len(items) < 2 or not all(items):
             raise ValueError("value is not a valid separated list.")
-        return f"[{', '.join(items)}]"
+        return items
 
     @staticmethod
     def _is_iso_date(value: str) -> bool:

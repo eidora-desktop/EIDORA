@@ -70,7 +70,7 @@ area. `src/app.py` is the application entry point.
 | Location | What belongs here |
 | --- | --- |
 | [MainWindow](src/MainWindow/README.md) | Application shell, navigation, and project actions |
-| [ProjectArea](src/ProjectArea/README.md) | Active-project media sources and thumbnail preparation |
+| [AssetsArea](src/AssetsArea/README.md) | Active-project media sources and thumbnail preparation |
 | [MetadataArea](src/MetadataArea/README.md) | Metadata table, import/export, and custom groups |
 | [EmbeddingsArea](src/EmbeddingsArea/README.md) | Media indexing, models, embedding runs, and clustering |
 | [DiscoveryArea](src/DiscoveryArea/README.md) | Projections, canvas interactions, filters, and snapshots |

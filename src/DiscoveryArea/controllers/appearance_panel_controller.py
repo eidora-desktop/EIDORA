@@ -400,6 +400,17 @@ class AppearancePanelController(UiPanelController):
         content = scroll.widget() if scroll is not None else None
         if content is None or content.layout() is None:
             return
+        fill_stack = require_child(self._widget, QtWidgets.QStackedWidget, "stack_fill_color")
+        mapped_stack = require_child(self._widget, QtWidgets.QStackedWidget, "stack_point_color_mode")
+        fill_group = require_child(self._widget, QtWidgets.QFrame, "group_fill_color")
+        policy = fill_group.sizePolicy()
+        has_fill_table = fill_stack.currentIndex() == 2 or (
+            fill_stack.currentIndex() == 1 and mapped_stack.currentIndex() == 0
+        )
+        policy.setVerticalPolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding if has_fill_table else QtWidgets.QSizePolicy.Policy.Fixed
+        )
+        fill_group.setSizePolicy(policy)
         content.setMinimumHeight(0)
         content.layout().invalidate()
         content.layout().activate()
@@ -484,8 +495,9 @@ class AppearancePanelController(UiPanelController):
                         "text",
                         "string",
                         "categorical",
+                        "list",
                     }
-                    if column.unique_values is None:
+                    if column.unique_values is None or value_type == "list":
                         # Hand-authored and older projects may not have column
                         # summaries yet. Aggregate just this column in SQLite
                         # rather than materializing complete metadata rows.
@@ -2226,6 +2238,8 @@ class AppearancePanelController(UiPanelController):
     def _apply_preset_payload(self, payload: dict) -> None:
         if not isinstance(payload, dict):
             return
+        if self._metadata_access is not None:
+            payload = self._metadata_access.canonical_field_payload(payload)
         point = payload.get("point", {}) if isinstance(payload.get("point"), dict) else {}
         point_colors = payload.get("point_colors", {}) if isinstance(payload.get("point_colors"), dict) else {}
         border = payload.get("border", {}) if isinstance(payload.get("border"), dict) else {}
@@ -2570,6 +2584,7 @@ class AppearancePanelController(UiPanelController):
             combo.insertSeparator(combo.count())
         for name in metadata:
             combo.addItem(self._metadata_field_labels.get(name, name), name)
+            combo.setItemData(combo.count() - 1, "Items with multiple distinct linked values use the unmapped style.", QtCore.Qt.ItemDataRole.ToolTipRole)
 
     def _repopulate_color_combo(self, target: str) -> None:
         combo_name = "combo_point_color_column" if target == "point" else "combo_border_color_column"

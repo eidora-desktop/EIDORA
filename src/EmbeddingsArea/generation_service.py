@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import time
 
-from ProjectArea.thumbnail_generator import next_thumbnail_variant_label
-from ProjectArea.thumbnail_service import create_source_thumbnails
+from AssetsArea.thumbnail_generator import next_thumbnail_variant_label
+from AssetsArea.thumbnail_service import create_source_thumbnails
 from EmbeddingsArea.domain import EmbeddingRunState, MediaContentType
 from EmbeddingsArea.session import EmbeddingsAreaSession
 from DiscoveryArea.thumbnails.repository import ThumbnailVariantRepository
@@ -131,24 +131,17 @@ class EmbeddingGenerationJob:
         from EmbeddingsArea.runtime.contracts import RuntimeProgress
         self._telemetry(self._run_id, RuntimeProgress("thumbnails", 0, 0, 0))
         self._emit_message("Embedding completed. Creating default thumbnails...", completion_log)
-        total_inputs = 1
+        total_inputs = processed = 0
         thumbnail_started = time.monotonic()
 
-        def _progress(event: str, value1: int, value2: int, message: str) -> None:
-            nonlocal total_inputs
+        def _progress(event: str, count: int, _skipped: int, message: str) -> None:
+            nonlocal total_inputs, processed
             if event == "start":
-                total_inputs = max(1, value1)
-                value = 82
+                total_inputs = count
             elif event == "step":
-                value = 82 + int(13 * max(0, value1) / total_inputs)
-            elif event == "index":
-                value = 97
-            elif event == "complete":
-                value = 99
-            else:
-                value = 80
-            self._telemetry(self._run_id, RuntimeProgress("thumbnails", value1 if event == "step" else 0, total_inputs, time.monotonic() - thumbnail_started))
-            self._emit_overall_progress(value, f"Thumbnails: {max(0, value1):,} / {total_inputs:,} · {message}" if event == "step" else (message or "Creating default thumbnails..."))
+                processed = count
+            self._telemetry(self._run_id, RuntimeProgress("thumbnails", processed, total_inputs, time.monotonic() - thumbnail_started))
+            self._emit_overall_progress(99, message)
 
         try:
             result = create_source_thumbnails(

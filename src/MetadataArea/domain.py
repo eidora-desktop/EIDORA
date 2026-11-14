@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+
+from MetadataArea.values import display_value, scalar_values
+
+MetadataValue = str | int | float | bool | None | list["MetadataValue"]
 
 
 class MetadataGroupSetMode(str, Enum):
@@ -107,6 +111,7 @@ class MetadataColumn:
     value_type: str = "text"
     unique_values: int | None = None
     display_name: str | None = None
+    source_tab: str | None = None
 
     @property
     def label(self) -> str:
@@ -114,9 +119,51 @@ class MetadataColumn:
 
 
 @dataclass(frozen=True)
+class ResolvedValue:
+    value: MetadataValue
+    source_table: str
+    record_index: int
+    column: str
+
+    @property
+    def record_reference(self) -> str:
+        return f'item:{self.record_index}' if self.source_table == 'metadata' else f'record:{self.source_table}:{self.record_index}'
+
+
+@dataclass(frozen=True)
+class ResolvedCell:
+    records: tuple[ResolvedValue, ...] = ()
+
+    @property
+    def values(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(value for record in self.records for value in scalar_values(record.value)))
+
+    @property
+    def is_list(self) -> bool:
+        return any(isinstance(record.value, list) for record in self.records)
+
+    @property
+    def value(self) -> MetadataValue:
+        if self.is_list:
+            return [entry for record in self.records
+                    for entry in (record.value if isinstance(record.value, list) else [record.value])]
+        return '; '.join(self.values)
+
+    @property
+    def scalar(self) -> str:
+        values = self.values
+        return values[0] if len(values) == 1 else ''
+
+    @property
+    def display(self) -> str:
+        return display_value(self.value)
+
+
+@dataclass(frozen=True)
 class MetadataRow:
     id: int
-    values: dict[str, str]
+    values: dict[str, MetadataValue]
+    resolved: dict[str, ResolvedCell] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -128,13 +175,6 @@ class MetadataSearchMatch:
 class MissingColumnPolicy(str, Enum):
     FILL = "fill"
     REMOVE = "remove"
-
-
-@dataclass(frozen=True)
-class MetadataImportPreview:
-    source_name: str
-    columns: list[str]
-    rows: list[dict[str, str]]
 
 
 @dataclass(frozen=True)
@@ -157,3 +197,43 @@ class MetadataAddRowsMergeRequest:
     incoming_identifier_column: str
     fill_value: str = ""
     missing_column_policy: MissingColumnPolicy = MissingColumnPolicy.FILL
+
+
+@dataclass(frozen=True)
+class MetadataTable:
+    id: str
+    name: str
+
+
+@dataclass(frozen=True)
+class TableLinkRequest:
+    source_table: str
+    source_column: str
+    target_table: str
+    target_column: str
+    name: str
+    accept_multiple: bool = False
+
+
+@dataclass(frozen=True)
+class TableLinkPreview:
+    request: TableLinkRequest
+    revision: int
+    matched_count: int
+    missing_count: int
+    ambiguous_count: int
+    existing_count: int
+    linkable_count: int
+    rows: tuple[tuple[int, str, int | None, str], ...]
+    target_values: tuple[str, ...] = ()
+    match_counts: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class TableDeletionPlan:
+    table_id: str
+    row_count: int
+    descriptions: tuple[str, ...]
+    statements: tuple[tuple[Path, str, tuple], ...]
+    files: tuple[Path, ...]
+    fingerprints: tuple[tuple[Path, int, int], ...]

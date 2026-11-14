@@ -20,18 +20,19 @@ from MetadataArea.importing import (
 from shared.qt.message_dialogs import show_error
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
+from MetadataArea.values import display_value
 
 
 class MetadataImportDialogController:
     """UI binder for metadata imports, additions, and full-table replacement."""
 
     _VALUE_TYPES = (
-        ('string ("text")', "text"),
-        ("integer (0, 1, 2)", "integer"),
-        ("float (0.92, 3.14)", "float"),
-        ("bool (True/False)", "boolean"),
-        ("datetime (YYYY-MM-DD)", "datetime"),
-        ("list ([item1, item2])", "list"),
+        ("Text", "text"),
+        ("Integer", "integer"),
+        ("Decimal", "float"),
+        ("Boolean", "boolean"),
+        ("Date and time", "datetime"),
+        ("List", "list"),
     )
 
     _DATETIME_FORMATS = (
@@ -47,6 +48,7 @@ class MetadataImportDialogController:
     )
     _LIST_FORMATS = (
         ("Auto-detect", "auto"),
+        ("Structured list", "structured"),
         ("Comma", "comma"),
         ("Semicolon", "semicolon"),
         ("Pipe", "pipe"),
@@ -63,6 +65,7 @@ class MetadataImportDialogController:
     ) -> None:
         if preset not in {
             MetadataImportPreset.INITIAL,
+            MetadataImportPreset.MERGE,
             MetadataImportPreset.UPDATE,
             MetadataImportPreset.APPEND,
             MetadataImportPreset.REPLACE_TABLE,
@@ -76,13 +79,21 @@ class MetadataImportDialogController:
         self.dialog = load_ui("MetadataArea", "ui/metadata_import_dialog.ui", None)
         self.dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
 
+        self.options_button = self._widget(QtWidgets.QToolButton, "button_import_options")
+        self.options_panel = self._widget(QtWidgets.QWidget, "panel_import_options")
+        self.reading_panel = self._widget(QtWidgets.QWidget, "panel_reading_settings")
+        self.preview_count = self._widget(QtWidgets.QLabel, "label_preview_count")
+        self.matching_summary = self._widget(QtWidgets.QLabel, "label_matching_summary")
+        self.conflict_combo = self._widget(QtWidgets.QComboBox, "combo_conflict_policy")
+        for label,key in [("Resolve different metadata values…", "ask"), ("Keep existing values", "keep"), ("Use incoming nonempty values", "incoming")]:
+            self.conflict_combo.addItem(label,key)
+        self.conflict_combo.currentIndexChanged.connect(self._configuration_changed)
+        self.data_preview = self._widget(QtWidgets.QTableWidget, "table_data_preview")
+        self.data_preview.horizontalHeader().setDefaultAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
         self.file_label = self._widget(QtWidgets.QLabel, "label_import_file_value")
         self.format_label = self._widget(QtWidgets.QLabel, "label_import_format_value")
         self.table_label = self._widget(QtWidgets.QLabel, "label_table")
         self.table_combo = self._widget(QtWidgets.QComboBox, "combo_table")
-        self.source_settings_button = self._widget(
-            QtWidgets.QToolButton, "button_source_settings"
-        )
         self.file_settings_panel = self._widget(QtWidgets.QWidget, "panel_file_settings")
         self.record_label = self._widget(QtWidgets.QLabel, "label_record_path")
         self.record_edit = self._widget(QtWidgets.QLineEdit, "edit_record_path")
@@ -94,20 +105,19 @@ class MetadataImportDialogController:
         self.delimiter_edit = self._widget(QtWidgets.QLineEdit, "edit_delimiter")
 
         self.matching_groups = self._widget(QtWidgets.QWidget, "matching_groups")
-        self.match_metadata_group = self._widget(QtWidgets.QGroupBox, "group_match_metadata")
+        self.match_metadata_group = self._widget(QtWidgets.QWidget, "group_match_metadata")
         self.source_identifier = self._widget(QtWidgets.QComboBox, "combo_source_identifier")
         self.project_identifier = self._widget(QtWidgets.QComboBox, "combo_project_identifier")
 
         self.mapping_table = self._widget(QtWidgets.QTableWidget, "table_mappings")
-        self.summary_label = self._widget(QtWidgets.QLabel, "label_import_summary")
         self.status_label = self._widget(QtWidgets.QLabel, "label_status")
         self.progress = self._widget(QtWidgets.QProgressBar, "progress_exchange")
         self.cancel_button = self._widget(QtWidgets.QPushButton, "button_close")
         self.import_button = self._widget(QtWidgets.QPushButton, "button_apply")
 
-        title = preset.label
+        title = 'Replace source' if preset == MetadataImportPreset.REPLACE_TABLE else preset.label
         self.dialog.setWindowTitle(title)
-        self.import_button.setText(title)
+        self.import_button.setText("Import" if preset == MetadataImportPreset.INITIAL else title)
         mapping_header = self.mapping_table.horizontalHeader()
         mapping_header.setStretchLastSection(False)
         mapping_header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Fixed)
@@ -131,7 +141,6 @@ class MetadataImportDialogController:
         self.probe = None
         self.inspection: MetadataImportInspection | None = None
         self.matching_required = False
-        self.advanced_source_available = False
         self.plan: MetadataImportPlan | None = None
         self.result: MetadataImportResult | None = None
         self._populating = False
@@ -147,7 +156,7 @@ class MetadataImportDialogController:
             self.encoding_combo.addItem(label, value)
 
         self._connect(self.table_combo.currentIndexChanged, self._structure_changed)
-        self._connect(self.source_settings_button.toggled, self.file_settings_panel.setVisible)
+        self._connect(self.options_button.toggled, self._toggle_options)
         self._connect(self.record_edit.editingFinished, self._structure_changed)
         self._connect(self.header_spin.editingFinished, self._structure_changed)
         self._connect(self.delimiter_edit.editingFinished, self._structure_changed)
@@ -163,9 +172,6 @@ class MetadataImportDialogController:
         self.dialog.installEventFilter(self._close_guard())
         self.table_label.hide()
         self.table_combo.hide()
-        self.source_settings_button.hide()
-        self.file_settings_panel.hide()
-        self.matching_groups.hide()
         self.progress.hide()
 
     def exec(self) -> MetadataImportResult | None:
@@ -199,18 +205,17 @@ class MetadataImportDialogController:
         self.inspection = None
         self.plan = None
         self.matching_required = False
-        self.advanced_source_available = False
         self.source_path = Path(path)
         self.file_label.setText(self.source_path.name)
         self.file_label.setToolTip(str(self.source_path))
         self.format_label.setText("Inspecting…")
         self.mapping_table.setRowCount(0)
-        self.summary_label.setText("Inspecting metadata…")
-        self.matching_groups.hide()
         self.table_label.hide()
         self.table_combo.hide()
-        self.source_settings_button.setChecked(False)
-        self.source_settings_button.hide()
+        self.options_button.setChecked(False)
+        self.data_preview.clear()
+        self.data_preview.setRowCount(0)
+        self.matching_summary.hide()
         self._start(
             "probe",
             lambda: self.service.probe_import(self.source_path),
@@ -243,11 +248,7 @@ class MetadataImportDialogController:
             self.delimiter_label.setVisible(delimited)
             self.delimiter_edit.setVisible(delimited)
             has_settings = sheet or (records and not probe.is_tei) or delimited
-            self.advanced_source_available = has_settings
-            self.source_settings_button.setVisible(has_settings)
-            self.source_settings_button.setEnabled(has_settings)
-            if not has_settings:
-                self.source_settings_button.setChecked(False)
+            self.reading_panel.setVisible(has_settings)
         finally:
             self._populating = False
 
@@ -302,10 +303,43 @@ class MetadataImportDialogController:
         self.matching_required = self.preset in {
             MetadataImportPreset.APPEND,
             MetadataImportPreset.UPDATE,
+            MetadataImportPreset.MERGE,
         } or requires_replacement_matching
         self.matching_groups.setVisible(self.matching_required)
         self._update_match_controls()
+        self._populate_preview()
         self._refresh_plan()
+
+    def _toggle_options(self, expanded: bool) -> None:
+        self.options_panel.setVisible(expanded)
+        self.options_button.setArrowType(
+            QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow
+        )
+
+    def _populate_preview(self) -> None:
+        if self.inspection is None:
+            return
+        mappings = [mapping for mapping in self._mappings() if mapping.enabled]
+        samples = self.inspection.samples[:25]
+        type_labels = {value: label for label, value in self._VALUE_TYPES}
+        self.data_preview.setColumnCount(len(mappings))
+        self.data_preview.setHorizontalHeaderLabels([
+            f"{mapping.target_name}\n{type_labels[mapping.value_type]}" for mapping in mappings
+        ])
+        self.data_preview.setRowCount(len(samples))
+        for row, record in enumerate(samples):
+            for column, mapping in enumerate(mappings):
+                self.data_preview.setItem(
+                    row, column,
+                    QtWidgets.QTableWidgetItem(display_value(record.get(mapping.source_name, ""))),
+                )
+        self.data_preview.resizeColumnsToContents()
+        for column in range(len(mappings)):
+            self.data_preview.setColumnWidth(column, min(260, max(120, self.data_preview.columnWidth(column))))
+        self.preview_count.setText(
+            f"Source sample: {len(samples):,} of {self.inspection.row_count:,} rows · "
+            f"{len(mappings):,} of {len(self.inspection.columns):,} columns selected"
+        )
 
     def _populate_identifiers(self) -> None:
         if self.inspection is None:
@@ -318,7 +352,8 @@ class MetadataImportDialogController:
                 self.source_identifier.addItem(name, name)
             self.project_identifier.clear()
             self.project_identifier.addItem("Choose existing identifier…", "")
-            project_columns = [column.name for column in self.service.repository.list_columns()]
+            project_columns = [column.name for column in self.service.repository.list_columns()
+                               if column.name != "id" or self.service.repository.table_id == "metadata"]
             for name in project_columns:
                 self.project_identifier.addItem("ID" if name == "id" else name, name)
             incoming_unique = {
@@ -347,14 +382,17 @@ class MetadataImportDialogController:
         try:
             self.mapping_table.setRowCount(len(mappings))
             for row, mapping in enumerate(mappings):
-                include = QtWidgets.QTableWidgetItem()
-                include.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                include.setCheckState(
-                    QtCore.Qt.CheckState.Checked
-                    if mapping.enabled
-                    else QtCore.Qt.CheckState.Unchecked
-                )
-                self.mapping_table.setItem(row, 0, include)
+                # Native macOS item indicators can paint at the viewport origin.
+                # A real checkbox keeps painting and hit-testing local to its row.
+                include_cell = QtWidgets.QWidget()
+                include_layout = QtWidgets.QHBoxLayout(include_cell)
+                include_layout.setContentsMargins(0, 0, 0, 0)
+                include = QtWidgets.QCheckBox(include_cell)
+                include.setAccessibleName(f"Include {mapping.source_name}")
+                include.setChecked(mapping.enabled)
+                include_layout.addWidget(include, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+                self.mapping_table.setCellWidget(row, 0, include_cell)
+                self._connect(include.toggled, self._configuration_changed)
                 source = QtWidgets.QTableWidgetItem(mapping.source_name)
                 source.setFlags(source.flags() & ~QtCore.Qt.ItemFlag.ItemIsEditable)
                 source.setData(QtCore.Qt.ItemDataRole.UserRole, mapping.source_name)
@@ -395,7 +433,8 @@ class MetadataImportDialogController:
         }
         output: list[MetadataColumnMapping] = []
         for row in range(self.mapping_table.rowCount()):
-            include = self.mapping_table.item(row, 0)
+            include_cell = self.mapping_table.cellWidget(row, 0)
+            include = include_cell.findChild(QtWidgets.QCheckBox) if include_cell is not None else None
             source = self.mapping_table.item(row, 1)
             target = self.mapping_table.item(row, 2)
             type_combo = self.mapping_table.cellWidget(row, 3)
@@ -408,7 +447,7 @@ class MetadataImportDialogController:
                 or not isinstance(format_combo, QtWidgets.QComboBox)
             ):
                 continue
-            enabled = include.checkState() == QtCore.Qt.CheckState.Checked
+            enabled = include.isChecked()
             target_name = target.text().strip()
             if target_name.casefold() in existing:
                 target_name = existing[target_name.casefold()]
@@ -487,6 +526,7 @@ class MetadataImportDialogController:
         if self._populating:
             return
         self._update_match_controls()
+        self._populate_preview()
         self._refresh_plan()
 
     def _refresh_plan(self) -> None:
@@ -496,6 +536,7 @@ class MetadataImportDialogController:
         project_identifier = str(self.project_identifier.currentData() or "") if self.matching_required else ""
         mappings = self._mappings()
         inspection = self.inspection
+        conflict_policy = self.conflict_combo.currentData()
         self._start(
             "plan",
             lambda: self.service.preview_import(
@@ -504,6 +545,7 @@ class MetadataImportDialogController:
                 mappings=mappings,
                 source_identifier_column=source_identifier,
                 project_identifier_column=project_identifier,
+                conflict_policy=conflict_policy,
                 should_cancel=self.cancel_event.is_set,
             ),
             "Checking import…",
@@ -511,37 +553,26 @@ class MetadataImportDialogController:
 
     def _planned(self, plan: MetadataImportPlan) -> None:
         self.plan = plan
-        self._populate_summary()
+        self._populate_plan_status()
         self._update_import_enabled()
 
-    def _populate_summary(self) -> None:
+    def _populate_plan_status(self) -> None:
         if self.plan is None:
-            self.summary_label.clear()
             return
-        impact = self.plan.impact
-        result_rows = impact.existing_rows + impact.appended_rows - impact.removed_rows
-        current_columns = max(0, len(self.service.repository.list_columns()) - 1)
-        result_columns = (
-            current_columns
-            + len(impact.columns_added)
-            - len(impact.columns_removed)
-        )
-        summary = f"Result: {result_rows:,} rows and {result_columns:,} columns."
-        if self.preset == MetadataImportPreset.APPEND:
-            summary += f"\n{impact.matched_rows:,} existing matches skipped; {impact.appended_rows:,} items appended."
-        elif self.preset == MetadataImportPreset.UPDATE:
-            summary += f"\n{impact.matched_rows:,} matched; {impact.incoming_rows - impact.matched_rows:,} unmatched rows ignored. Blanks keep existing values."
-        elif self.preset == MetadataImportPreset.REPLACE_TABLE:
-            summary += f"\n{impact.matched_rows:,} matched; {impact.appended_rows:,} added; {impact.removed_rows:,} removed."
-        if impact.columns_added:
-            summary += f" New columns: {len(impact.columns_added):,}."
-        if impact.affected_links:
-            summary += f" {impact.affected_links:,} linked records are affected."
-        self.summary_label.setText(summary)
-        self.summary_label.setToolTip("New columns: " + ", ".join(impact.columns_added) if impact.columns_added else "")
-
-        status = "Ready to import metadata." if self.plan.can_import else ("\n".join(self.plan.messages) if self.plan.messages else "Review the import settings.")
-        self.status_label.setText(status)
+        self.conflict_combo.setVisible(bool(self.plan.conflicts))
+        messages = list(self.plan.warnings)
+        if not self.plan.can_import:
+            messages.extend(self.plan.messages or ("Review the import settings.",))
+        self.status_label.setText("\n".join(messages))
+        self.status_label.setVisible(bool(messages))
+        if self.matching_required:
+            source = str(self.source_identifier.currentData() or "Not selected")
+            target = str(self.project_identifier.currentData() or "Not selected")
+            self.matching_summary.setText(f"Match records: {source} → {target}")
+        self.matching_summary.setVisible(self.matching_required)
+        missing_key = not self.source_identifier.currentData() or not self.project_identifier.currentData()
+        if self.matching_required and (missing_key or (self.plan.conflicts and not self.plan.can_import)):
+            self.options_button.setChecked(True)
 
     def _update_import_enabled(self, *_args) -> None:
         enabled = self.plan is not None and self.plan.can_import and self.future is None
@@ -577,12 +608,11 @@ class MetadataImportDialogController:
     def _start(self, kind: str, callback, message: str) -> None:
         self.future_kind = kind
         self.future = self.executor.submit(callback)
-        if kind == "plan":
-            self.summary_label.setText("Checking import…")
         self.progress.show()
         self.progress.setRange(0, 0 if kind in {"probe", "prepare", "plan"} else 100)
         self.progress.setValue(0)
         self.status_label.setText(message)
+        self.status_label.show()
         self.import_button.setEnabled(False)
         self._set_configuration_enabled(False)
         self.timer.start()
@@ -657,7 +687,7 @@ class MetadataImportDialogController:
         self.inspection = None
         self.plan = None
         self.mapping_table.setRowCount(0)
-        self.summary_label.setText("Inspecting metadata…")
+        self.preview_count.setText("Updating preview…")
         self._prepare()
 
     def _cancel(self) -> None:
@@ -696,9 +726,9 @@ class MetadataImportDialogController:
             self.delimiter_edit,
             self.matching_groups,
             self.mapping_table,
+            self.conflict_combo,
         ):
             widget.setEnabled(enabled)
-        self.source_settings_button.setEnabled(enabled and self.advanced_source_available)
         self._update_match_controls()
 
     def _close_guard(self):

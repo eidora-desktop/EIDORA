@@ -194,6 +194,7 @@ class MediaLinkRequest:
     ignore_case: bool = False
     replace_existing: bool = False
     create_missing: bool = False
+    table_id: str = "metadata"
 
 
 @dataclass(frozen=True)
@@ -218,6 +219,7 @@ class MediaLinkPlan:
     examples: dict[str, tuple[tuple[str, int | None, str], ...]]
     unmatched_metadata_count: int = 0
     disappearing_count: int = 0
+    example_values: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -298,6 +300,9 @@ class EmbeddingRunInputSnapshot:
 class EmbeddingRunPreparation:
     run: EmbeddingRun
     input_count: int
+    reused_count: int = 0
+    new_count: int = 0
+    skipped_count: int = 0
 
 
 @dataclass(frozen=True)

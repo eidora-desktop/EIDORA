@@ -88,6 +88,22 @@ QPushButton[keyboardFocus="true"]:focus:enabled, QToolButton[keyboardFocus="true
     border-color: {text};
     border-style: solid;
 }}
+QPushButton[appearance="settingsArrow"] {{
+    background-color: transparent;
+    border-color: transparent;
+    color: {secondary_text};
+    font-size: 17px;
+    padding: 2px 0 0;
+}}
+QPushButton[appearance="settingsArrow"]:hover:enabled,
+QPushButton[appearance="settingsArrow"]:pressed:enabled {{
+    background-color: transparent;
+    border-color: transparent;
+    color: {text};
+}}
+QPushButton[appearance="settingsArrow"][keyboardFocus="true"]:focus:enabled {{
+    border-color: {text};
+}}
 QAbstractItemView::item:selected:enabled, QAbstractItemView::item:hover:enabled {{
     background-color: {selection_background};
     color: {text};

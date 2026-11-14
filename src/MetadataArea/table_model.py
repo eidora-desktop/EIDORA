@@ -7,6 +7,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from MetadataArea.domain import MetadataColumn, MetadataRow, MetadataSearchMatch
 from MetadataArea.service import MetadataService
+from MetadataArea.values import display_value
 
 
 class MetadataTableModel(QtCore.QAbstractTableModel):
@@ -106,6 +107,18 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
             value = self._value_for_index(index)
             if value is None:
                 return None
+            row = self._row_at(index.row())
+            cell = row.resolved.get(self._columns[index.column()].name) if row else None
+            if cell and (len(cell.records) > 1 or cell.is_list):
+                from MetadataArea.table_repository import list_tables
+                names = {table.id: table.name for table in list_tables(self._service._repository.database_path)}
+                details = '\n'.join(f'{names.get(record.source_table, "Items")}: {display_value(record.value)}' for record in cell.records)
+                if len(cell.values) > 1:
+                    details += '\nMultiple values: scalar visual mappings are unmapped.'
+                action = ('Double-click to open a source record.'
+                          if any(record.source_table != 'metadata' for record in cell.records)
+                          else 'Double-click to edit the list as JSON.')
+                return self._wrapped_tooltip(details + '\n' + action)
             return self._wrapped_tooltip(str(value))
         if role not in (
             QtCore.Qt.ItemDataRole.DisplayRole,
@@ -125,12 +138,19 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
             and orientation == QtCore.Qt.Orientation.Horizontal
         ):
             return QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
+        if orientation == QtCore.Qt.Orientation.Horizontal and 0 <= section < len(self._columns):
+            source_tab = self._columns[section].source_tab
+            if source_tab and role == QtCore.Qt.ItemDataRole.ToolTipRole:
+                return source_tab
+            if source_tab and role == QtCore.Qt.ItemDataRole.DecorationRole:
+                from shared.qt.icons import current_icon_color, tinted_icon_pixmap
+                return QtGui.QIcon(tinted_icon_pixmap("metadata_link", QtCore.QSize(14, 14), current_icon_color()))
         if role != QtCore.Qt.ItemDataRole.DisplayRole:
             return None
         if orientation == QtCore.Qt.Orientation.Horizontal and 0 <= section < len(self._columns):
             if self._columns[section].name == "id":
                 return "ID"
-            return self._columns[section].name
+            return self._columns[section].label
         if orientation == QtCore.Qt.Orientation.Vertical:
             return str(section + 1)
         return None
@@ -236,7 +256,7 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         column = self._columns[index.column()]
         if column.name == "id":
             return str(row.id)
-        return row.values.get(column.name, "")
+        return display_value(row.values.get(column.name, ""))
 
     def _match_ranges_for_index(self, index: QtCore.QModelIndex | QtCore.QPersistentModelIndex):
         matching_columns = self._match_cells_by_row.get(index.row(), ())

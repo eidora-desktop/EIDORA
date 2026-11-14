@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from PySide6 import QtCore, QtWidgets
 
 from MainWindow.controllers.help_panel_controller import HelpPanelController
+from MainWindow.controllers.project_panel_controller import ProjectPanelController
 from MainWindow.controllers.project_chooser_controller import ProjectChooserController
 from MainWindow.controllers.workspace_tour_controller import WorkspaceTourController
 from MainWindow.navigation import NavigationItem
@@ -17,7 +18,7 @@ from shared.qt.ui_loader import load_ui
 
 if TYPE_CHECKING:
     from MetadataArea.controllers import MetadataAreaController
-    from ProjectArea.controllers import ProjectAreaController
+    from AssetsArea.controllers import AssetsAreaController
     from project.domain import Project
 
 
@@ -67,6 +68,10 @@ class MainWindowController:
         )
         self._tour_controller.active_changed.connect(self._update_tour_navigation)
         self._tour_controller.started.connect(self._remember_tour_shown)
+        self._project_panel = ProjectPanelController(
+            self.window, switch=self.show_project_chooser, rename=self._rename_project,
+            export=self._export_project, delete=self._delete_project,
+        )
         self._build_areas()
         self.set_project(project)
         self._show_area(0)
@@ -121,6 +126,7 @@ class MainWindowController:
         message = f"Loading project {project.name}…" if project is not None else "Updating project…"
         with self._activity.busy(message):
             self._project = project
+            self._project_panel.set_project(project)
             self._discovery_has_items = False
             self._figures_has_snapshots = False
             self._pending_media_refresh.clear()
@@ -174,13 +180,14 @@ class MainWindowController:
         self._tour_controller.active_changed.disconnect(self._update_tour_navigation)
         self._tour_controller.started.disconnect(self._remember_tour_shown)
         self._help_controller.shutdown()
+        self._project_panel.shutdown()
         for area in self._areas:
             area.shutdown()
         self._activity.shutdown()
 
     def _build_areas(self) -> None:
         if self._defer_secondary_areas:
-            self._build_project_area_first()
+            self._build_assets_area_first()
             return
 
         # Keep the shell import light; area imports pull rendering and compute code.
@@ -188,16 +195,16 @@ class MainWindowController:
         from EmbeddingsArea.controllers import EmbeddingsAreaController
         from FiguresArea.controllers import FiguresAreaController
         from MetadataArea.controllers import MetadataAreaController
-        from ProjectArea.controllers import ProjectAreaController
+        from AssetsArea.controllers import AssetsAreaController
 
         area_specs = [
-            ("Project", "button_project_area", ProjectAreaController),
+            ("Assets", "button_assets_area", AssetsAreaController),
             ("Metadata", "button_metadata_area", MetadataAreaController),
             ("Embeddings", "button_embeddings_area", EmbeddingsAreaController),
             ("Discovery", "button_discovery_area", DiscoveryAreaController),
             ("Figures", "button_figures_area", FiguresAreaController),
         ]
-        project_area: ProjectAreaController | None = None
+        assets_area: AssetsAreaController | None = None
         metadata_area: MetadataAreaController | None = None
         embeddings_area: EmbeddingsAreaController | None = None
         discovery_area: DiscoveryAreaController | None = None
@@ -210,8 +217,8 @@ class MainWindowController:
                 status_callback=self._show_status,
                 activity_manager=self._activity,
             )
-            if isinstance(controller, ProjectAreaController):
-                project_area = controller
+            if isinstance(controller, AssetsAreaController):
+                assets_area = controller
             elif isinstance(controller, MetadataAreaController):
                 metadata_area = controller
             elif isinstance(controller, EmbeddingsAreaController):
@@ -226,30 +233,30 @@ class MainWindowController:
             self._navigation_items.append(NavigationItem(title, button, controller.widget))
             button.clicked.connect(lambda _checked=False, page=index: self._show_area(page))
 
-        if not all((project_area, metadata_area, embeddings_area, discovery_area, figures_area)):
+        if not all((assets_area, metadata_area, embeddings_area, discovery_area, figures_area)):
             raise RuntimeError("Main window did not construct every workspace")
 
         self._wire_area_dependencies(
-            project_area,
+            assets_area,
             metadata_area,
             embeddings_area,
             discovery_area,
             figures_area,
         )
 
-    def _build_project_area_first(self) -> None:
+    def _build_assets_area_first(self) -> None:
         """Build only the visible startup workspace and lightweight placeholders."""
 
-        from ProjectArea.controllers import ProjectAreaController
+        from AssetsArea.controllers import AssetsAreaController
 
         area_specs = (
-            ("Project", "button_project_area"),
+            ("Assets", "button_assets_area"),
             ("Metadata", "button_metadata_area"),
             ("Embeddings", "button_embeddings_area"),
             ("Discovery", "button_discovery_area"),
             ("Figures", "button_figures_area"),
         )
-        project_area = ProjectAreaController(
+        assets_area = AssetsAreaController(
             parent=self.window,
             status_callback=self._show_status,
             activity_manager=self._activity,
@@ -257,23 +264,17 @@ class MainWindowController:
 
         for index, (title, button_name) in enumerate(area_specs):
             button = self._find_required(QtWidgets.QAbstractButton, button_name)
-            page = project_area.widget if index == 0 else self._loading_page(title)
+            page = assets_area.widget if index == 0 else self._loading_page(title)
             self._stack.addWidget(page)
             self._button_group.addButton(button, index)
             self._navigation_items.append(NavigationItem(title, button, page))
             button.clicked.connect(lambda _checked=False, page_index=index: self._show_area(page_index))
 
-        self._areas.append(project_area)
-        project_area.set_project_actions(
-            switch=self.show_project_chooser,
-            rename=self._rename_project,
-            export=self._export_project,
-            delete=self._delete_project,
-        )
-        project_area.set_media_changed_callback(self._refresh_loaded_secondary_areas)
-        project_area.set_metadata_changed_callback(self._refresh_loaded_secondary_areas)
-        project_area.set_thumbnail_variants_changed_callback(self._refresh_loaded_secondary_areas)
-        project_area.set_media_busy_callback(self._set_media_busy)
+        self._areas.append(assets_area)
+        assets_area.set_media_changed_callback(self._refresh_loaded_secondary_areas)
+        assets_area.set_metadata_changed_callback(self._refresh_loaded_secondary_areas)
+        assets_area.set_thumbnail_variants_changed_callback(self._refresh_loaded_secondary_areas)
+        assets_area.set_media_busy_callback(self._set_media_busy)
 
     def _load_next_deferred_area(self) -> None:
         if self._shutdown or len(self._areas) >= len(self._navigation_items):
@@ -353,18 +354,12 @@ class MainWindowController:
 
     def _wire_area_dependencies(
         self,
-        project_area,
+        assets_area,
         metadata_area,
         embeddings_area,
         discovery_area,
         figures_area,
     ) -> None:
-        project_area.set_project_actions(
-            switch=self.show_project_chooser,
-            rename=self._rename_project,
-            export=self._export_project,
-            delete=self._delete_project,
-        )
 
         def refresh_after_project_media() -> None:
             metadata_area.refresh()
@@ -380,8 +375,8 @@ class MainWindowController:
             discovery_area.refresh_metadata_groups()
             discovery_area.refresh_thumbnail_variants()
 
-        project_area.set_media_changed_callback(refresh_after_project_media)
-        project_area.set_metadata_changed_callback(refresh_after_project_metadata)
+        assets_area.set_media_changed_callback(refresh_after_project_media)
+        assets_area.set_metadata_changed_callback(refresh_after_project_metadata)
         def refresh_after_media_operation(result):
             self._queue_media_refresh(2, "inputs", embeddings_area.refresh_embedding_inputs)
             if result.metadata_changed:
@@ -390,16 +385,16 @@ class MainWindowController:
             if result.metadata_changed or result.links_changed:
                 self._queue_media_refresh(3, "metadata", discovery_area.refresh_metadata)
 
-        project_area.set_media_operation_callback(refresh_after_media_operation)
-        project_area.set_media_busy_callback(self._set_media_busy)
-        project_area.set_thumbnail_variants_changed_callback(discovery_area.refresh_thumbnail_variants)
-        project_area.set_source_in_use_callback(embeddings_area.source_in_use)
-        embeddings_area.set_media_source_busy_callback(project_area.media_source_busy)
+        assets_area.set_media_operation_callback(refresh_after_media_operation)
+        assets_area.set_media_busy_callback(self._set_media_busy)
+        assets_area.set_thumbnail_variants_changed_callback(discovery_area.refresh_thumbnail_variants)
+        assets_area.set_source_in_use_callback(embeddings_area.source_in_use)
+        embeddings_area.set_media_source_busy_callback(assets_area.media_source_busy)
 
         def refresh_after_metadata() -> None:
             self._refresh_discovery_availability()
-            project_area.refresh_media_sources()
-            project_area.refresh_thumbnail_variants()
+            assets_area.refresh_media_sources()
+            assets_area.refresh_thumbnail_variants()
             embeddings_area.refresh_embedding_inputs()
             discovery_area.refresh_metadata()
             discovery_area.refresh_metadata_groups()
@@ -417,8 +412,8 @@ class MainWindowController:
         def refresh_after_embedding_metadata() -> None:
             self._refresh_discovery_availability()
             metadata_area.refresh()
-            project_area.refresh_media_sources()
-            project_area.refresh_thumbnail_variants()
+            assets_area.refresh_media_sources()
+            assets_area.refresh_thumbnail_variants()
             discovery_area.refresh_metadata()
             discovery_area.refresh_thumbnail_variants()
 
@@ -439,8 +434,8 @@ class MainWindowController:
         def refresh_after_discovery_metadata() -> None:
             self._refresh_discovery_availability()
             metadata_area.refresh()
-            project_area.refresh_media_sources()
-            project_area.refresh_thumbnail_variants()
+            assets_area.refresh_media_sources()
+            assets_area.refresh_thumbnail_variants()
             embeddings_area.refresh_embedding_inputs()
 
         discovery_area.set_metadata_changed_callback(refresh_after_discovery_metadata)
@@ -451,7 +446,7 @@ class MainWindowController:
 
         discovery_area.set_groups_changed_callback(refresh_after_discovery_groups)
         discovery_area.set_create_thumbnails_requested_callback(
-            lambda: self._open_thumbnail_creation(project_area)
+            lambda: self._open_thumbnail_creation(assets_area)
         )
         discovery_area.set_open_metadata_callback(
             lambda metadata_id: self._open_metadata_row(metadata_area, metadata_id)
@@ -467,9 +462,9 @@ class MainWindowController:
         if not metadata_area.select_metadata_row(metadata_id):
             self._show_status(f"Metadata item {int(metadata_id)} is no longer available")
 
-    def _open_thumbnail_creation(self, project_area: ProjectAreaController) -> None:
+    def _open_thumbnail_creation(self, assets_area: AssetsAreaController) -> None:
         self._show_area(0)
-        QtCore.QTimer.singleShot(0, project_area.open_thumbnail_creation_dialog)
+        QtCore.QTimer.singleShot(0, assets_area.open_thumbnail_creation_dialog)
 
     def _show_area(self, index: int) -> bool:
         if not 0 <= index < len(self._navigation_items):

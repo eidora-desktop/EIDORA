@@ -34,6 +34,7 @@ from EmbeddingsArea.exchange.importer import (
     iter_source_chunks,
     probe_identifier_source,
     probe_source,
+    probe_sources,
     source_fingerprint,
 )
 from EmbeddingsArea.runtime.artifacts import ArtifactStore
@@ -50,7 +51,7 @@ class EmbeddingExchangeService:
     def probe_import(
         self, path: Path, *, sidecar_path: Path | None = None
     ) -> EmbeddingImportProbe:
-        return probe_source(path, sidecar_path=sidecar_path)
+        return probe_sources(path) if isinstance(path, (list, tuple)) else probe_source(path, sidecar_path=sidecar_path)
 
     def probe_import_identifiers(self, path: Path) -> EmbeddingImportCompanionProbe:
         return probe_identifier_source(path)
@@ -73,6 +74,28 @@ class EmbeddingExchangeService:
         dtype = ""
         source_has_identifiers = False
         samples: list[EmbeddingImportSample] = []
+        description_columns = set()
+        description_index = 0
+        excluded_fields = set(interpretation.vector_columns) | set(probe.vector_candidates)
+        for member in probe.members:
+            excluded_fields.update(member.vector_candidates)
+            excluded_fields.update(member.default_interpretation.vector_columns)
+        def save_descriptions(records):
+            nonlocal description_index
+            description_index = row_count
+            rows = []
+            for record in records:
+                values = {}
+                for name, value in record.items():
+                    if name in excluded_fields or value is None:
+                        continue
+                    target = "id_imported" if name == "id" else str(name)
+                    values[target] = json.dumps(value, ensure_ascii=False) if isinstance(value, (list, dict)) else str(value)
+                description_columns.update(values)
+                rows.append((description_index, json.dumps(values, ensure_ascii=False)))
+                description_index += 1
+            identity_connection.executemany("INSERT INTO descriptions VALUES (?,?)", rows)
+
         identifier_fingerprint = (
             source_fingerprint(interpretation.identifier_path)
             if interpretation.identifier_path is not None
@@ -85,12 +108,14 @@ class EmbeddingExchangeService:
         )
         try:
             identity_connection = identifier_database(staging / "identifiers.sqlite")
+            identity_connection.execute("CREATE TABLE descriptions(row_index INTEGER PRIMARY KEY, payload TEXT NOT NULL)")
             for chunk_index, (raw_matrix, raw_identifiers) in enumerate(
                 iter_source_chunks(
                     probe,
                     interpretation,
                     staging,
                     should_cancel=should_cancel,
+                    record_sink=save_descriptions,
                 )
             ):
                 if should_cancel is not None and should_cancel():
@@ -171,6 +196,7 @@ class EmbeddingExchangeService:
                 dtype=np.dtype(dtype).name,
                 source_has_identifiers=source_has_identifiers,
                 samples=tuple(samples),
+                description_columns=tuple(sorted(description_columns)),
                 identifier_fingerprint=identifier_fingerprint,
                 sidecar_fingerprint=sidecar_fingerprint,
             )
@@ -192,6 +218,8 @@ class EmbeddingExchangeService:
         strategy: str,
         metadata_column: str = "",
         allow_partial: bool = False,
+        create_unmatched: bool = False,
+        conflict_policy: str = "ask",
     ) -> EmbeddingImportPlan:
         if strategy not in {"identifier", "row_order", "create_metadata"}:
             raise ValueError("Choose a metadata linking strategy.")
@@ -200,13 +228,11 @@ class EmbeddingExchangeService:
         fingerprint = ""
 
         if strategy == "create_metadata":
-            if self.metadata.is_initialized() and self.metadata.count_rows():
-                raise ValueError("Metadata creation is available only in an empty project.")
             match_path = None
             matched = selected = row_count
             unmatched = 0
             unmatched_metadata = 0
-            message = f"Create {row_count:,} metadata rows and import every vector."
+            message = f"Create {row_count:,} items and import every vector."
             can_import = True
         elif strategy == "row_order":
             metadata_ids = self.metadata.fetch_ids()
@@ -228,7 +254,7 @@ class EmbeddingExchangeService:
                 )
             if not metadata_column:
                 raise ValueError("Choose the project metadata identifier column.")
-            allowed_columns = set(self.metadata.complete_unique_column_names())
+            allowed_columns = set(self.metadata.complete_unique_column_names((metadata_column,)))
             if metadata_column not in allowed_columns:
                 raise ValueError("Choose a complete metadata column with unique identifiers.")
             matches = np.lib.format.open_memmap(
@@ -245,7 +271,7 @@ class EmbeddingExchangeService:
                 rows = connection.execute(
                     f"""
                     SELECT imported.row_index, project.id
-                    FROM project_metadata.metadata AS project
+                    FROM project_metadata.{self.metadata.sql_table} AS project
                     JOIN identifiers AS imported
                       ON imported.identifier =
                          TRIM(COALESCE(CAST(project.{quoted} AS TEXT), ''))
@@ -259,9 +285,12 @@ class EmbeddingExchangeService:
             unmatched = row_count - matched
             unmatched_metadata = self.metadata.count_rows() - matched
             selected = matched if allow_partial else row_count
-            can_import = matched > 0 and (unmatched == 0 or allow_partial)
+            can_import = create_unmatched or (matched > 0 and (unmatched == 0 or allow_partial))
             fingerprint = self.metadata.column_fingerprint(metadata_column)
-            if unmatched and not allow_partial:
+            if unmatched and create_unmatched:
+                selected = row_count
+                message = f"{matched:,} matched records · {unmatched:,} new records. Import every vector."
+            elif unmatched and not allow_partial:
                 message = (
                     f"{matched:,} matched and {unmatched:,} unmatched. "
                     "Repair the mapping or explicitly import matched vectors only."
@@ -275,6 +304,19 @@ class EmbeddingExchangeService:
                     f" {unmatched_metadata:,} metadata rows have no imported vector."
                 )
 
+        if self.metadata.table_id != 'metadata':
+            from EmbeddingsArea.item_binding import preview_source_items
+            indexes = np.load(match_path, mmap_mode='r') if match_path else [-1] * row_count
+            indexes = (index for index in indexes if index >= 0 or create_unmatched or strategy == 'create_metadata')
+            reused, added, ambiguous = preview_source_items(self.metadata.database_path, self.metadata.table_id, indexes)
+            message += f" {reused:,} existing items reused · {added:,} new items required."
+            if ambiguous:
+                can_import = False
+                message += f" {ambiguous:,} records have competing item matches. Match against Items to assign them explicitly."
+        conflicts = self._description_conflicts(inspection, match_path)
+        if conflicts and conflict_policy == "ask":
+            can_import = False
+            message += " Choose how to resolve different metadata values."
         return EmbeddingImportPlan(
             inspection=inspection,
             strategy=strategy,  # type: ignore[arg-type]
@@ -288,6 +330,10 @@ class EmbeddingExchangeService:
             allow_partial=allow_partial,
             can_import=can_import,
             message=message,
+            create_unmatched=create_unmatched,
+            metadata_revision=self.metadata.revision(),
+            conflict_policy=conflict_policy,
+            conflicts=conflicts,
         )
 
     def commit_import(
@@ -301,6 +347,9 @@ class EmbeddingExchangeService:
         if not plan.can_import or not plan.selected_count:
             raise ValueError(plan.message or "The import plan is not valid.")
         inspection = plan.inspection
+        for member in inspection.probe.members:
+            if source_fingerprint(member.source_path) != member.source_fingerprint:
+                raise ValueError(f"{member.source_path.name} changed after inspection. Inspect it again.")
         try:
             current_source_fingerprint = source_fingerprint(
                 inspection.probe.source_path
@@ -337,7 +386,7 @@ class EmbeddingExchangeService:
             if self._row_order_fingerprint(self.metadata.fetch_ids()) != plan.metadata_fingerprint:
                 self.cleanup_import(inspection)
                 raise ValueError("Metadata changed after matching. Match the rows again.")
-        elif self.metadata.is_initialized() and self.metadata.count_rows():
+        elif self.metadata.revision() != plan.metadata_revision:
             self.cleanup_import(inspection)
             raise ValueError("Metadata changed after inspection. Inspect the import again.")
 
@@ -355,6 +404,7 @@ class EmbeddingExchangeService:
                 }
             )
             selected_rows = 0
+            output_chunk = 0
             matches = (
                 np.load(plan.match_index_path, mmap_mode="r")
                 if plan.match_index_path is not None
@@ -375,7 +425,7 @@ class EmbeddingExchangeService:
                 source_offset = stop
                 mask = (
                     np.ones(len(source_ids), dtype=bool)
-                    if matches is None
+                    if matches is None or plan.create_unmatched
                     else np.asarray(matches[start:stop]) >= 0
                 )
                 if not np.any(mask):
@@ -386,8 +436,9 @@ class EmbeddingExchangeService:
                     selected_rows, selected_rows + len(chosen_vectors), dtype=np.int64
                 )
                 store.append_chunk(
-                    store.chunk_count(), object_ids, chosen_vectors, chosen_names
+                    output_chunk, object_ids, chosen_vectors, chosen_names
                 )
+                output_chunk += 1
                 selected_rows += len(chosen_vectors)
                 if progress_callback is not None:
                     progress_callback(
@@ -423,32 +474,29 @@ class EmbeddingExchangeService:
                 artifact_path=str(output),
             )
             inputs = self._iter_import_inputs(plan, run_id)
-            create_identifiers = (
-                self._iter_selected_identifiers(plan)
-                if plan.strategy == "create_metadata"
-                else None
-            )
             self.runs.save_imported_run(
                 run,
                 inputs,
                 metadata_database=self.metadata.database_path,
-                create_identifiers=create_identifiers,
+                metadata_table=self.metadata.table_id,
+                description_columns=inspection.description_columns,
+                description_rows=self._iter_descriptions(plan),
+                conflict_policy=plan.conflict_policy,
+                create_items=plan.strategy == "create_metadata",
+                source_identifier_column=self._source_identifier_column(inspection),
                 metadata_column=(
                     plan.metadata_column if plan.strategy == "identifier" else ""
                 ),
                 expected_metadata_fingerprint=plan.metadata_fingerprint,
+                expected_metadata_revision=plan.metadata_revision,
+                create_unmatched=plan.create_unmatched,
                 expected_row_order_fingerprint=(
                     plan.metadata_fingerprint if plan.strategy == "row_order" else ""
                 ),
             )
             published = True
-            if plan.strategy == "create_metadata":
-                try:
-                    self.metadata.recompute_column_summaries()
-                except Exception:
-                    LOGGER.exception(
-                        "Imported embeddings, but metadata summary refresh failed"
-                    )
+            if plan.strategy == "create_metadata" or plan.create_unmatched or inspection.description_columns:
+                self.metadata.refresh_schema_mirror()
             if progress_callback is not None:
                 progress_callback(100, "Embeddings imported.")
             return run
@@ -457,6 +505,39 @@ class EmbeddingExchangeService:
                 output.unlink(missing_ok=True)
                 shutil.rmtree(run_dir, ignore_errors=True)
             self.cleanup_import(inspection)
+
+    def _source_identifier_column(self, inspection):
+        """Keep a supplied label field once; generated run keys stay internal."""
+        if not inspection.source_has_identifiers:
+            return ""
+        options = inspection.interpretation
+        external = options.identifier_path is not None or options.identifier_key == '<sidecar identifiers>'
+        if options.identifier_path is not None:
+            probe = probe_identifier_source(options.identifier_path)
+            name = options.identifier_file_key or probe.default_identifier_key or 'identifier'
+        elif options.identifier_key == '<sidecar identifiers>':
+            name = 'identifier'
+        else:
+            name = options.identifier_key
+        if not name:
+            return ""
+        name = 'id_imported' if name == 'id' else name
+        if name not in inspection.description_columns:
+            return name
+        if not external:
+            return ""  # Original label values are already among the source descriptions.
+        with closing(sqlite3.connect(inspection.staging_path / 'identifiers.sqlite')) as connection:
+            different = connection.execute(
+                "SELECT 1 FROM identifiers i LEFT JOIN descriptions d USING(row_index) "
+                "WHERE NOT EXISTS (SELECT 1 FROM json_each(COALESCE(d.payload,'{}')) j "
+                "WHERE j.key=? AND CAST(j.value AS TEXT)=i.identifier) LIMIT 1", (name,)).fetchone()
+        if not different:
+            return ""
+        suffix, candidate = 2, f'{name} (2)'
+        while candidate in inspection.description_columns:
+            suffix += 1
+            candidate = f'{name} ({suffix})'
+        return candidate
 
     def cleanup_import(self, inspection: EmbeddingImportInspection | None) -> None:
         if inspection is not None:
@@ -486,19 +567,24 @@ class EmbeddingExchangeService:
                 "ATTACH DATABASE ? AS project_metadata",
                 (str(self.metadata.database_path),),
             )
-            for _label, column in self.list_import_identifier_columns():
+            candidates = [item for item in self.list_import_identifier_columns() if item[1] != "id"]
+            source_key = inspection.interpretation.identifier_key.casefold()
+            candidates.sort(key=lambda item: (item[1].casefold() != source_key,
+                                              not item[1].casefold().endswith(("id", "key", "identifier", "filename"))))
+            for _label, column in candidates[:4]:
                 quoted = '"' + column.replace('"', '""') + '"'
                 matched = connection.execute(
                     f"""
                     SELECT COUNT(*)
-                    FROM project_metadata.metadata AS project
+                    FROM project_metadata.{self.metadata.sql_table} AS project
                     JOIN identifiers AS imported
                       ON imported.identifier =
                          TRIM(COALESCE(CAST(project.{quoted} AS TEXT), ''))
                     """
                 ).fetchone()[0]
-                if int(matched) == inspection.row_count:
-                    complete.append(column)
+                if int(matched) and (int(matched) == inspection.row_count or column.casefold() == source_key):
+                    if column in self.metadata.complete_unique_column_names((column,)):
+                        complete.append(column)
         return tuple(complete)
 
     @staticmethod
@@ -511,12 +597,6 @@ class EmbeddingExchangeService:
             digest.update(b"\n")
         return digest.hexdigest()
 
-    def _iter_selected_identifiers(
-        self, plan: EmbeddingImportPlan
-    ) -> Iterator[str]:
-        for item in self._iter_import_inputs(plan, ""):
-            yield item.source_key
-
     def _iter_import_inputs(
         self, plan: EmbeddingImportPlan, run_id: str
     ) -> Iterator[EmbeddingRunInputSnapshot]:
@@ -526,42 +606,56 @@ class EmbeddingExchangeService:
             else None
         )
         ordinal = 0
-        source_offset = 0
-        staged = ArtifactStore(plan.inspection.staging_path)
-        for source_ids, _vectors, identifiers in staged.iter_chunks_with_names():
-            start = source_offset
-            stop = start + len(source_ids)
-            if not np.array_equal(
-                source_ids,
-                np.arange(start, stop, dtype=np.int64),
-            ):
-                raise RuntimeError("Staged import chunk identities are inconsistent.")
-            source_offset = stop
-            for offset, identifier in enumerate(identifiers):
-                metadata_id = None if matches is None else int(matches[start + offset])
+        with closing(sqlite3.connect(plan.inspection.staging_path / "identifiers.sqlite")) as connection:
+            for row_index, identifier in connection.execute("SELECT row_index, identifier FROM identifiers ORDER BY row_index"):
+                metadata_id = None if matches is None else int(matches[row_index])
                 if metadata_id is not None and metadata_id < 0:
-                    continue
+                    if not plan.create_unmatched:
+                        continue
+                    metadata_id = None
                 yield EmbeddingRunInputSnapshot(
-                    run_id,
-                    ordinal,
-                    "",
-                    "",
-                    str(identifier),
-                    Path("."),
-                    MediaContentType.TEXT,
-                    metadata_id,
-                    None,
-                    None,
+                    run_id, ordinal, "", "", str(identifier), Path("."),
+                    MediaContentType.TEXT, metadata_id, None, None,
                 )
                 ordinal += 1
 
+    def _description_conflicts(self, inspection, match_path):
+        if not inspection.description_columns or match_path is None:
+            return ()
+        matches = np.load(match_path, mmap_mode="r")
+        existing = {column.name for column in self.metadata.list_columns()}
+        conflicts = []
+        with closing(sqlite3.connect(inspection.staging_path / "identifiers.sqlite")) as connection:
+            connection.execute("ATTACH DATABASE ? AS project_metadata", (str(self.metadata.database_path),))
+            connection.execute("CREATE TEMP TABLE targets(row_index INTEGER PRIMARY KEY, record_id INTEGER)")
+            connection.executemany("INSERT INTO targets VALUES (?,?)", ((index,int(value)) for index,value in enumerate(matches) if value >= 0))
+            for column in inspection.description_columns:
+                if column not in existing:
+                    continue
+                quoted = self.metadata._quote_identifier(column)
+                count = connection.execute(
+                    f"SELECT COUNT(*) FROM descriptions d JOIN targets t USING(row_index) "
+                    f"JOIN project_metadata.{self.metadata.sql_table} p ON p.id=t.record_id JOIN json_each(d.payload) j "
+                    f"WHERE j.key=? AND j.value != '' AND COALESCE(p.{quoted},'') != '' AND j.value != p.{quoted}", (column,),
+                ).fetchone()[0]
+                if count:
+                    conflicts.append((column,int(count)))
+        return tuple(conflicts)
+
+    def _iter_descriptions(self, plan):
+        matches = np.load(plan.match_index_path, mmap_mode="r") if plan.match_index_path else None
+        with closing(sqlite3.connect(plan.inspection.staging_path / "identifiers.sqlite")) as connection:
+            rows = connection.execute("SELECT i.row_index,COALESCE(d.payload,'{}') FROM identifiers i LEFT JOIN descriptions d USING(row_index) ORDER BY i.row_index")
+            for index,payload in rows:
+                if matches is None or plan.create_unmatched or matches[index] >= 0:
+                    yield json.loads(payload)
+
     def list_import_identifier_columns(self):
-        eligible = set(self.metadata.complete_unique_column_names())
-        return tuple(
-            (column.label, column.name)
-            for column in self.metadata.list_columns()
-            if column.name in eligible
-        )
+        # Full key validation belongs to the selected plan, not UI population.
+        total = self.metadata.count_rows() if self.metadata.is_initialized() else 0
+        return tuple((column.label, column.name) for column in self.metadata.list_columns()
+                     if (column.name != "id" or self.metadata.table_id == "metadata")
+                     and (column.name == "id" or column.unique_values is None or column.unique_values == total))
 
     def export(
         self,

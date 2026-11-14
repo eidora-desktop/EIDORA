@@ -1,6 +1,14 @@
 # EIDORA semantic icon manifest
 # Material Symbols are used as replaceable starter assets.
 icons:
+  metadata_unlinked:
+    material: link_off
+    style: outlined
+    size: 24
+  metadata_link:
+    material: link
+    style: outlined
+    size: 24
   help:
     material: help
     style: outlined

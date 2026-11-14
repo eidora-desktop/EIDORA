@@ -185,3 +185,47 @@ def automatic_random_preset(project) -> Path | None:
         return path.resolve() if coordinates.resolve() == expected.resolve() else None
     except (OSError, ValueError, TypeError, AttributeError):
         return None
+
+
+def source_replacement_blockers(project, table_id, removed_ids, removed_columns, connection=None):
+    """Protect approved record pairs and stable fields before replacing a source."""
+    from contextlib import nullcontext
+
+    blocked, fields = [], set(removed_columns)
+    context = (nullcontext(connection) if connection is not None
+               else closing(sqlite3.connect(project.paths.metadata_database)))
+    with context as database:
+        tables = {row[0] for row in database.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if 'metadata_record_links' in tables and 'metadata_relationships' in tables:
+            affected = 0
+            for start in range(0, len(removed_ids), 400):
+                batch = removed_ids[start:start + 400]
+                placeholders = ','.join('?' for _ in batch)
+                affected += database.execute(f'''
+                    SELECT COUNT(*) FROM metadata_record_links l
+                    JOIN metadata_relationships r ON r.id=l.relationship_id
+                    WHERE (r.source_table=? AND l.source_id IN ({placeholders}))
+                       OR (r.target_table=? AND l.target_id IN ({placeholders}))
+                ''', (table_id, *batch, table_id, *batch)).fetchone()[0]
+            if affected:
+                blocked.append(f'Cannot replace: removed records have {affected:,} approved metadata links. '
+                               'Keep these records or explicitly unlink them first.')
+        if 'metadata_field_ids' in tables:
+            removed_fields = {field for name, field in database.execute(
+                'SELECT name,field_id FROM metadata_field_ids WHERE table_id=?', (table_id,))
+                if name in removed_columns}
+            fields.update(f'table:{table_id}:{field}' for field in removed_fields)
+            fields.update(f'table:{table_id}:{name}' for name in removed_columns)
+            if 'metadata_relationships' in tables:
+                for (relation,) in database.execute('SELECT id FROM metadata_relationships WHERE target_table=?', (table_id,)):
+                    fields.update(f'relation:{relation}:{field}' for field in removed_fields | set(removed_columns))
+            if 'metadata_relationship_keys' in tables:
+                for source, source_field, target, target_field in database.execute(
+                        'SELECT source_table,source_field,target_table,target_field FROM metadata_relationship_keys'):
+                    if ((source == table_id and source_field in removed_fields)
+                            or (target == table_id and target_field in removed_fields)):
+                        blocked.append('Cannot replace: a removed field is an approved matching key. '
+                                       'Keep the field or explicitly remove its relationship first.')
+                        break
+    blocked.extend(replacement_blockers(project, removed_ids, fields))
+    return blocked

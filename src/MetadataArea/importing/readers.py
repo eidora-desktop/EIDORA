@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import date, datetime
+from decimal import Decimal
 import csv
 import hashlib
 import json
@@ -10,6 +11,7 @@ import re
 from xml.etree import ElementTree
 import zipfile
 
+from MetadataArea.domain import MetadataValue
 from MetadataArea.importing.domain import MetadataImportInterpretation, MetadataImportProbe
 
 
@@ -162,7 +164,7 @@ def probe_source(path: Path) -> MetadataImportProbe:
 def iter_records(
     probe: MetadataImportProbe,
     interpretation: MetadataImportInterpretation,
-) -> Iterator[dict[str, str]]:
+) -> Iterator[dict[str, MetadataValue]]:
     key = probe.format_key
     path = probe.source_path
     separator = interpretation.repeated_value_separator or "; "
@@ -197,7 +199,7 @@ def iter_records(
         raise ValueError(f"Unsupported metadata reader: {key}")
 
 
-def _iter_delimited(path: Path, options: MetadataImportInterpretation) -> Iterator[dict[str, str]]:
+def _iter_delimited(path: Path, options: MetadataImportInterpretation) -> Iterator[dict[str, MetadataValue]]:
     delimiter = options.delimiter or ("\t" if path.suffix.lower() in {".tsv", ".tab"} else _sniff_delimiter(path, options.encoding))
     with path.open("r", encoding=options.encoding or "utf-8-sig", newline="") as handle:
         for _ in range(max(0, options.header_row - 1)):
@@ -216,7 +218,7 @@ def _iter_delimited(path: Path, options: MetadataImportInterpretation) -> Iterat
             }
 
 
-def _iter_json(path: Path, options: MetadataImportInterpretation, *, lines: bool) -> Iterator[dict[str, str]]:
+def _iter_json(path: Path, options: MetadataImportInterpretation, *, lines: bool) -> Iterator[dict[str, MetadataValue]]:
     separator = options.repeated_value_separator or "; "
     if lines:
         with path.open("r", encoding=options.encoding or "utf-8-sig") as handle:
@@ -258,7 +260,7 @@ def _records_from_xml_bytes(
     options: MetadataImportInterpretation,
     *,
     force_tei: bool,
-) -> Iterator[dict[str, str]]:
+) -> Iterator[dict[str, MetadataValue]]:
     root = _safe_xml_root(raw, source_name)
     is_tei = force_tei or _local_name(root.tag) in {"TEI", "teiCorpus"}
     profile = "tei_p5" if is_tei else "generic"
@@ -269,7 +271,7 @@ def _iter_tei_xml_records(
     root: ElementTree.Element,
     source_name: str,
     options: MetadataImportInterpretation,
-) -> Iterator[dict[str, str]]:
+) -> Iterator[dict[str, MetadataValue]]:
     elements = (
         [root]
         if _local_name(root.tag) == "TEI"
@@ -287,7 +289,7 @@ def _iter_generic_xml_records(
     root: ElementTree.Element,
     _source_name: str,
     options: MetadataImportInterpretation,
-) -> Iterator[dict[str, str]]:
+) -> Iterator[dict[str, MetadataValue]]:
 
     record_name = (options.record_path or _default_xml_record_name(root)).strip()
     records = [item for item in root.iter() if _local_name(item.tag) == record_name]
@@ -307,7 +309,7 @@ XML_ADAPTER_REGISTRY = {
 }
 
 
-def _tei_record(element: ElementTree.Element, source_name: str, separator: str) -> dict[str, str]:
+def _tei_record(element: ElementTree.Element, source_name: str, separator: str) -> dict[str, MetadataValue]:
     header = next((item for item in element if _local_name(item.tag) == "teiHeader"), None)
     if header is None:
         header = element
@@ -354,19 +356,20 @@ def _tei_record(element: ElementTree.Element, source_name: str, separator: str) 
     record = {
         "source_filename": PurePosixPath(source_name).name,
         "identifier": xml_id or (idnos[0] if idnos else PurePosixPath(source_name).stem),
-        "title": separator.join(texts(("titleStmt", "title"))),
-        "authors": separator.join(texts(("titleStmt", "author"))),
-        "publication_date": separator.join(publication_dates),
-        "publisher": separator.join(texts(("publicationStmt", "publisher"))),
-        "publication_place": separator.join(texts(("publicationStmt", "pubPlace"))),
-        "licence": separator.join(licences),
-        "source_description": separator.join(texts(("sourceDesc", "bibl"), ("sourceDesc", "p"))),
-        "languages": separator.join(languages),
-        "keywords": separator.join(texts(("keywords", "term"))),
-        "classifications": separator.join(classifications),
+        "title": texts(("titleStmt", "title")),
+        "authors": texts(("titleStmt", "author")),
+        "publication_date": publication_dates,
+        "publisher": texts(("publicationStmt", "publisher")),
+        "publication_place": texts(("publicationStmt", "pubPlace")),
+        "licence": licences,
+        "source_description": texts(("sourceDesc", "bibl"), ("sourceDesc", "p")),
+        "languages": languages,
+        "keywords": texts(("keywords", "term")),
+        "classifications": classifications,
         "latest_revision": max(revisions) if revisions else "",
     }
-    return record
+    return {name: (value[0] if len(value) == 1 else value if value else "")
+            if isinstance(value, list) else value for name, value in record.items()}
 
 
 def _has_ancestor_path(root: ElementTree.Element, target: ElementTree.Element, path: tuple[str, ...]) -> bool:
@@ -382,31 +385,25 @@ def _has_ancestor_path(root: ElementTree.Element, target: ElementTree.Element, p
     return visit(root, ())
 
 
-def _flatten_xml_record(element: ElementTree.Element, separator: str) -> dict[str, str]:
-    values: dict[str, list[str]] = {}
-    for key, value in element.attrib.items():
-        values.setdefault(f"@{_local_name(key)}", []).append(str(value).strip())
+def _flatten_xml_record(element: ElementTree.Element, separator: str) -> dict[str, MetadataValue]:
+    def fields(node):
+        result = {f"@{_local_name(key)}": str(value).strip() for key, value in node.attrib.items()}
+        groups = {}
+        for child in node:
+            groups.setdefault(_local_name(child.tag), []).append(fields(child))
+        if not groups:
+            result[""] = _element_text(node)
+        for name, children in groups.items():
+            paths = dict.fromkeys(path for child in children for path in child)
+            for path in paths:
+                values = [child.get(path) for child in children]
+                result[f"{name}.{path}" if path else name] = values if len(children) > 1 else values[0]
+        return result
 
-    def walk(node: ElementTree.Element, prefix: str) -> None:
-        children = list(node)
-        name = _local_name(node.tag)
-        current = f"{prefix}.{name}" if prefix else name
-        for key, value in node.attrib.items():
-            values.setdefault(f"{current}.@{_local_name(key)}", []).append(str(value).strip())
-        if not children:
-            values.setdefault(current, []).append(_element_text(node))
-        else:
-            for child in children:
-                walk(child, current)
-
-    for child in element:
-        walk(child, "")
-    if not values and _element_text(element):
-        values["value"] = [_element_text(element)]
-    return {name: separator.join(item for item in items if item) for name, items in values.items()}
+    return {name or "value": value for name, value in fields(element).items()}
 
 
-def _iter_xlsx(path: Path, options: MetadataImportInterpretation) -> Iterator[dict[str, str]]:
+def _iter_xlsx(path: Path, options: MetadataImportInterpretation) -> Iterator[dict[str, MetadataValue]]:
     try:
         from openpyxl import load_workbook
     except ImportError as exc:
@@ -426,7 +423,7 @@ def _iter_xlsx(path: Path, options: MetadataImportInterpretation) -> Iterator[di
         workbook.close()
 
 
-def _iter_ods(path: Path, options: MetadataImportInterpretation) -> Iterator[dict[str, str]]:
+def _iter_ods(path: Path, options: MetadataImportInterpretation) -> Iterator[dict[str, MetadataValue]]:
     try:
         from odf.opendocument import load
         from odf.table import Table, TableCell, TableRow
@@ -468,7 +465,7 @@ def _iter_ods(path: Path, options: MetadataImportInterpretation) -> Iterator[dic
         yield {name: _scalar_text(values[index] if index < len(values) else "") for index, name in enumerate(names)}
 
 
-def _iter_arrow(path: Path, *, parquet: bool, separator: str) -> Iterator[dict[str, str]]:
+def _iter_arrow(path: Path, *, parquet: bool, separator: str) -> Iterator[dict[str, MetadataValue]]:
     try:
         import pyarrow.ipc as ipc
         import pyarrow.parquet as pq
@@ -519,29 +516,12 @@ def _probe_json(path: Path, *, lines: bool) -> tuple[dict[str, object] | None, s
             if first is not None and not isinstance(first, dict):
                 raise ValueError("The selected JSON record collection must contain objects.")
             return first, ""
-        if first_character == b"{":
-            record_path = ""
-            with path.open("rb") as handle:
-                for prefix, event, _value in ijson.parse(handle):
-                    if event == "start_map" and prefix.endswith(".item"):
-                        record_path = prefix[:-5]
-                        break
-            if record_path:
-                with path.open("rb") as handle:
-                    first = next(ijson.items(handle, f"{record_path}.item"), None)
-                if first is not None and not isinstance(first, dict):
-                    raise ValueError("The selected JSON record collection must contain objects.")
-                return first, record_path
     payload = json.loads(path.read_text(encoding="utf-8-sig"))
     if isinstance(payload, list):
         if payload and not isinstance(payload[0], dict):
             raise ValueError("The selected JSON record collection must contain objects.")
         return (payload[0] if payload else None), ""
     if isinstance(payload, dict):
-        list_keys = [key for key, value in payload.items() if isinstance(value, list) and value and isinstance(value[0], dict)]
-        if list_keys:
-            record_path = str(list_keys[0])
-            return payload[list_keys[0]][0], record_path
         return payload, ""
     raise ValueError("JSON metadata must contain an object or an array of objects.")
 
@@ -558,32 +538,41 @@ def _json_record_collection(payload: object, record_path: str) -> list[dict[str,
             raise ValueError("The selected JSON record collection must contain objects.")
         return list(value)
     if isinstance(value, dict):
-        candidates = [item for item in value.values() if isinstance(item, list) and all(isinstance(record, dict) for record in item)]
-        if len(candidates) == 1:
-            return list(candidates[0])
         return [value]
     raise ValueError("JSON metadata must contain an object or an array of objects.")
 
 
-def _flatten_record(record: object, separator: str, prefix: str = "") -> dict[str, str]:
+def _flatten_record(record: object, separator: str = "; ", prefix: str = "") -> dict:
+    """Keep one record; repeated objects produce aligned list-valued columns."""
     if not isinstance(record, dict):
         raise ValueError("Metadata records must be objects.")
-    output: dict[str, str] = {}
-    for raw_key, value in record.items():
-        key = str(raw_key).strip()
-        name = f"{prefix}.{key}" if prefix else key
+
+    def fields(value):
         if isinstance(value, dict):
-            output.update(_flatten_record(value, separator, name))
-        elif isinstance(value, list):
-            if any(isinstance(item, (dict, list)) for item in value):
-                raise ValueError(f"Nested object array {name!r} must be selected as the record collection.")
-            if any(isinstance(item, (bytes, bytearray, memoryview)) for item in value):
-                raise ValueError(f"Unsupported binary field {name!r}.")
-            output[name] = separator.join(_scalar_text(item) for item in value if item is not None)
-        elif isinstance(value, (bytes, bytearray, memoryview)):
-            raise ValueError(f"Unsupported binary field {name!r}.")
-        else:
-            output[name] = _scalar_text(value)
+            result = {}
+            for key, child in value.items():
+                key = str(key).strip()
+                for path, leaf in fields(child).items():
+                    name = f"{key}.{path}" if path else key
+                    if name in result:
+                        raise ValueError(f"Ambiguous nested field path {name!r}; rename the conflicting source field.")
+                    result[name] = leaf
+            return result
+        if isinstance(value, list):
+            children = [fields(child) for child in value]
+            paths = dict.fromkeys(path for child in children for path in child)
+            return {path: [child.get(path) for child in children] for path in paths} if paths else {"": [None] * len(children)}
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            raise ValueError("Unsupported binary metadata field.")
+        if isinstance(value, Decimal):
+            value = float(value)
+        elif isinstance(value, (datetime, date)):
+            value = value.isoformat()
+        return {"": value}
+
+    output = {}
+    for path, value in fields(record).items():
+        output[f"{prefix}.{path}" if prefix else path] = value if isinstance(value, list) else _scalar_text(value)
     return output
 
 

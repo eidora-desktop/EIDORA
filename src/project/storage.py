@@ -8,7 +8,7 @@ from project.domain import PROJECT_MANIFEST_FILENAME, ProjectManifest, ProjectSt
 from shared.persistence import json_store
 
 
-CURRENT_PROJECT_SCHEMA_VERSION = 1
+CURRENT_PROJECT_SCHEMA_VERSION = 2
 
 
 def write_project_manifest(
@@ -28,7 +28,7 @@ def write_project_manifest(
 
 
 def ensure_current_project_schema(root: Path) -> ProjectManifest:
-    """Validate a project root and normalize valid pre-manifest projects to v1."""
+    """Validate a project root and normalize valid pre-manifest projects to the current schema."""
     paths = ProjectStoragePaths(root)
     if paths.manifest.exists():
         manifest = read_project_manifest(paths.manifest)

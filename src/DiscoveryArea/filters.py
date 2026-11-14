@@ -146,6 +146,7 @@ def build_mask(
     metadata_numeric_values: dict[str, np.ndarray],
     metadata_ids: np.ndarray,
     matching: FilterMatching = FilterMatching.ALL,
+    multiple_values=None,
 ) -> np.ndarray | None:
     if metadata_ids.size == 0:
         return None
@@ -179,9 +180,27 @@ def build_mask(
                     metadata_values,
                     metadata_numeric_values,
                     metadata_ids.shape[0],
+                    multiple_values=multiple_values,
                 )
             except AdvancedQueryError:
                 continue
+        elif multiple_values and flt.column in multiple_values:
+            from dataclasses import replace
+            from DiscoveryArea.multiple_values import any_value_matches
+            negative = getattr(flt, 'operator', None) in (FilterOperator.NOT_EQUALS, FilterOperator.NOT_CONTAINS)
+            positive = replace(flt, operator=(FilterOperator.EQUALS if flt.operator == FilterOperator.NOT_EQUALS else FilterOperator.CONTAINS)) if negative else flt
+            def evaluate(values):
+                numeric = np.full(len(values), np.nan)
+                for index, value in enumerate(values):
+                    try:
+                        numeric[index] = float(value)
+                    except ValueError:
+                        pass
+                mask = build_mask([positive], {flt.column: values}, {flt.column: numeric}, np.arange(len(values)))
+                return np.ones(len(values), dtype=bool) if mask is None else mask
+            comparison = any_value_matches(multiple_values[flt.column], evaluate)
+            if negative:
+                comparison = ~comparison
         elif isinstance(flt, RangeFilter):
             numeric_values = metadata_numeric_values.get(flt.column)
             if numeric_values is None or numeric_values.shape[0] != metadata_ids.shape[0]:

@@ -57,11 +57,11 @@ bundle_subdirectory = "DiscoveryArea/canvas/native/packaged/DiscoveryRenderer"
 [dynamic_imports]
 modules = [
   "FiguresArea.controllers.snapshot_animation_tab_controller",
-  "ProjectArea.controllers.main_controller",
-  "ProjectArea.controllers.media_sources_panel_controller",
-  "ProjectArea.controllers.thumbnails_panel_controller",
+  "AssetsArea.controllers.main_controller",
+  "AssetsArea.controllers.media_sources_panel_controller",
+  "AssetsArea.controllers.thumbnails_panel_controller",
   "DiscoveryArea.discovery_methods.process_runner",
-  "ProjectArea.video_thumbnail_worker",
+  "AssetsArea.video_thumbnail_worker",
   "DiscoveryArea.discovery_methods.methods.custom_coordinates.method",
   "DiscoveryArea.discovery_methods.methods.pacmap.method",
   "DiscoveryArea.discovery_methods.methods.pca.method",

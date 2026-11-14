@@ -4,13 +4,89 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Rename the Project workspace to Assets and move the active project name and project actions into the main window, with Switching Projects first. Project storage and bundle formats remain unchanged.
+
+- Align Media Source matching with the Metadata Link dialog: suggest settings from actual matches, preview source and item values together, and keep manual adjustments in collapsed Link options.
+
+- Show metadata import column, file-reading, and applicable matching settings directly inside the collapsed Import options panel without tabs or an extra enclosing box.
+
+- Keep registered media available without creating items or requiring matching. Match existing Items through linked metadata, review embedding input counts and item reuse before execution, and create items only when vectors publish successfully.
+- Pair first-run media/text inputs by source-record keys, resolve thumbnails to canonical items, and relocate registered media without changing asset identities or saved embedding provenance.
+
+- Match the metadata import header to Link tables with a prominent filename, file details, and left-aligned preview headers; remove redundant preview and result headings while retaining the sample row count.
+
+- Simplify Link tables to a compact match headline, source-to-target columns, and labeled preview filter; retain the displayed-row count, use left-aligned column (table) headers, and show existing-link status on the disabled action button.
+
+- Show source and target matching values side by side in Link tables, emphasize source coverage, and filter unmatched or multiple-match records across the complete collection.
+
+- Simplify Link tables around the automatically suggested match and record preview. Keep manual columns and multiple-match approval in collapsed Link options, with a retry action and clear guidance when detection finds no match.
+
+- Show source-tab link status with a chain icon for linked tables and a red broken chain for unlinked tables; retain source paths in status tooltips.
+
+- Flatten nested metadata into ordinary Item fields while retaining structured lists, aligned repeated-object values, and empty entries. Discovery filters match list entries; coloring uses unambiguous values and leaves conflicting values unmapped. JSON exports preserve arrays.
+
+- Fix metadata import Include checkboxes painting at the top of the table on macOS; give each column its own checkbox that scrolls with its row.
+
+- Reserve consecutive numbering for items: source metadata uses a separate internal index counter and qualified record references, so imports and replacements cannot create gaps in future item numbers.
+
+- Center metadata imports on a data preview, with column settings, file reading, and matching in collapsed Import options. Preview all selected columns and keep matching and replacement outcomes visible.
+
+- Separate active item membership from source records. Source tabs hide internal indexes and inherited fields; vector imports and successful model runs publish explicit item bindings.
+- Resolve all approved linked values with provenance for Items and Discovery. Add explicit multiple-match approval and a manual record picker; use any/no-value filtering and unambiguous scalar mappings.
+
+- Track imported metadata by source path and content instead of tab name. Unchanged reimports focus the existing tab; changed sources require replacement preview, and tab tooltips show source paths.
+
+- Remove retired automatic-linking and metadata-preview helpers, simplify embedding item creation, and share column-label rules. Fix overview exports to use visible fields and labels, and avoid duplicate physical-field reads.
+
+- Distinguish the fixed Items tab with bold text and imported metadata tabs with italic text.
+
+- Replace manual Metadata row/column creation with a source-replacement preview that retains matched IDs and links, blocks broken dependencies, and disables Link when no additional source tabs exist.
+
+- Embedding imports retain the supplied label field once instead of adding embedding_identifier; unlabelled vectors create items without a generated label column.
+
+- Hide equivalent numbered metadata copies in Items and Discovery, preserve columns whose aligned values differ, and expose only the canonical item ID in Discovery.
+
+- Consolidate fully matching approved link keys under the Items label; automatically number remaining duplicate field labels and allow unique overview label edits without changing source headers.
+
+- Linked metadata uses plain field labels in Items and Discovery; spreadsheet headers show a link icon with the source tab in a tooltip instead of extra relationship ID columns.
+
+- Metadata imports now open in separate filename tabs, leaving the initial Items tab empty with guidance to import or generate embeddings.
+
 ### Changed
 
-- Size Figures map and guideline grids in millimetres, with square cells and a 25% minimum visible fraction for the last cell.
+- Keep the first Metadata tab named Items and open a compact linking dialog after import, preselecting the strongest exact match with a live background preview.
+
+- Metadata imports suggest relationships without applying them; a visible Link… action opens review for the selected table.
+
+- Link metadata tables automatically through unique filename or named-key matches in either import order, and provide **Link tables…** with an exact-match preview for explicit column matching.
+- Show readable related-field names in Discovery tooltip and pin selectors and rendered text while retaining stable saved field identities.
+
+- Import multiple embedding files with detected vector/identifier fields, flexible numeric encodings, retained descriptions, and exact matching that keeps unmatched vectors.
+- Organize metadata in named table tabs with shared-source and one-hop record relationships, dependency-aware table removal, and three main actions while retaining all search controls.
+
+- Use the available height for Mapped and Custom Fill Color tables in Discovery Appearance.
 
 ### Fixed
 
+- Resolve Discovery metadata through vector-item → face → photo links, expose each table field once, and preserve saved selections without duplicate empty relationship fields. Reuse matching relationships across table, key, and relationship-name changes.
+
+- Complete embedding imports before reporting success and immediately refresh Vector Data; probe files in background workers and coalesce progress updates.
+
+- Limit thumbnail progress updates so large collections do not flood the interface during automatic or manual thumbnail creation.
+
+## 0.2.7 — Prepared
+
+### Changed
+
+- Size Figures map and guideline grids in millimetres, with square cells and a 25% minimum visible fraction for the last cell.
+- Open Canvas Layers settings with a dedicated arrow beside each visibility checkbox, and close them when clicking outside the popover.
+
+### Fixed
+
+- Avoid repainting the Layers bar on the first mouse-opened settings popover.
 - Give Figures legends separate side and alignment controls, and size the layout to fit rendered labels.
+- Keep the startup project chooser visible with an opening indicator until the main window is ready.
+- Draw checkboxes on every row in the Canvas Layers settings for Pins, Tooltips, and Marked Areas, including after scrolling.
 
 ## 0.2.6 — 2026-11-03
 

@@ -61,32 +61,36 @@ def main(argv: list[str] | None = None) -> int:
     set_dialog_window_owner(app, None)
     quit_on_last_window_closed = app.quitOnLastWindowClosed()
     app.setQuitOnLastWindowClosed(False)
+    controller = None
+
+    def prepare_project(project) -> None:
+        nonlocal controller
+        # Adding Discovery's first QQuickWidget to a visible shell can
+        # recreate its native window. Build the workspaces before showing it.
+        controller = MainWindowController(project=project, project_service=project_service)
+
     try:
         project = None
         if getattr(sys, "frozen", False):
             from MainWindow.controllers.starter_collection_controller import prepare_bundled_starter
 
             project = prepare_bundled_starter(project_service)
-        if project is None:
-            chooser = ProjectChooserController(project_service)
+        if project is not None:
+            prepare_project(project)
+        else:
+            chooser = ProjectChooserController(project_service, prepare_project=prepare_project)
             try:
-                accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
-                project = chooser.selected_project if accepted else None
+                if chooser.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+                    controller = None
             finally:
                 chooser.dispose()
     except BaseException:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
         raise
-    if project is None:
+    if controller is None:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
         return 0
 
-    # Build every workspace before showing the window: adding the first
-    # QQuickWidget to a visible shell can recreate its native window and blink.
-    controller = MainWindowController(
-        project=project,
-        project_service=project_service,
-    )
     app.aboutToQuit.connect(controller.shutdown)
     controller.show()
     set_dialog_window_owner(app, controller.window)

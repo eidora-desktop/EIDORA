@@ -25,13 +25,12 @@ class ThumbnailResolver:
         self._media_repo = MediaRepository(project.paths.media / "media_index.db")
         self._link_repo = MediaLinkRepository(project.paths.media / "media_index.db")
         self._variant_repo = ThumbnailVariantRepository(project.paths.root)
-        self._asset_by_id: dict[str, Path] | None = None
-        self._links_by_metadata_id: dict[int, str] | None = None
 
     def source_catalog_token(self, variant_id: str | None = None) -> tuple[object, ...]:
         """Return a cheap invalidation token for cached viewport source misses."""
 
         paths = (
+            self._project.paths.metadata_database,
             self._project.paths.root / "thumbnails",
             self._project.paths.root / "thumbnails" / "variants.db",
             self._project.paths.media / "media_index.db",
@@ -143,32 +142,11 @@ class ThumbnailResolver:
             return None
 
     def _resolve_media_asset(self, metadata_id: int) -> ThumbnailRef | None:
-        if self._links_by_metadata_id is None or self._asset_by_id is None:
-            self._build_media_caches()
-        if self._links_by_metadata_id is None or self._asset_by_id is None:
+        assets = self._media_repo.linked_assets_for_metadata_ids([metadata_id])
+        asset = assets.get(int(metadata_id))
+        if asset is None or not asset.absolute_path.is_file():
             return None
-        asset_id = self._links_by_metadata_id.get(int(metadata_id))
-        if not asset_id:
-            return None
-        path = self._asset_by_id.get(asset_id)
-        if path is None or not path.exists():
-            return None
-        return self._make_ref(metadata_id, path, source="media")
-
-    def _build_media_caches(self) -> None:
-        self._asset_by_id = {}
-        self._links_by_metadata_id = {}
-        summaries = self._media_repo.list_source_summaries()
-        for summary in summaries:
-            source_id = summary.source.id
-            assets = self._media_repo.fetch_assets(source_id, limit=1_000_000, offset=0)
-            for asset in assets:
-                self._asset_by_id[str(asset.id)] = asset.absolute_path
-            for link in self._link_repo.list_links_for_source(source_id):
-                key = int(link.metadata_row_id)
-                # First linked asset wins to keep deterministic behavior.
-                if key not in self._links_by_metadata_id:
-                    self._links_by_metadata_id[key] = str(link.media_asset_id)
+        return self._make_ref(metadata_id, asset.absolute_path, source="media")
 
     def _make_ref(self, metadata_id: int, path: Path, source: str) -> ThumbnailRef:
         stat = path.stat()

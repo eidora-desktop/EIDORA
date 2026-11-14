@@ -1,6 +1,8 @@
 """Descriptor-driven configuration dialog for an embedding run."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from EmbeddingsArea.domain import (
@@ -43,7 +45,23 @@ class ModelExecutionDialogController:
         self._required_input_ids: set[str] = set()
         self._parameter_readers: dict[tuple[str, str], callable] = {}
         self._parameter_widgets = {}
+        self._preparation = None
+        self._has_prepared = False
+        self._reviewed = None
+        self._executor = None
+        self._summary = require_child(self.dialog, QtWidgets.QLabel, "label_input_summary")
+        self._poll_timer = QtCore.QTimer(self.dialog)
+        self._poll_timer.setInterval(75)
+        self._poll_timer.timeout.connect(self._poll_preparation)
+        self.dialog.finished.connect(self._finish_preparation)
         self._load(configuration)
+        for widget in self.dialog.findChildren(QtWidgets.QWidget):
+            signal = (widget.currentIndexChanged if isinstance(widget, QtWidgets.QComboBox)
+                      else widget.valueChanged if isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox))
+                      else widget.textChanged if isinstance(widget, QtWidgets.QLineEdit)
+                      else widget.toggled if isinstance(widget, QtWidgets.QCheckBox) else None)
+            if signal is not None:
+                signal.connect(self._invalidate_review)
         from EmbeddingsArea.controllers.cuda_setup_controller import CudaSetupController
 
         self._cuda_setup = CudaSetupController(
@@ -123,7 +141,7 @@ class ModelExecutionDialogController:
                 QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
             )
             combo.setMinimumContentsLength(24)
-            combo.setToolTip("Run on linked assets or a metadata text column.")
+            combo.setToolTip("Run on media inputs or a metadata text column.")
             combo.addItem("Select an input source" if requirement.required else "Not used", "")
             placeholder = combo.model().item(0)
             if requirement.required and isinstance(placeholder, QtGui.QStandardItem):
@@ -132,7 +150,7 @@ class ModelExecutionDialogController:
             for summary in sources:
                 if summary.source.content_type == requirement.modality:
                     metadata_text = summary.source.source_kind == MediaSourceKind.METADATA_COLUMN
-                    item_count = summary.asset_count if metadata_text else summary.linked_count
+                    item_count = max(0, summary.asset_count - summary.missing_count - summary.error_count)
                     usable = item_count > 0
                     if usable:
                         usable_source_ids.append(summary.source.id)
@@ -140,9 +158,9 @@ class ModelExecutionDialogController:
                     suffix = (
                         f"{item_count} {item_label}"
                         if metadata_text and usable
-                        else f"{item_count} linked {item_label}"
+                        else f"{item_count} inputs"
                         if usable
-                        else "no linked items"
+                        else "no available inputs"
                     )
                     combo.addItem(f"{summary.source.label} ({suffix})", summary.source.id)
                     item = combo.model().item(combo.count() - 1)
@@ -150,7 +168,7 @@ class ModelExecutionDialogController:
                         item.setEnabled(usable)
                         if not usable:
                             item.setForeground(QtGui.QBrush(QtGui.QColor("#e53935")))
-                            item.setToolTip("Link assets to metadata before running an embedding model.")
+                            item.setToolTip("This source has no available inputs.")
             selected = saved_bindings.get(requirement.id, "")
             if not selected and len(configuration.run.selected_source_ids) == 1:
                 selected = configuration.run.selected_source_ids[0]
@@ -166,6 +184,22 @@ class ModelExecutionDialogController:
                 lambda _index, target=combo: self._input_changed(target)
             )
         saved = {(value.scope, value.parameter_id): value.value for value in configuration.parameter_values}
+        scope = QtWidgets.QComboBox(self.dialog)
+        scope.addItem("Available assets (one input per asset)", "assets")
+        scope.addItem("Matched existing items", "items")
+        scope.setCurrentIndex(max(0, scope.findData(saved.get(("run", "input_scope"), "assets"))))
+        self._inputs.addRow("Process", scope)
+        self._parameter_readers[("run", "input_scope")] = scope.currentData
+        if model.runtime_contract.get("components"):
+            pairing = QtWidgets.QComboBox(self.dialog)
+            pairing.addItem("Use existing associations", "")
+            for summary in sources:
+                if summary.source.source_kind == MediaSourceKind.METADATA_COLUMN:
+                    pairing.addItem(summary.source.label, summary.source.id.removeprefix("media_text_"))
+            pairing.setCurrentIndex(max(0, pairing.findData(saved.get(("run", "pairing_field"), ""))))
+            pairing.setToolTip("Match media relative paths exactly against this field in the selected text records. Unmatched inputs are excluded.")
+            self._inputs.addRow("Pair media by metadata key", pairing)
+            self._parameter_readers[("run", "pairing_field")] = pairing.currentData
         if model.runtime_adapter_id.startswith("onnx") or model.backend.casefold() == "onnx":
             device = QtWidgets.QComboBox(self.dialog)
             self._device_combo = device
@@ -258,7 +292,7 @@ class ModelExecutionDialogController:
             combo.currentData() for combo in self._input_combos.values()
         ):
             reason = "Select a compatible asset source or metadata column."
-        self._run.setEnabled(not reason)
+        self._run.setEnabled(not reason and self._preparation is None)
         self._run.setToolTip(reason)
 
     def _input_changed(self, combo: QtWidgets.QComboBox) -> None:
@@ -333,15 +367,19 @@ class ModelExecutionDialogController:
                 or (
                     available[source_id].asset_count <= 0
                     if available[source_id].source.source_kind == MediaSourceKind.METADATA_COLUMN
-                    else available[source_id].linked_count <= 0
+                    else available[source_id].asset_count <= available[source_id].missing_count + available[source_id].error_count
                 )
             )
         ]
         if invalid:
-            self._show_error("Selected inputs no longer contain linked items.")
+            self._show_error("Selected sources no longer contain available inputs.")
             return
         parameters = {key: read() for key, read in self._parameter_readers.items()}
         parameters[("run", "create_thumbnails")] = "true" if self._thumbnails.isChecked() else "false"
+        choice = (name, bindings, parameters)
+        if self._reviewed == choice:
+            self.dialog.accept()
+            return
         try:
             self._session.service.rename_embedding_run(self.run_id, name)
             self._session.service.update_embedding_run_configuration(
@@ -353,10 +391,71 @@ class ModelExecutionDialogController:
         except Exception as exc:  # noqa: BLE001
             self._show_error(str(exc))
             return
-        self.dialog.accept()
+        self._has_prepared = True
+        self._review_choice = choice
+        self._show_error("")
+        self._summary.setText("Checking available inputs and item matches…")
+        self._set_preparing(True)
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="embedding-inputs")
+        self._preparation = self._executor.submit(self._session.service.prepare_embedding_run, self.run_id)
+        self._poll_timer.start()
+
+    def _invalidate_review(self, *_):
+        self._reviewed = None
+        self._run.setText("Review Inputs")
+        self._summary.setText("Review the inputs before starting the model.")
+
+    def _set_preparing(self, busy):
+        for name in ("group_inputs", "group_parameters"):
+            require_child(self.dialog, QtWidgets.QGroupBox, name).setEnabled(not busy)
+        self._name.setReadOnly(busy)
+        self._thumbnails.setEnabled(not busy)
+        require_child(self.dialog, QtWidgets.QPushButton, "button_reset_preparation").setEnabled(not busy)
+        self._run.setEnabled(not busy)
+
+    def _poll_preparation(self):
+        future = self._preparation
+        if future is None or not future.done():
+            return
+        self._poll_timer.stop()
+        self._preparation = None
+        self._executor.shutdown(wait=False)
+        self._executor = None
+        self._set_preparing(False)
+        try:
+            result = future.result()
+        except Exception as exc:
+            self._reviewed = None
+            self._summary.setText("Adjust the inputs and review again.")
+            self._run.setText("Review Inputs")
+            self._show_error(str(exc))
+            return
+        self._reviewed = self._review_choice
+        self._summary.setText(f"{result.input_count:,} vectors planned · {result.reused_count:,} existing items · "
+            f"{result.new_count:,} new items on success · {result.skipped_count:,} unused inputs. "
+            "Failed inputs create no items.")
+        self._run.setText("Run Model")
+
+    def _finish_preparation(self, result):
+        self._poll_timer.stop()
+        future, executor = self._preparation, self._executor
+        self._preparation = self._executor = None
+        if executor:
+            executor.shutdown(wait=False)
+        if result != QtWidgets.QDialog.DialogCode.Accepted and self._has_prepared:
+            service, identity, created = self._session.service, self.run_id, self._created
+            def cleanup(_future=None):
+                if created:
+                    service.delete_embedding_run(identity)
+                else:
+                    service.reset_embedding_run(identity)
+            if future:
+                future.add_done_callback(cleanup)
+            else:
+                cleanup()
 
     def _discard_unused_draft(self) -> None:
-        if not self._created:
+        if not self._created or self._has_prepared:
             return
         try:
             run = self._session.service.get_embedding_run_configuration(self.run_id).run

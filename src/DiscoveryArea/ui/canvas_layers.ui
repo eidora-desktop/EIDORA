@@ -45,7 +45,7 @@
      </property>
      <layout class="QHBoxLayout" name="layout_horizontal_layout">
       <property name="spacing">
-       <number>24</number>
+       <number>10</number>
       </property>
       <property name="leftMargin">
        <number>0</number>
@@ -60,92 +60,244 @@
        <number>0</number>
       </property>
       <item>
-       <widget class="QCheckBox" name="checkbox_show_tooltips">
-        <property name="toolTip">
-         <string>Show or hide item tooltips</string>
+       <layout class="QHBoxLayout" name="layout_tooltip_controls">
+        <property name="spacing">
+         <number>3</number>
         </property>
-        <property name="accessibleDescription">
-         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="text">
-         <string>Tooltip</string>
-        </property>
-        <property name="checked">
-         <bool>true</bool>
-        </property>
-       </widget>
+        <item>
+         <widget class="QCheckBox" name="checkbox_show_tooltips">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="toolTip">
+           <string>Show or hide item tooltips</string>
+          </property>
+          <property name="accessibleDescription">
+           <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+          </property>
+          <property name="text">
+           <string>Tooltip</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="button_tooltip_settings">
+          <property name="minimumSize">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Tooltip settings</string>
+          </property>
+          <property name="accessibleName">
+           <string>Tooltip settings</string>
+          </property>
+          <property name="text">
+           <string notr="true">▾</string>
+          </property>
+          <property name="flat">
+           <bool>true</bool>
+          </property>
+          <property name="appearance" stdset="0">
+           <string>settingsArrow</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
-       <widget class="QCheckBox" name="checkbox_show_pins">
-        <property name="toolTip">
-         <string>Show or hide pins</string>
+       <layout class="QHBoxLayout" name="layout_pins_controls">
+        <property name="spacing">
+         <number>3</number>
         </property>
-        <property name="accessibleDescription">
-         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="text">
-         <string>Pins</string>
-        </property>
-        <property name="checked">
-         <bool>false</bool>
-        </property>
-       </widget>
+        <item>
+         <widget class="QCheckBox" name="checkbox_show_pins">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="toolTip">
+           <string>Show or hide pins</string>
+          </property>
+          <property name="accessibleDescription">
+           <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+          </property>
+          <property name="text">
+           <string>Pins</string>
+          </property>
+          <property name="checked">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="button_pins_settings">
+          <property name="minimumSize">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Pins settings</string>
+          </property>
+          <property name="accessibleName">
+           <string>Pins settings</string>
+          </property>
+          <property name="text">
+           <string notr="true">▾</string>
+          </property>
+          <property name="flat">
+           <bool>true</bool>
+          </property>
+          <property name="appearance" stdset="0">
+           <string>settingsArrow</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
-       <widget class="QCheckBox" name="checkbox_show_marked_areas">
-        <property name="toolTip">
-         <string>Show or hide marked areas</string>
+       <layout class="QHBoxLayout" name="layout_areas_controls">
+        <property name="spacing">
+         <number>3</number>
         </property>
-        <property name="accessibleDescription">
-         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="text">
-         <string>Areas</string>
-        </property>
-        <property name="checked">
-         <bool>false</bool>
-        </property>
-       </widget>
+        <item>
+         <widget class="QCheckBox" name="checkbox_show_marked_areas">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="toolTip">
+           <string>Show or hide marked areas</string>
+          </property>
+          <property name="accessibleDescription">
+           <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+          </property>
+          <property name="text">
+           <string>Areas</string>
+          </property>
+          <property name="checked">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="button_areas_settings">
+          <property name="minimumSize">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Areas settings</string>
+          </property>
+          <property name="accessibleName">
+           <string>Areas settings</string>
+          </property>
+          <property name="text">
+           <string notr="true">▾</string>
+          </property>
+          <property name="flat">
+           <bool>true</bool>
+          </property>
+          <property name="appearance" stdset="0">
+           <string>settingsArrow</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
       <item>
-       <widget class="QCheckBox" name="checkbox_show_thumbnails">
-        <property name="toolTip">
-         <string>Show or hide image previews</string>
+       <layout class="QHBoxLayout" name="layout_previews_controls">
+        <property name="spacing">
+         <number>3</number>
         </property>
-        <property name="accessibleDescription">
-         <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
-        </property>
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="text">
-         <string>Previews</string>
-        </property>
-        <property name="checked">
-         <bool>false</bool>
-        </property>
-       </widget>
+        <item>
+         <widget class="QCheckBox" name="checkbox_show_thumbnails">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="toolTip">
+           <string>Show or hide image previews</string>
+          </property>
+          <property name="accessibleDescription">
+           <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
+          </property>
+          <property name="text">
+           <string>Previews</string>
+          </property>
+          <property name="checked">
+           <bool>false</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="button_previews_settings">
+          <property name="minimumSize">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="maximumSize">
+           <size>
+            <width>20</width>
+            <height>20</height>
+           </size>
+          </property>
+          <property name="toolTip">
+           <string>Previews settings</string>
+          </property>
+          <property name="accessibleName">
+           <string>Previews settings</string>
+          </property>
+          <property name="text">
+           <string notr="true">▾</string>
+          </property>
+          <property name="flat">
+           <bool>true</bool>
+          </property>
+          <property name="appearance" stdset="0">
+           <string>settingsArrow</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
       </item>
      </layout>
     </widget>
@@ -242,17 +394,17 @@
          </property>
          <item>
           <widget class="QComboBox" name="combo_camera_preset">
-           <property name="toolTip">
-            <string>Fit items or restore a view</string>
-           </property>
-           <property name="accessibleName">
-            <string>Camera preset</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
+           </property>
+           <property name="toolTip">
+            <string>Fit items or restore a view</string>
+           </property>
+           <property name="accessibleName">
+            <string>Camera preset</string>
            </property>
            <property name="frame">
             <bool>true</bool>
@@ -276,9 +428,6 @@
          </item>
          <item>
           <widget class="QToolButton" name="button_add_camera_preset">
-           <property name="accessibleName">
-            <string>Save camera preset</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -293,6 +442,9 @@
            </property>
            <property name="toolTip">
             <string>add camera preset</string>
+           </property>
+           <property name="accessibleName">
+            <string>Save camera preset</string>
            </property>
            <property name="text">
             <string/>
@@ -391,17 +543,17 @@
          </property>
          <item>
           <widget class="QComboBox" name="combo_crop_preset">
-           <property name="toolTip">
-            <string>Set snapshot aspect ratio</string>
-           </property>
-           <property name="accessibleName">
-            <string>Snapshot crop ratio</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
+           </property>
+           <property name="toolTip">
+            <string>Set snapshot aspect ratio</string>
+           </property>
+           <property name="accessibleName">
+            <string>Snapshot crop ratio</string>
            </property>
            <property name="frame">
             <bool>true</bool>
@@ -420,9 +572,6 @@
          </item>
          <item>
           <widget class="QToolButton" name="check_hide_crop_bars">
-           <property name="accessibleName">
-            <string>Hide crop bars</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -437,6 +586,9 @@
            </property>
            <property name="toolTip">
             <string>hide crop bars</string>
+           </property>
+           <property name="accessibleName">
+            <string>Hide crop bars</string>
            </property>
            <property name="text">
             <string/>
@@ -466,9 +618,13 @@
  </widget>
  <tabstops>
   <tabstop>checkbox_show_tooltips</tabstop>
+  <tabstop>button_tooltip_settings</tabstop>
   <tabstop>checkbox_show_pins</tabstop>
+  <tabstop>button_pins_settings</tabstop>
   <tabstop>checkbox_show_marked_areas</tabstop>
+  <tabstop>button_areas_settings</tabstop>
   <tabstop>checkbox_show_thumbnails</tabstop>
+  <tabstop>button_previews_settings</tabstop>
   <tabstop>combo_camera_preset</tabstop>
   <tabstop>button_add_camera_preset</tabstop>
   <tabstop>combo_crop_preset</tabstop>

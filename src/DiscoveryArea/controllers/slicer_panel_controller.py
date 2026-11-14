@@ -416,6 +416,8 @@ class SlicerPanelController(UiPanelController):
     def apply_slicer_state_payload(self, payload: dict) -> None:
         if not isinstance(payload, dict):
             return
+        if self._metadata_access is not None:
+            payload = self._metadata_access.canonical_field_payload(payload)
         slicer_payload = payload.get("slicer") if isinstance(payload.get("slicer"), dict) else payload
         column = str(slicer_payload.get("column") or "")
         self._applying_state = True

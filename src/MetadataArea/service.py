@@ -9,13 +9,14 @@ from xml.etree import ElementTree
 from MetadataArea.domain import (
     MetadataAddRowsMergeRequest,
     MetadataColumn,
-    MetadataImportPreview,
     MetadataMergePreview,
     MetadataRow,
     MetadataSearchMatch,
+    MetadataValue,
     MissingColumnPolicy,
 )
 from MetadataArea.repository import MetadataRepository
+from MetadataArea.values import display_value
 
 
 class IdColumnConflictError(ValueError):
@@ -46,13 +47,12 @@ class MetadataService:
 
         output = Path(destination).with_suffix(f".{normalized_format}")
         output.parent.mkdir(parents=True, exist_ok=True)
-        columns = [column.name for column in self.list_columns()]
+        columns = self.list_columns()
+        headers = ["id" if column.name == "id" else column.label for column in columns]
         rows = self.fetch_rows(order_by="id")
         export_rows = [
-            {
-                "id": row.id,
-                **row.values,
-            }
+            {header: row.id if column.name == "id" else row.values.get(column.name, "")
+             for column, header in zip(columns, headers, strict=True)}
             for row in rows
         ]
         if normalized_format == "json":
@@ -64,30 +64,10 @@ class MetadataService:
 
         delimiter = "," if normalized_format == "csv" else "\t"
         with output.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=columns, delimiter=delimiter)
+            writer = csv.DictWriter(handle, fieldnames=headers, delimiter=delimiter)
             writer.writeheader()
-            writer.writerows(export_rows)
+            writer.writerows({name: display_value(value) for name, value in row.items()} for row in export_rows)
         return output
-
-    def prepare_import_rows(
-        self,
-        source_path: Path,
-        id_column_strategy: str = "error",
-    ) -> tuple[list[dict[str, str]], list[str]]:
-        metadata = self._prepare_import(source_path, id_column_strategy=id_column_strategy)
-        return metadata.rows, metadata.columns
-
-    def load_metadata_preview(
-        self,
-        source_path: Path,
-        id_column_strategy: str = "error",
-    ) -> MetadataImportPreview:
-        metadata = self._prepare_import(source_path, id_column_strategy=id_column_strategy)
-        return MetadataImportPreview(
-            source_name=source_path.name,
-            columns=metadata.columns,
-            rows=metadata.rows,
-        )
 
     def preview_add_rows_merge(self, request: MetadataAddRowsMergeRequest) -> MetadataMergePreview:
         existing_columns = [column.name for column in self.list_columns()]
@@ -209,14 +189,21 @@ class MetadataService:
         return _NormalizedMetadata(columns=columns, rows=rows, row_ids=row_ids)
 
     def list_columns(self) -> list[MetadataColumn]:
-        return self._repository.list_columns()
+        from MetadataArea.related_fields import additional_columns
+        physical = self._repository.list_columns()
+        if self._repository.table_id != 'metadata':
+            return [column for column in physical if column.name != 'id']
+        if self._repository.table_id == 'metadata':
+            from MetadataArea.related_fields import discovery_columns
+            catalog, _ = discovery_columns(self._repository.database_path)
+            names = {column.name for column in physical}
+            physical = [column for column in catalog if column.name in names]
+        from MetadataArea.field_presentation import unique_column_labels
+        return unique_column_labels(physical + additional_columns(
+            self._repository.database_path, source_table=self._repository.table_id))
 
     def count_rows(self) -> int:
         return self._repository.count_rows()
-
-    def add_identifier_rows(self, column_name: str, values: list[str]) -> int:
-        self._validate_editable_column(column_name.strip())
-        return self._repository.add_identifier_rows(column_name, values)
 
     def fetch_rows(
         self,
@@ -225,24 +212,57 @@ class MetadataService:
         limit: int | None = None,
         offset: int = 0,
     ) -> list[MetadataRow]:
-        return self._repository.fetch_rows(
-            order_by=order_by,
-            descending=descending,
-            limit=limit,
-            offset=offset,
-        )
+        rows = self._repository.fetch_rows(order_by=order_by, descending=descending, limit=limit, offset=offset)
+        if self._repository.table_id != 'metadata':
+            return rows
+        from MetadataArea.related_fields import discovery_columns
+        from MetadataArea.resolution import resolve_overview_field
+        _, aliases = discovery_columns(self._repository.database_path)
+        for column in self.list_columns():
+            if column.name == 'id':
+                continue
+            cells = resolve_overview_field(self._repository.database_path, column.name, aliases, [row.id for row in rows])
+            for row in rows:
+                cell = cells.get(row.id)
+                if cell is not None:
+                    row.values[column.name] = cell.value
+                    row.resolved[column.name] = cell
+        return rows
 
-    def update_cell(self, row_id: int, column_name: str, value: str) -> None:
-        self._repository.update_cell(row_id, column_name, value)
+    def update_cell(self, row_id: int, column_name: str, value: MetadataValue) -> None:
+        self._repository.update_cell(row_id, column_name, self.prepare_cell_value(column_name, value))
+
+    def prepare_cell_value(self, column_name: str, value: MetadataValue) -> MetadataValue:
+        if isinstance(value, str) and self._repository.column_has_lists(column_name):
+            try:
+                value = json.loads(value)
+            except ValueError as exc:
+                raise ValueError('Enter a JSON list, for example ["street", "night"].') from exc
+            if not isinstance(value, list):
+                raise ValueError("A list cell must contain a JSON list. Use [] for an empty list.")
+        return value
+
+    def rename_label(self, field: str, label: str) -> None:
+        from MetadataArea.field_presentation import rename_field
+        if any(column.name != field and column.label.casefold() == label.strip().casefold()
+               for column in self.list_columns()):
+            raise ValueError(f"Column label already exists: {label.strip()}")
+        rename_field(self._repository.database_path, field, label)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         old_name = old_name.strip()
         new_name = new_name.strip()
+        if old_name.startswith(('table:', 'relation:')):
+            self.rename_label(old_name, new_name)
+            return
         self._validate_editable_column(old_name)
         if not new_name:
             raise ValueError("Metadata column name cannot be empty.")
         if new_name == "id":
             raise ValueError("The internal metadata ID column cannot be renamed or replaced.")
+        if any(column.name != old_name and column.label.casefold() == new_name.casefold()
+               for column in self.list_columns()):
+            raise ValueError(f"Column label already exists: {new_name}")
         existing_columns = [column.name for column in self.list_columns()]
         if new_name in existing_columns:
             raise ValueError(f"Metadata column already exists: {new_name}")
@@ -252,26 +272,6 @@ class MetadataService:
         column_name = column_name.strip()
         self._validate_editable_column(column_name)
         self._repository.delete_column(column_name)
-
-    def search_row_offsets(
-        self,
-        query: str,
-        regex: bool = False,
-        match_case: bool = False,
-        match_word: bool = False,
-        order_by: str = "id",
-        descending: bool = False,
-        search_column: str | None = None,
-    ) -> list[int]:
-        return self._repository.search_row_offsets(
-            query,
-            regex=regex,
-            match_case=match_case,
-            match_word=match_word,
-            order_by=order_by,
-            descending=descending,
-            search_column=search_column,
-        )
 
     def row_offset_for_id(
         self,
@@ -296,15 +296,41 @@ class MetadataService:
         descending: bool = False,
         search_column: str | None = None,
     ) -> list[MetadataSearchMatch]:
-        return self._repository.search_matches(
-            query,
-            regex=regex,
-            match_case=match_case,
-            match_word=match_word,
-            order_by=order_by,
-            descending=descending,
-            search_column=search_column,
-        )
+        from MetadataArea.related_fields import additional_columns, overview_field_items, discovery_columns
+        _, aliases = discovery_columns(self._repository.database_path)
+        related = additional_columns(self._repository.database_path, source_table='metadata') if self._repository.table_id == 'metadata' else []
+        options = dict(regex=regex, match_case=match_case, match_word=match_word,
+                       order_by=order_by, descending=descending)
+        related_names = {column.name for column in related}
+        physical = ([] if search_column in related_names else
+                    self._repository.search_matches(query, search_column=search_column, **options))
+        visible_names = [column.name for column in self.list_columns()]
+        visible_indexes = {name: index for index, name in enumerate(visible_names)}
+        physical_names = [column.name for column in self._repository.list_columns()]
+        canonical_names = [aliases.get(name, name) if self._repository.table_id == 'metadata' else name
+                           for name in physical_names]
+        remapped = []
+        for match in physical:
+            indexes = {visible_indexes[canonical] for index in match.column_indexes
+                       if (canonical := canonical_names[index]) in visible_indexes}
+            if indexes:
+                remapped.append(MetadataSearchMatch(match.row_offset, tuple(sorted(indexes))))
+        physical = remapped
+        selected = [column for column in related if search_column is None or column.name == search_column]
+        if not selected:
+            return physical
+        pattern = self._repository._compile_search_pattern(query, regex, match_case, match_word)
+        positions = {identity: index for index, identity in enumerate(
+            self._repository.fetch_ids(order_by=order_by, descending=descending))}
+        columns = [column.name for column in self.list_columns()]
+        matches = {match.row_offset: set(match.column_indexes) for match in physical}
+        for column in selected:
+            column_index = columns.index(column.name)
+            from MetadataArea.resolution import resolve_overview_field
+            for identity, cell in resolve_overview_field(self._repository.database_path, aliases.get(column.name, column.name), aliases).items():
+                if identity in positions and any(pattern.search(value) for value in cell.values):
+                    matches.setdefault(positions[identity], set()).add(column_index)
+        return [MetadataSearchMatch(offset, tuple(sorted(indices))) for offset, indices in sorted(matches.items())]
 
     def _validate_editable_column(self, column_name: str) -> None:
         if not column_name:

@@ -1,13 +1,14 @@
 # Metadata import
 
 `readers.py` probes and streams supported formats. `domain.py` defines inspections,
-column mappings, and four fixed operation plans. `service.py` stages and validates
+column mappings, and operation plans. `service.py` stages and validates
 the resulting table; `MetadataRepository` atomically publishes it. No import
 request carries per-column merge actions or independent append/delete policies.
 
 | Operation | Behavior |
 | --- | --- |
-| Import Metadata | Initialize an empty table with generated canonical IDs. |
+| Add files (empty table) | Initialize an empty table with generated canonical IDs. |
+| Add files (merge) | Match existing keys, add unmatched rows and columns, preserve blank incoming cells, and ask how to resolve differing nonempty values. |
 | Append Items | Append unmatched incoming keys, skip existing matches, preserve existing cells. |
 | Update Metadata | Update selected columns for matching rows, adding columns as needed; blanks preserve existing cells; unmatched rows are counted and ignored. |
 | Replace Metadata Table | Without existing item references, discard all current rows and columns and rebuild from the incoming file without matching. When project objects reference existing IDs, require exact matching, retain matched IDs, and block removal of referenced items or fields. |
@@ -24,16 +25,19 @@ Initial import needs no external key. IDs are never matched by row order or rese
 
 Retained formats: CSV, TSV, TAB, delimited TXT, XLSX, ODS, JSON, JSONL, NDJSON,
 Parquet, Arrow IPC/Feather, XML/TEI, TEI corpora, folders, and ZIP collections.
-The table toolbar uses pushbuttons without popup menus, each opening a single-file
-picker. Folder readers remain available internally. Encoding, delimiter, header
+Add files opens a multi-file picker. Sources with a matching table name are
+merged into that table; other sources get separate tabs. Add column and Add rows
+create editable fields/records directly. Folder readers remain available internally. Encoding, delimiter, header
 row, worksheet, and record selection remain
 available where applicable. Structured extraction, duplicate-column, type,
 malformed-file, XML, and archive safeguards are unchanged.
 
-The dialog keeps source-reading options in a collapsed settings panel and gives
-the field-selection table the available space. Its result summary shows counts of
-matched/skipped/ignored/new rows, new columns, and blocking errors without
-materializing a row preview. Parsing, unique-key discovery, validation, and
+The Designer dialog gives the source-data preview the available space. Collapsed
+Import options contain Columns, File reading, and (when required) Matching tabs.
+The preview shows at most 25 sample rows with every selected column available by
+horizontal scrolling; names and type labels reflect column settings, while cells
+show source values. Missing matching keys reveal the Matching tab automatically. Its result summary shows counts of
+matched/skipped/ignored/new rows, new columns, and blocking errors alongside a compact matching summary. Parsing, unique-key discovery, validation, and
 staging run in the background. Cancellation leaves the current table intact.
 Each completed validation has its own staging token so an earlier configuration
 cannot publish a newer configuration's rows.
@@ -57,9 +61,26 @@ reserves the idle shared background scheduler during publication and rejects
 publication when conflicting project jobs are present. Metadata, group, and media
 databases are held through the transaction; rollback leaves the original table
 and associations intact. Saved-file checks never construct repositories or migrate
-projects. The manifest version and existing IDs are unchanged. The project item registry
+projects. Existing IDs are unchanged. Creating additional tables upgrades the project manifest
+to schema version 2 after a metadata/manifest backup. The project item registry
 reserves one ID range shared by metadata imports and independent asset analyses.
 
 Keep this package independent of Qt. Shared legacy embedding imports/linking
 remain separate compatibility entry points; Model Zoo, Vector Data, execution,
 and embedding interchange retain their behavior.
+
+## Nested records and lists
+
+JSON arrays contain records; a JSON object is one record by default. Select an
+explicit record path for a wrapper collection such as `records`. Nested arrays
+are never automatically promoted to record collections. JSON/JSONL and columnar
+objects flatten to dotted field paths; object arrays produce aligned list cells.
+Generic XML repeated siblings and repeated TEI header values retain lists too.
+Conflicting flattened paths are rejected instead of overwriting data.
+
+Staged row payloads retain JSON lists, including their element types and null
+positions. Scalar/list mixtures promote the scalar to one entry without parsing
+literal text as JSON. Empty object collections use the leaf columns discovered
+elsewhere in the source. Delimited list interpretation remains available through
+the column type/format controls. Publication uses the repository's shared cell
+codec; previews and table display format arrays only at the UI boundary.

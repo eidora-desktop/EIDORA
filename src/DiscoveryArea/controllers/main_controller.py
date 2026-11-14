@@ -206,6 +206,7 @@ def _canvas_style_request_with_metadata(
         request,
         metadata_values=text_values,
         metadata_numeric_values=numeric_values,
+        metadata_multiple_values=metadata_access.multiple_values_for_ids(request.metadata_ids, columns=columns),
     )
 
 
@@ -2133,6 +2134,7 @@ class DiscoveryAreaController:
             np.asarray([int(metadata_id)], dtype=np.int64),
             columns=requested,
             numeric_columns=set(),
+            display=True,
         )
         rows: list[tuple[str, str]] = []
         for column in columns:
@@ -3193,7 +3195,9 @@ class DiscoveryAreaController:
             np.asarray([int(item.get("metadata_id", -1)) for item in payload], dtype=np.int64),
             columns=set(fields) - {"id"},
             numeric_columns=set(),
+            display=True,
         )
+        labels = self._metadata_field_labels()
         for idx, item in enumerate(payload):
             metadata_id = int(item.get("metadata_id", -1))
             lines: list[str] = []
@@ -3203,7 +3207,7 @@ class DiscoveryAreaController:
                     continue
                 values = metadata_text.get(field)
                 value = values[idx] if values is not None and idx < values.shape[0] else ""
-                lines.append(f"{field}\t{value}")
+                lines.append(f"{labels.get(field, field)}\t{value}")
             item["lines"] = lines
             item["thumbnail_variant_id"] = variant_id
             item["thumbnail_size"] = int(thumbnail_size)
@@ -3364,6 +3368,8 @@ class DiscoveryAreaController:
         fields = self._metadata_columns()
         panel.set_metadata_fields(
             fields,
+            labels=self._metadata_field_labels(),
+            aliases=self._metadata_access.field_aliases() if self._metadata_access is not None else {},
             tooltip_checked=panel.selected_tooltip_fields(),
             pin_checked=panel.selected_pin_fields(),
         )
@@ -3382,8 +3388,10 @@ class DiscoveryAreaController:
             np.asarray([int(metadata_id)], dtype=np.int64),
             columns=requested_fields,
             numeric_columns=set(),
+            display=True,
         )
         lines: list[str] = []
+        labels = self._metadata_field_labels()
         for field in fields:
             key = str(field).strip()
             if key == "id":
@@ -3395,7 +3403,7 @@ class DiscoveryAreaController:
                     if values is None or values.size == 0
                     else _CanvasTooltipPopup._truncate_value(str(values[0]))
                 )
-                lines.append(f"{key}\t{value}" if show_label else value)
+                lines.append(f"{labels.get(key, key)}\t{value}" if show_label else value)
         return lines
 
     def _refresh_metadata_cache(self, project: Project) -> None:
@@ -3414,6 +3422,11 @@ class DiscoveryAreaController:
 
     def _metadata_columns(self) -> list[str]:
         return list(self._metadata_columns_cache or ["id"])
+
+    def _metadata_field_labels(self) -> dict[str, str]:
+        if self._metadata_access is None:
+            return {}
+        return {column.name: column.label for column in self._metadata_access.columns()}
 
     def _load_pins_for_active_discovery(self) -> None:
         if self._project is None or self._canvas_widget is None:
@@ -5674,6 +5687,8 @@ class DiscoveryAreaController:
             metadata_numeric_values,
             dataset.metadata_ids,
             filter_matching,
+            multiple_values=(self._metadata_access.multiple_values_for_ids(dataset.metadata_ids, columns=columns)
+                             if self._metadata_access is not None else None),
         )
         return self._combine_visibility_masks(filter_mask, slicer_mask)
 
@@ -5714,7 +5729,9 @@ class DiscoveryAreaController:
         column_values = metadata_text.get(column)
         if column_values is None:
             return None
-        mask = np.isin(column_values, np.asarray(tuple(allowed), dtype=np.str_))
+        from DiscoveryArea.multiple_values import membership_mask
+        multiple = self._metadata_access.multiple_values_for_ids(dataset.metadata_ids, columns={column}) if self._metadata_access else {}
+        mask = membership_mask(column_values, allowed, multiple.get(column))
         if np.all(mask):
             return None
         return mask
@@ -5725,6 +5742,7 @@ class DiscoveryAreaController:
         *,
         columns: set[str] | None = None,
         numeric_columns: set[str] | None = None,
+        display: bool = False,
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         if metadata_ids.size == 0:
             return {}, {}
@@ -5741,6 +5759,7 @@ class DiscoveryAreaController:
                     metadata_ids,
                     columns=requested_columns,
                     numeric_columns=requested_numeric,
+                    display=display,
                 )
             except Exception:
                 return {}, {}

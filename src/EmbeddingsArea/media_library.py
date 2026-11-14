@@ -4,15 +4,13 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-import csv
 import json
 import hashlib
 import shutil
-import xml.etree.ElementTree as ET
 import zipfile
 
 from EmbeddingsArea.domain import (
-    MediaContentType, MediaMetadataMergePreview, MediaSource, MediaSourceKind,
+    MediaContentType, MediaSource, MediaSourceKind,
     MediaSourceStatus, MediaSourceSummary, MediaProgress, MediaAsset,
 )
 from EmbeddingsArea.media_sources import (
@@ -22,18 +20,11 @@ from EmbeddingsArea.media_sources import (
 )
 from EmbeddingsArea.repository import MediaRepository, MediaLinkRepository
 from MetadataArea.repository import MetadataRepository
-from MetadataArea.service import MetadataService
-from MetadataArea.domain import MetadataAddRowsMergeRequest
 from project.domain import Project
 
 
 def _utc_now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _safe_metadata_column_name(value):
-    value = str(value or "").strip()
-    return "record_id" if value.lower() == "id" else value
 
 
 class MediaLibraryService:
@@ -48,6 +39,9 @@ class MediaLibraryService:
         self._media_repository = media_repository
         self._metadata_repository = metadata_repository
         self._link_repository = link_repository
+
+    def assets_for_items(self, item_ids, *, source_ids=()):
+        return self._media_repository.assets_for_items(item_ids, source_ids=source_ids)
 
     def register_source(
         self,
@@ -114,7 +108,7 @@ class MediaLibraryService:
         prefix = "media_text_"
         if source_id.startswith(prefix):
             column = source_id[len(prefix):]
-            if column in {value.name for value in self._metadata_repository.list_columns()} - {"id"}:
+            if any(value.source.id == source_id for value in self.list_analysis_sources()):
                 return self.register_metadata_text_source(column)
         return self.require_source(source_id)
 
@@ -122,22 +116,40 @@ class MediaLibraryService:
         """Offer metadata columns without materializing or scanning them in the GUI."""
         sources = self.list_source_summaries()
         existing = {value.source.id for value in sources}
-        row_count = self._metadata_repository.count_rows()
-        if row_count:
-            for column in self._metadata_repository.list_columns():
-                key = f"media_text_{column.name}"
-                if column.name == "id" or key in existing:
+        from MetadataArea.table_repository import MetadataTableRepository, list_tables
+        store = MetadataTableRepository(self._metadata_repository.database_path)
+        counts, labels = {}, {}
+        for table in list_tables(store.database):
+            repository = store.repository(table.id)
+            row_count = repository.count_rows()
+            fields = store.field_ids(table.id)
+            for column in repository.list_columns():
+                if column.name == 'id':
                     continue
-                source = MediaSource(
-                    id=key, label=f"{column.name} (metadata text)",
-                    path=self._metadata_text_path(column.name),
-                    source_kind=MediaSourceKind.METADATA_COLUMN, content_type=MediaContentType.TEXT,
-                )
-                sources.append(MediaSourceSummary(source, row_count, 0, row_count, 0, 0))
-        # Metadata text gets a fresh snapshot in the worker at preparation time.
-        return [replace(value, asset_count=row_count, missing_count=0, error_count=0)
-                if value.source.source_kind == MediaSourceKind.METADATA_COLUMN else value
-                for value in sources]
+                reference = column.name if table.id == 'metadata' else f'table:{table.id}:{fields[column.name]}'
+                key = f'media_text_{reference}'
+                counts[key] = row_count
+                labels[key] = f"{table.name}: {column.label} (metadata text)"
+                if row_count and key not in existing:
+                    label = column.label if table.id == 'metadata' else f'{table.name}: {column.label}'
+                    source = MediaSource(id=key, label=f'{label} (metadata text)',
+                        path=self._metadata_text_path(reference), source_kind=MediaSourceKind.METADATA_COLUMN,
+                        content_type=MediaContentType.TEXT)
+                    sources.append(MediaSourceSummary(source, row_count, 0, row_count, 0, 0))
+        return [replace(value, source=replace(value.source, label=labels.get(value.source.id, value.source.label)),
+                        asset_count=counts.get(value.source.id, 0), missing_count=0, error_count=0)
+                if value.source.source_kind == MediaSourceKind.METADATA_COLUMN else value for value in sources]
+
+    def metadata_text_values(self, field):
+        if not field.startswith('table:'):
+            return self._metadata_repository.column_values_by_id(field)
+        from MetadataArea.table_repository import MetadataTableRepository
+        _, table, field_id = field.split(':', 2)
+        store = MetadataTableRepository(self._metadata_repository.database_path)
+        column = next((name for name, identity in store.field_ids(table).items() if identity == field_id), None)
+        if column is None:
+            raise ValueError('The selected metadata field no longer exists.')
+        return store.repository(table).column_values_by_id(column)
 
     def register_metadata_text_source(self, metadata_column: str) -> MediaSource:
         column = metadata_column.strip()
@@ -164,6 +176,22 @@ class MediaLibraryService:
         self._media_repository.upsert_source(source)
         return source
 
+    def relocate_source(self, source_id, path, *, progress=None, should_cancel=None):
+        source = self.require_source(source_id)
+        if source.source_kind == MediaSourceKind.METADATA_COLUMN:
+            raise ValueError("Metadata text sources are managed by the project.")
+        candidate = self.prepare_source(path, source.content_type, recursive=source.recursive, existing=source)
+        candidate = replace(candidate, label=source.label)
+        if candidate.source_kind != source.source_kind:
+            raise ValueError("Choose the same kind of source (file, folder, or archive).")
+        if source.source_kind == MediaSourceKind.FILE and candidate.path.name != source.path.name:
+            raise ValueError("Choose the original filename at its new location.")
+        registered = self._media_repository.get_source_for_path(candidate.path, candidate.content_type)
+        if registered is not None and registered.id != source_id:
+            raise ValueError("This location is already registered. Choose another location.")
+        return self.scan_source(source_id, stage_callback=progress, should_cancel=should_cancel,
+                                replacement_source=candidate)
+
     def scan_source(
         self,
         source_id: str,
@@ -172,8 +200,9 @@ class MediaLibraryService:
         should_cancel: Callable[[], bool] | None = None,
         stage_callback: Callable[[MediaProgress], None] | None = None,
         inspection: MediaSourceInspection | None = None,
+        replacement_source: MediaSource | None = None,
     ) -> MediaSourceSummary:
-        source = self.require_source(source_id)
+        source = replacement_source or self.require_source(source_id)
         started_at = _utc_now()
         indexed_count = 0
         scan_cursor = ""
@@ -193,10 +222,11 @@ class MediaLibraryService:
                 progress_callback=progress_callback,
                 should_cancel=should_cancel,
                 stage_callback=stage_callback,
+                replacement_path=source.path if replacement_source else None,
             )
         elif source.source_kind == MediaSourceKind.METADATA_COLUMN:
             column_name = source.id.removeprefix("media_text_")
-            values = self._metadata_repository.column_values_by_id(column_name)
+            values = self.metadata_text_values(column_name)
             materialized_path = self._materialize_metadata_text_source(column_name, values)
             source = replace(source, path=materialized_path)
             result = build_metadata_text_assets(
@@ -212,6 +242,7 @@ class MediaLibraryService:
                 progress_callback=progress_callback,
                 should_cancel=should_cancel,
                 stage_callback=stage_callback,
+                replacement_path=source.path if replacement_source else None,
             )
         elif source.content_type == MediaContentType.TEXT and source.path.suffix.lower() in {".jsonl", ".ndjson"}:
             result = scan_media_source(source, scanned_at=started_at)
@@ -223,6 +254,7 @@ class MediaLibraryService:
                     progress_callback=progress_callback,
                     should_cancel=should_cancel,
                     stage_callback=stage_callback,
+                    replacement_path=source.path if replacement_source else None,
                 )
         elif source.path.suffix.lower() == ".zip":
             result = self._scan_archive_source(source, started_at)
@@ -234,6 +266,7 @@ class MediaLibraryService:
                     progress_callback=progress_callback,
                     should_cancel=should_cancel,
                     stage_callback=stage_callback,
+                    replacement_path=source.path if replacement_source else None,
                 )
         else:
             path = source.path.expanduser()
@@ -252,6 +285,7 @@ class MediaLibraryService:
                         progress_callback=progress_callback,
                         should_cancel=should_cancel,
                         stage_callback=stage_callback,
+                        replacement_path=source.path if replacement_source else None,
                     )
                 except OSError as exc:
                     error_message = str(exc)
@@ -261,6 +295,8 @@ class MediaLibraryService:
         summary = summaries.get(source.id)
         missing_count = 0 if summary is None else summary.missing_count
         linked_count = 0 if summary is None else summary.linked_count
+        if replacement_source and error_message:
+            raise ValueError(error_message)
         finished_at = _utc_now()
         updated_source = MediaSource(
             id=source.id,
@@ -346,91 +382,6 @@ class MediaLibraryService:
         self._media_repository.upsert_source(renamed)
         return renamed
 
-    def preview_metadata_from_source(
-        self,
-        source_id: str,
-        *,
-        existing_identifier_column: str = "",
-        incoming_identifier_column: str = "",
-    ) -> MediaMetadataMergePreview:
-        source = self.require_source(source_id)
-        rows, columns = self._metadata_rows_for_source(source)
-        if not rows or not columns:
-            raise ValueError("This source does not expose structured metadata rows yet.")
-        if not self._metadata_repository.is_initialized() or self._metadata_repository.count_rows() == 0:
-            return MediaMetadataMergePreview(
-                source_id=source.id,
-                columns=tuple(columns),
-                row_count=len(rows),
-            )
-        existing_identifier = existing_identifier_column.strip()
-        incoming_identifier = incoming_identifier_column.strip()
-        if not existing_identifier or not incoming_identifier:
-            raise ValueError("Choose identifier columns before merging media-derived metadata into existing metadata.")
-
-        request = MetadataAddRowsMergeRequest(
-            incoming_rows=rows,
-            existing_identifier_column=existing_identifier,
-            incoming_identifier_column=incoming_identifier,
-        )
-        preview = MetadataService(self._metadata_repository).preview_add_rows_merge(request)
-        return MediaMetadataMergePreview(
-            source_id=source.id,
-            columns=tuple(columns),
-            row_count=len(rows),
-            merge_preview=preview,
-        )
-
-    def create_metadata_from_source(
-        self,
-        source_id: str,
-        *,
-        existing_identifier_column: str = "",
-        incoming_identifier_column: str = "",
-    ) -> dict[str, object]:
-        source = self.require_source(source_id)
-        rows, columns = self._metadata_rows_for_source(source)
-        if not rows or not columns:
-            raise ValueError("This source does not expose structured metadata rows yet.")
-        if not self._metadata_repository.is_initialized():
-            rows, columns = self._bootstrap_metadata_shape(rows, columns)
-            self._metadata_repository.initialize_from_rows(rows, columns)
-            action = "initialized"
-            merge_preview = None
-        elif self._metadata_repository.count_rows() == 0:
-            rows, columns = self._bootstrap_metadata_shape(rows, columns)
-            self._metadata_repository.initialize_from_rows(rows, columns)
-            action = "initialized"
-            merge_preview = None
-        else:
-            existing_identifier = existing_identifier_column.strip()
-            incoming_identifier = incoming_identifier_column.strip()
-            if not existing_identifier or not incoming_identifier:
-                raise ValueError("Choose identifier columns before merging media-derived metadata into existing metadata.")
-            request = MetadataAddRowsMergeRequest(
-                incoming_rows=rows,
-                existing_identifier_column=existing_identifier,
-                incoming_identifier_column=incoming_identifier,
-            )
-            merge_preview = MetadataService(self._metadata_repository).merge_add_rows(request)
-            action = "merged"
-        return {
-            "action": action,
-            "row_count": len(rows),
-            "columns": tuple(columns),
-            "merge_preview": merge_preview,
-        }
-
-    @staticmethod
-    def _bootstrap_metadata_shape(
-        rows: list[dict[str, str]],
-        columns: list[str],
-    ) -> tuple[list[dict[str, str]], list[str]]:
-        # For metadata initialized from unlinked media assets, keep only filename + internal id.
-        if "filename" not in columns:
-            return rows, columns
-        return ([{"filename": str(row.get("filename", "")).strip()} for row in rows], ["filename"])
-
     def require_source(self, source_id: str) -> MediaSource:
         source = self._media_repository.get_source(source_id)
         if source is None:
@@ -475,107 +426,6 @@ class MediaLibraryService:
         )
         return scan_media_source(extracted_source, scanned_at=scanned_at)
 
-    def _metadata_rows_for_source(self, source: MediaSource) -> tuple[list[dict[str, str]], list[str]]:
-        if source.source_kind == MediaSourceKind.METADATA_COLUMN:
-            raise ValueError("This source already derives from metadata.")
-        suffix = source.path.suffix.lower()
-        if suffix in {".csv", ".tsv"}:
-            return self._metadata_rows_from_delimited(source.path, delimiter="\t" if suffix == ".tsv" else ",")
-        if suffix == ".json":
-            return self._metadata_rows_from_json(source.path)
-        if suffix in {".xml"}:
-            return self._metadata_rows_from_xml(source.path)
-        if suffix in {".jsonl", ".ndjson"}:
-            return self._metadata_rows_from_jsonl(source.path)
-        assets = self._media_repository.fetch_assets(source.id, limit=1_000_000, offset=0)
-        if source.content_type == MediaContentType.TEXT and source.path.is_file():
-            text = source.path.read_text(encoding="utf-8", errors="replace").strip()
-            if text:
-                return (
-                    [{"source_key": source.path.name, "text": text}],
-                    ["source_key", "text"],
-                )
-        rows = [
-            {
-                "filename": asset.display_name,
-                "relative_path": asset.relative_path,
-                "source_key": asset.source_key,
-            }
-            for asset in assets
-        ]
-        return rows, ["filename", "relative_path", "source_key"]
-
-    @staticmethod
-    def _metadata_rows_from_delimited(path: Path, *, delimiter: str) -> tuple[list[dict[str, str]], list[str]]:
-        with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
-            reader = csv.DictReader(handle, delimiter=delimiter)
-            if reader.fieldnames is None:
-                raise ValueError("This file does not contain header columns.")
-            columns = [_safe_metadata_column_name(str(name).strip()) for name in reader.fieldnames if str(name).strip()]
-            rows = [
-                {
-                    _safe_metadata_column_name(column): str(row.get(column, "") or "").strip()
-                    for column in reader.fieldnames or []
-                    if str(column).strip()
-                }
-                for row in reader
-            ]
-        return rows, columns
-
-    @staticmethod
-    def _metadata_rows_from_json(path: Path) -> tuple[list[dict[str, str]], list[str]]:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(payload, dict):
-            payload = [payload]
-        if not isinstance(payload, list) or not payload or not all(isinstance(item, dict) for item in payload):
-            raise ValueError("JSON source must contain one object or a list of objects.")
-        columns = sorted({_safe_metadata_column_name(str(key).strip()) for item in payload for key in item if str(key).strip()})
-        rows = [
-            {_safe_metadata_column_name(str(column).strip()): str(value or "").strip() for column, value in item.items() if str(column).strip()}
-            for item in payload
-        ]
-        return rows, columns
-
-    @staticmethod
-    def _metadata_rows_from_jsonl(path: Path) -> tuple[list[dict[str, str]], list[str]]:
-        rows: list[dict[str, str]] = []
-        columns: set[str] = set()
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            raw = line.strip()
-            if not raw:
-                continue
-            payload = json.loads(raw)
-            if not isinstance(payload, dict):
-                continue
-            row = {
-                _safe_metadata_column_name(str(key).strip()): str(value or "").strip()
-                for key, value in payload.items()
-                if str(key).strip()
-            }
-            if row:
-                rows.append(row)
-                columns.update(row)
-        return rows, sorted(columns)
-
-    @staticmethod
-    def _metadata_rows_from_xml(path: Path) -> tuple[list[dict[str, str]], list[str]]:
-        root = ET.fromstring(path.read_text(encoding="utf-8", errors="replace"))
-        rows: list[dict[str, str]] = []
-        columns: set[str] = set()
-        for child in list(root):
-            row: dict[str, str] = {}
-            for element in list(child):
-                key = _safe_metadata_column_name(element.tag.strip())
-                value = (element.text or "").strip()
-                if key:
-                    row[key] = value
-                    columns.add(key)
-            if row:
-                rows.append(row)
-        if not rows:
-            raise ValueError("XML source did not contain row-like child elements.")
-        return rows, sorted(columns)
-
     def _metadata_text_path(self, column: str) -> Path:
         key = hashlib.sha256(column.encode("utf-8")).hexdigest()[:24]
         return self._project.paths.generated_text_sources / f"column_{key}.jsonl"
@@ -601,6 +451,6 @@ class MediaLibraryService:
     def _status_after_scan(error_message: str, indexed_count: int, linked_count: int) -> MediaSourceStatus:
         if error_message:
             return MediaSourceStatus.MISSING if "does not exist" in error_message else MediaSourceStatus.ERROR
-        if indexed_count == 0 or linked_count == 0:
+        if indexed_count == 0:
             return MediaSourceStatus.UNLINKED
         return MediaSourceStatus.READY

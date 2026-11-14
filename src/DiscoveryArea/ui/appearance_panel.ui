@@ -650,7 +650,7 @@
              <property name="surfaceRole" stdset="0">
               <string>group</string>
              </property>
-             <layout class="QVBoxLayout" name="layout_fill_color_controls">
+             <layout class="QVBoxLayout" name="layout_fill_color_controls" stretch="0,1">
               <property name="spacing">
                <number>6</number>
               </property>
@@ -837,7 +837,7 @@
                 </property>
                </widget>
               </item>
-              <item alignment="Qt::AlignmentFlag::AlignTop">
+              <item>
                <widget class="QStackedWidget" name="stack_fill_color">
                 <property name="sizePolicy">
                  <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
@@ -948,7 +948,7 @@
                    <verstretch>0</verstretch>
                   </sizepolicy>
                  </property>
-                 <layout class="QVBoxLayout" name="layout_fill_color_mapped">
+                 <layout class="QVBoxLayout" name="layout_fill_color_mapped" stretch="0,0,1">
                   <property name="spacing">
                    <number>6</number>
                   </property>
@@ -1239,7 +1239,7 @@
                    <verstretch>0</verstretch>
                   </sizepolicy>
                  </property>
-                 <layout class="QVBoxLayout" name="layout_fill_color_conditional">
+                 <layout class="QVBoxLayout" name="layout_fill_color_conditional" stretch="1,0">
                   <property name="spacing">
                    <number>6</number>
                   </property>
