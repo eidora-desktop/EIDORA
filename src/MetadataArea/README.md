@@ -1,10 +1,13 @@
 # Metadata
 
 The Metadata UI separates the fixed **Items** tab from named source tabs. Items
-is bold; source tabs are italic. Source tabs show a chain icon when they participate
-in saved record links (incoming or outgoing), or a red broken chain when unlinked.
+uses bold text and a small star beside the italic source tabs. The selected tab
+has a text-colored underline and a subtle background.
+Tab icons sit close to their labels. Source tabs show a simple connected chain when they participate
+in direct saved links to Items (incoming or outgoing), or a red question
+mark when unlinked.
 The status is also included in tab tooltips; a link does not imply every record matches. The toolbar exposes **Add files**, **Link…**,
-and **Replace source…**. Manual row and column creation are not exposed.
+**Unlink**, and **Replace source…**. Manual row and column creation are not exposed.
 
 ## Ownership
 
@@ -46,7 +49,8 @@ renamed to id_imported. External files are not modified by table edits.
 
 ## Imports and replacement
 
-Add files imports into source tabs and opens the linking preview afterward. It
+Add files imports into source tabs and opens the linking preview afterward only
+when Items exist. It
 never fills an empty Items table. Source paths and content hashes are stored
 separately from editable tab names, in the same transaction as publication. An
 unchanged reimport focuses its existing tab; a changed file opens Replace source.
@@ -84,8 +88,10 @@ separate columns are Item-level conditions, not same-child joins. Coloring uses
 one distinct non-null value; multiple distinct values remain unmapped. Numeric
 list entries supply the filter domain. List columns cannot be relationship keys.
 
-Link is disabled without an additional source tab. The dialog ranks exact matches
-in both directions, including differently named columns. The best candidate is a
+Link is hidden without Items or an additional source tab, including in context
+menus. Every new table or manual record link connects a source to Items; sources
+cannot be linked directly to each other. The dialog ranks exact matches
+in both directions between Items and sources, including differently named columns. The best candidate is a
 suggestion only, shown above a central preview. The Designer form keeps manual
 table/column selectors and multiple-match approval under collapsed Link options.
 No suggestion reveals those options without previewing arbitrary defaults; Find
@@ -100,7 +106,12 @@ Matching is case-sensitive. Internal IDs are excluded from detection. Unique mat
 explicit Link all matching records option. Manual linking uses a paged record
 picker, allowing several records without exposing their internal indexes.
 
-Parent resolution follows approved paths such as item → face → photo. Duplicate
+Unlink is available on a source with saved relationships. It atomically removes
+that source’s relationship keys and record links in both directions, including
+legacy relationships, while retaining all Items and source records. Other sources’
+relationships remain unchanged. Linked fields and status refresh immediately.
+
+Legacy parent resolution still follows approved paths such as item → face → photo. Duplicate
 paths coalesce and cycles terminate. Cells retain every originating record. The table shows compact values, and
 double-click opens a record chooser when there are multiple origins. Tooltips
 show source details. Resolved values are disposable query results, never copied

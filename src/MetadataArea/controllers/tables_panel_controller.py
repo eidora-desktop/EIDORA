@@ -6,7 +6,17 @@ from shared.qt.theme import THEMES
 
 from MetadataArea.table_repository import MetadataTableRepository, list_tables
 from MetadataArea.service import MetadataService
+from MetadataArea.relationship_service import MetadataRelationshipService
 from shared.qt.widgets import require_child
+
+
+class _MetadataTabStyle(QtWidgets.QProxyStyle):
+    """Keep tab labels close to their icons without replacing native tab painting."""
+
+    def drawItemText(self, painter, rect, flags, palette, enabled, text, text_role=QtGui.QPalette.ColorRole.NoRole):
+        # This proxy is scoped to the tab bar. Reduce Qt's icon-to-label gap.
+        offset = 4 if self.parent().layoutDirection() == QtCore.Qt.LayoutDirection.RightToLeft else -4
+        super().drawItemText(painter, rect.translated(offset, 0), flags, palette, enabled, text, text_role)
 
 
 class MetadataTablesPanelController(QtCore.QObject):
@@ -16,11 +26,16 @@ class MetadataTablesPanelController(QtCore.QObject):
         self.owner = owner
         self.widget = owner._table_panel
         self.tabs = require_child(self.widget, QtWidgets.QTabWidget, 'tabs_metadata')
+        self._tab_style = _MetadataTabStyle()
+        self._tab_style.setParent(self.tabs.tabBar())
+        self.tabs.tabBar().setStyle(self._tab_style)
         QtWidgets.QApplication.instance().paletteChanged.connect(self._refresh_tab_icons)
         self.content = require_child(self.widget, QtWidgets.QFrame, 'panel_metadata_table')
         self.first_page = require_child(self.widget, QtWidgets.QWidget, 'page_metadata_table')
         self.link_button = require_child(self.widget, QtWidgets.QPushButton, 'button_link_tables')
         self.link_button.clicked.connect(self._open_links)
+        self.unlink_button = require_child(self.widget, QtWidgets.QPushButton, 'button_unlink_table')
+        self.unlink_button.clicked.connect(lambda: self._run(self._unlink))
         self.replace_button = require_child(self.widget, QtWidgets.QPushButton, 'button_replace_source')
         self.replace_button.clicked.connect(lambda: self._run(self._replace_source))
         self.tabs.currentChanged.connect(self._selected)
@@ -31,7 +46,8 @@ class MetadataTablesPanelController(QtCore.QObject):
     def _refresh_tab_icons(self):
         size = self.tabs.iconSize()
         icons = []
-        for name, color in (("metadata_link", current_icon_color()),
+        for name, color in (("metadata_items", current_icon_color()),
+                            ("metadata_link", current_icon_color()),
                             ("metadata_unlinked", THEMES[current_icon_theme().value].error_text)):
             pixmap = tinted_icon_pixmap(name, size, color)
             icon = QtGui.QIcon()
@@ -39,8 +55,8 @@ class MetadataTablesPanelController(QtCore.QObject):
                 for state in (QtGui.QIcon.State.Off, QtGui.QIcon.State.On):
                     icon.addPixmap(pixmap, mode, state)
             icons.append(icon)
-        linked, unlinked = icons
-        self.tabs.setTabIcon(0, QtGui.QIcon())
+        items, linked, unlinked = icons
+        self.tabs.setTabIcon(0, items)
         for index in range(1, self.tabs.count()):
             table_id = self.tabs.tabBar().tabData(index)
             self.tabs.setTabIcon(index, linked if table_id in self._linked_table_ids else unlinked)
@@ -56,6 +72,10 @@ class MetadataTablesPanelController(QtCore.QObject):
         menu = QtWidgets.QMenu(parent)
         callbacks = {}
         for label, callback in actions:
+            if callback in (self._link_tables, self._link) and not self.link_button.isEnabled():
+                continue
+            if callback == self._unlink and not self.unlink_button.isEnabled():
+                continue
             action = menu.addAction(label)
             if callback == self._link_tables:
                 action.setEnabled(self.link_button.isEnabled())
@@ -72,6 +92,7 @@ class MetadataTablesPanelController(QtCore.QObject):
             self.tabs.setCurrentIndex(index)
         self._menu(self.tabs.tabBar(), position, [('Replace source…', self._replace_source),
             ('Link tables…', self._link_tables),
+            ('Unlink', self._unlink),
             ('Rename table…', self._rename), ('Delete table…', self._delete),
             ('Export table…', self.owner._on_export_metadata)])
 
@@ -95,8 +116,17 @@ class MetadataTablesPanelController(QtCore.QObject):
     def update_actions(self):
         available = self.owner._project is not None and not self.owner._media_publication_active
         self.tabs.setEnabled(available)
-        self.link_button.setEnabled(available and self.tabs.count() > 1)
+        can_link = self.owner._project is not None and self.relationships.can_link()
+        self.link_button.setVisible(can_link)
+        self.link_button.setEnabled(available and can_link)
+        can_unlink = self.owner._project is not None and self.relationships.can_unlink(self.owner._table_id)
+        self.unlink_button.setVisible(can_unlink)
+        self.unlink_button.setEnabled(available and can_unlink)
         self.replace_button.setEnabled(available and self.owner._table_id != 'metadata')
+
+    @property
+    def relationships(self):
+        return MetadataRelationshipService(self.store.database)
 
     def refresh(self):
         self.tabs.setEnabled(self.owner._project is not None and not self.owner._media_publication_active)
@@ -123,7 +153,7 @@ class MetadataTablesPanelController(QtCore.QObject):
                 layout.setContentsMargins(self.first_page.layout().contentsMargins())
                 self.tabs.addTab(page, table.name)
                 self.tabs.tabBar().setTabData(index, table.id)
-                status = "Linked to another table" if table.id in self._linked_table_ids else "Not linked to another table"
+                status = "Linked to Items" if table.id in self._linked_table_ids else "Not linked to Items"
                 self.tabs.setTabToolTip(index, f'{sources.get(table.id, (table.name, ""))[0]}\n{status}')
                 self.tabs.tabBar().setAccessibleTabName(index, f"{table.name}: {status}")
             if table.id == self.owner._table_id:
@@ -192,19 +222,36 @@ class MetadataTablesPanelController(QtCore.QObject):
             self._changed()
 
     def _link(self):
+        if not self.link_button.isEnabled():
+            return
         ids = self._ids()
         if not ids:
             raise ValueError('Select records first.')
-        tables = list_tables(self.store.database)
-        name, accepted = QtWidgets.QInputDialog.getItem(self.widget, 'Link records', 'Target table', [table.name for table in tables], 0, False)
-        if not accepted:
-            return
-        target = next(table for table in tables if table.name == name)
+        tables = [table for table in list_tables(self.store.database)
+                  if table.id != self.owner._table_id
+                  and 'metadata' in (self.owner._table_id, table.id)]
+        target = tables[0]
+        if len(tables) > 1:
+            names = [table.name for table in tables]
+            name, accepted = QtWidgets.QInputDialog.getItem(self.widget, 'Link records', 'Metadata source', names, 0, False)
+            if not accepted:
+                return
+            target = tables[names.index(name)]
+        name = 'Items' if target.id == 'metadata' else target.name
         from MetadataArea.controllers.record_picker_controller import select_records
         targets = select_records(self.store.repository(target.id))
         if targets:
-            self.store.link_records(self.owner._table_id, ids, target.id, targets, name)
+            self.relationships.link_records(self.owner._table_id, ids, target.id, targets, name)
             self._changed()
+
+    def _unlink(self):
+        if not self.unlink_button.isEnabled():
+            return
+        from MetadataArea.controllers.operation_dialog_controller import run_operation
+        service, table_id = self.relationships, self.owner._table_id
+        count = run_operation(lambda: service.unlink(table_id), 'Unlinking metadata…')
+        self._changed()
+        self.owner._show_status(f'{count:,} record links removed; table records retained')
 
     def _link_tables(self):
         if not self.link_button.isEnabled():

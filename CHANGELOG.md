@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Offer metadata linking only when Items exist, restrict automatic and manual links to Items–source pairs, and add Unlink for a source’s saved relationships without deleting records.
+
 - Rename the Project workspace to Assets and move the active project name and project actions into the main window, with Switching Projects first. Project storage and bundle formats remain unchanged.
 
 - Align Media Source matching with the Metadata Link dialog: suggest settings from actual matches, preview source and item values together, and keep manual adjustments in collapsed Link options.
@@ -38,7 +40,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Remove retired automatic-linking and metadata-preview helpers, simplify embedding item creation, and share column-label rules. Fix overview exports to use visible fields and labels, and avoid duplicate physical-field reads.
 
-- Distinguish the fixed Items tab with bold text and imported metadata tabs with italic text.
+- Distinguish the fixed Items tab with bold text and a small star beside italic imported metadata tabs; underline and subtly shade the selected tab. Tighten icon-to-label spacing and use a connected chain or question mark for link status.
 
 - Replace manual Metadata row/column creation with a source-replacement preview that retains matched IDs and links, blocks broken dependencies, and disables Link when no additional source tabs exist.
 

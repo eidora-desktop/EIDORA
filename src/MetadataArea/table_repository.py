@@ -23,7 +23,7 @@ class MetadataTableRepository:
         self.database = Path(database)
 
     def linked_table_ids(self) -> set[str]:
-        """Tables participating in published record links, in either direction."""
+        """Tables directly linked to Items, in either direction."""
         if not self.database.exists():
             return set()
         with closing(sqlite3.connect(self.database)) as connection:
@@ -34,9 +34,30 @@ class MetadataTableRepository:
                 return set()
             pairs = connection.execute("""SELECT source_table, target_table
                 FROM metadata_relationships r
-                WHERE EXISTS (SELECT 1 FROM metadata_record_links l WHERE l.relationship_id=r.id)
+                WHERE (source_table='metadata' OR target_table='metadata')
+                AND EXISTS (SELECT 1 FROM metadata_record_links l WHERE l.relationship_id=r.id)
             """)
             return {table_id for pair in pairs for table_id in pair}
+
+    def unlink_table(self, table_id):
+        """Remove a source's relationships atomically, retaining every record."""
+        if table_id == 'metadata':
+            raise ValueError('Select a metadata source tab to unlink.')
+        repo = self.repository(table_id)
+        with closing(sqlite3.connect(self.database)) as connection, connection:
+            connection.execute('BEGIN IMMEDIATE')
+            self._ensure_catalog(connection)
+            cursor = connection.execute('''DELETE FROM metadata_record_links
+                WHERE relationship_id IN (SELECT id FROM metadata_relationships
+                WHERE source_table=? OR target_table=?)''', (table_id, table_id))
+            count = cursor.rowcount
+            connection.execute('DELETE FROM metadata_relationship_keys WHERE source_table=? OR target_table=?',
+                               (table_id, table_id))
+            removed = connection.execute('DELETE FROM metadata_relationships WHERE source_table=? OR target_table=?',
+                                         (table_id, table_id)).rowcount
+            if removed:
+                repo.bump_revision(connection)
+        return count
 
     def repository(self, table_id="metadata"):
         if table_id not in {table.id for table in list_tables(self.database)}:

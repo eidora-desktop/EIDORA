@@ -128,10 +128,20 @@
         <item>
          <widget class="QPushButton" name="button_link_tables">
           <property name="toolTip">
-           <string>Review and link records in the selected table</string>
+           <string>Link metadata records to Items</string>
           </property>
           <property name="text">
            <string>Link…</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="button_unlink_table">
+          <property name="toolTip">
+           <string>Remove this source's relationships without deleting its records</string>
+          </property>
+          <property name="text">
+           <string>Unlink</string>
           </property>
          </widget>
         </item>
@@ -180,6 +190,11 @@
       </property>
       <item>
        <widget class="QTabWidget" name="tabs_metadata">
+        <property name="styleSheet">
+         <string notr="true">QTabBar::tab { font-style: italic; font-weight: normal; padding: 4px 10px; color: palette(window-text); background-color: palette(window); border-bottom: 2px solid transparent; }
+QTabBar::tab:selected { background-color: palette(base); border-bottom: 2px solid palette(window-text); }
+QTabBar::tab:first, QTabBar::tab:only-one { font-style: normal; font-weight: bold; padding: 4px 14px; }</string>
+        </property>
         <property name="iconSize">
          <size>
           <width>14</width>
@@ -191,6 +206,9 @@
         </property>
         <property name="documentMode">
          <bool>true</bool>
+        </property>
+        <property name="tabsClosable">
+         <bool>false</bool>
         </property>
         <widget class="QWidget" name="page_metadata_table">
          <attribute name="title">

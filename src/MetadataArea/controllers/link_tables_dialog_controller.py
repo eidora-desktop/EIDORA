@@ -16,6 +16,8 @@ from shared.qt.widgets import require_child
 class LinkTablesDialogController:
     def __init__(self, database, source_table):
         self.service = MetadataRelationshipService(database)
+        if not self.service.can_link():
+            raise ValueError('Create Items and add a metadata source before linking.')
         store = MetadataTableRepository(database)
         self.tables = list_tables(database)
         self.columns = {table.id: [column for column in store.repository(table.id).list_columns() if column.name != 'id' or table.id == 'metadata'] for table in self.tables}
@@ -109,7 +111,8 @@ class LinkTablesDialogController:
         with QtCore.QSignalBlocker(self.target_table):
             self.target_table.clear()
             for table in self.tables:
-                if table.id != self.source_table.currentData():
+                if (table.id != self.source_table.currentData()
+                        and 'metadata' in (table.id, self.source_table.currentData())):
                     self.target_table.addItem('Items' if table.id == 'metadata' else table.name, table.id)
             self.target_table.setCurrentIndex(max(0, self.target_table.findData(previous)))
         self._target_changed()

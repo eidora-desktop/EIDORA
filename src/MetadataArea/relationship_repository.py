@@ -155,7 +155,8 @@ class MetadataRelationshipRepository:
             connection.set_progress_handler(lambda: int(cancelled.is_set()), 1000)
             for source in tables:
                 for target in tables:
-                    if source.id == target.id or table_id not in (source.id, target.id):
+                    if (source.id == target.id or table_id not in (source.id, target.id)
+                            or 'metadata' not in (source.id, target.id)):
                         continue
                     for source_column in columns[source.id]:
                         for target_column in columns[target.id]:
