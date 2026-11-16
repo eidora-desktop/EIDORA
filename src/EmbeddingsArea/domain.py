@@ -244,6 +244,7 @@ class SavedEmbeddingDataset:
     created_at: str = ""
     updated_at: str = ""
     execution_note: str = ""
+    size_bytes: int | None = None
 
 
 @dataclass(frozen=True)
@@ -426,6 +427,7 @@ class EmbeddingDataset:
     updated_at: str = ""
     clusters: tuple[ClusterResult, ...] = ()
     execution_note: str = ""
+    size_bytes: int | None = None
 
 
 MediaItem = MediaAsset

@@ -94,6 +94,7 @@ def load_embedding_summary(path: Path) -> dict[str, Any]:
                 if len(shape) >= 2
                 else None,
                 "format": "npz",
+                "size_bytes": path.stat().st_size,
                 "provenance": _maybe_json(data.get("provenance")),
             }
 

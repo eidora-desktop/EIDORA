@@ -140,6 +140,7 @@ class EmbeddingRunService:
             execution_note = next((str(value["fallback_reason"]) for value in attempts if isinstance(value, dict) and value.get("fallback_reason")), "")
             datasets.append(
                 SavedEmbeddingDataset(
+                    size_bytes=summary.get("size_bytes"),
                     execution_note=execution_note,
                     run_id=run.id,
                     name=path.stem,
@@ -1049,6 +1050,7 @@ class EmbeddingDatasetService:
             datasets.append(
                 EmbeddingDataset(
                     execution_note=saved.execution_note,
+                    size_bytes=saved.size_bytes,
                     run_id=saved.run_id,
                     name=run.label,
                     dimensions=saved.dimensions,

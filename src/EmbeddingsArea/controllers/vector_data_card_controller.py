@@ -16,6 +16,14 @@ from shared.qt.widgets import require_child
 _ACTIVE = {"queued", "running", "cancelling"}
 
 
+def _human_size(value: int) -> str:
+    size = float(value)
+    for suffix in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1000.0 or suffix == "TB":
+            return f"{size:.0f} {suffix}" if suffix == "B" or size >= 10 else f"{size:.1f} {suffix}"
+        size /= 1000.0
+
+
 class VectorDataCardController(QtCore.QObject):
     """Render one stable run ID without owning jobs or persistence."""
 
@@ -93,7 +101,14 @@ class VectorDataCardController(QtCore.QObject):
         self.name.setText(run.label)
         self._model_label = model_label or "Imported"
         item_count = dataset.item_count if dataset is not None else max(run.processed_items, run.prepared_input_count)
-        self._item_count_label = f"{item_count:,} item{'s' if item_count != 1 else ''}"
+        self._item_count_label = f"{item_count:,} vector{'s' if item_count != 1 else ''}"
+        self._storage_tooltip = ""
+        if dataset is not None and dataset.size_bytes is not None:
+            self._item_count_label += f" | {_human_size(dataset.size_bytes)}"
+            self._storage_tooltip = (
+                f"Saved embedding file: {dataset.size_bytes:,} bytes. "
+                "Includes vector data and artifact metadata; excludes source media, models, and caches."
+            )
         self.add_clustering.setEnabled(dataset is not None)
         self.add_clustering.setToolTip(
             "Run a clustering algorithm on this vector data."
@@ -223,11 +238,14 @@ class VectorDataCardController(QtCore.QObject):
         else:
             label = state.value.replace("_", " ").capitalize()
         self.status.setText(label)
-        self.status.setToolTip(
+        tooltip = (
             self._run.error_message
             or getattr(self, "_execution_note", "")
             or ("Completed with warnings" if state == EmbeddingRunState.COMPLETED and self._run.failed_items else label)
         )
+        if state == EmbeddingRunState.COMPLETED and self._storage_tooltip:
+            tooltip += "\n" + self._storage_tooltip
+        self.status.setToolTip(tooltip)
         presentation = state.value
         if presentation != self._presented_execution_state:
             self._presented_execution_state = presentation
