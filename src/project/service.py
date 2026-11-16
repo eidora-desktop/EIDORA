@@ -116,7 +116,7 @@ class ProjectService:
         for path, last_opened_at in records:
             try:
                 project = self._project_from_path(path)
-                if not self._metadata_repository(project).is_initialized():
+                if not MetadataRepository.contains_metadata(project.paths.metadata_database):
                     continue
             except (FileNotFoundError, ValueError, OSError):
                 continue

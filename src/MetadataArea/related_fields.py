@@ -2,6 +2,7 @@
 from contextlib import closing
 from dataclasses import replace
 import sqlite3
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -18,13 +19,9 @@ def relationships(database):
 def additional_columns(database, *, source_table=None):
     if source_table == 'metadata':
         columns, _ = discovery_columns(database)
-        reachable = {'metadata'}
-        relations = relationships(database)
-        while True:
-            expanded = reachable | {target for _, _, source, target in relations if source in reachable}
-            if expanded == reachable:
-                break
-            reachable = expanded
+        from MetadataArea.resolution import reachable_tables
+        with closing(sqlite3.connect(database)) as connection:
+            reachable = reachable_tables(connection)
         return [column for column in columns
                 if column.name.startswith('table:') and column.name.split(':')[1] in reachable
                 and not column.name.endswith(':id')]
@@ -67,41 +64,55 @@ def discovery_columns(database):
     return list(columns), dict(aliases)
 
 
+def read_field_catalog(connection):
+    """Read definitions only; field IDs and summaries are maintained by writers."""
+    from MetadataArea.domain import MetadataColumn
+    tables = dict(connection.execute("SELECT id,name FROM metadata_tables ORDER BY position")) if connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='metadata_tables'").fetchone() else {'metadata': 'Metadata'}
+    field_ids = dict(((table, name), identity) for table, name, identity in connection.execute(
+        'SELECT table_id,name,field_id FROM metadata_field_ids')) if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='metadata_field_ids'").fetchone() else {}
+    result, aliases, fields_by_table = [], {}, {}
+    for table, label in tables.items():
+        if not re.fullmatch(r'metadata|table_[0-9a-f]{32}', table):
+            raise ValueError('Invalid metadata table identity.')
+        schema = 'metadata_column_schema' if table == 'metadata' else f'{table}_columns'
+        summaries = {name: (kind, count) for name, kind, count in connection.execute(
+            f'SELECT name,value_type,unique_values FROM {schema}')} if connection.execute(
+                'SELECT 1 FROM sqlite_master WHERE name=?', (schema,)).fetchone() else {}
+        names = {}
+        for row in connection.execute(f'PRAGMA table_info({table})'):
+            name = row[1]
+            field_id = field_ids.get((table, name), name)
+            qualified = f'table:{table}:{field_id}'
+            if name == 'id':
+                names[field_id] = names[name] = 'id'
+                aliases[qualified] = 'id'
+                if table == 'metadata':
+                    result.append(MetadataColumn('id', 'integer'))
+                continue
+            canonical = name if table == 'metadata' else qualified
+            names[field_id] = names[name] = canonical
+            kind, count = summaries.get(name, ('text', None))
+            result.append(MetadataColumn(canonical, kind, count, display_name=name,
+                                         source_tab=None if table == 'metadata' else label))
+            aliases[qualified] = canonical
+            aliases[f'table:{table}:{name}'] = canonical
+        fields_by_table[table] = names
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata_relationships'").fetchone():
+        for identity, target in connection.execute('SELECT id,target_table FROM metadata_relationships'):
+            for field, canonical in fields_by_table.get(target, {}).items():
+                aliases[f'relation:{identity}:{field}'] = canonical
+    return result, aliases, fields_by_table
+
+
 @lru_cache(maxsize=16)
 def _discovery_columns_cached(database, revision, inode, modified):
-    """Expose each physical field once, with aliases for saved relationship fields."""
-    store = MetadataTableRepository(database)
-    result, aliases, fields_by_table = [], {}, {}
-    relations = relationships(database)
-    for table in list_tables(database):
-        field_ids = store.field_ids(table.id)
-        names = {}
-        for column in store.repository(table.id).list_columns():
-            field_id = field_ids.get(column.name, 'id')
-            qualified = f'table:{table.id}:{field_id}'
-            if column.name == 'id':
-                # Source record identities are implementation details, not item fields.
-                names[field_id] = names[column.name] = 'id'
-                aliases[qualified] = 'id'
-                if table.id == 'metadata':
-                    result.append(column)
-                continue
-            canonical = column.name if table.id == 'metadata' else qualified
-            names[field_id] = names[column.name] = canonical
-            if table.id == 'metadata':
-                result.append(column)
-                aliases[qualified] = canonical
-            else:
-                result.append(replace(column, name=canonical,
-                                      display_name=column.label, source_tab=table.name))
-            # Older snapshots used column names before stable field IDs existed.
-            aliases[f'table:{table.id}:{column.name}'] = canonical
-        fields_by_table[table.id] = names
-    for identity, _, _, target in relations:
-        for field, canonical in fields_by_table.get(target, {}).items():
-            aliases[f'relation:{identity}:{field}'] = canonical
     from MetadataArea.field_presentation import present_fields
-    columns, aliases = present_fields(database, result, aliases, fields_by_table)
+    with closing(sqlite3.connect(database)) as connection:
+        connection.execute('BEGIN')
+        columns, aliases, _ = read_field_catalog(connection)
+        columns, aliases = present_fields(connection, columns, aliases)
     return tuple(columns), tuple(aliases.items())
 
 

@@ -152,6 +152,15 @@ the same resolver. Display, filtering, and scalar mappings consume this contract
 explicitly: all values for display, any/no matching value for positive/negative
 filters, and only unambiguous values for scalar mappings.
 
+Direct Items/source associations resolve in either stored direction; legacy
+source-parent traversal stays directed and cannot cross through another Item.
+The resolver batches columns per source, with indexed direct joins for ordinary
+collections. Discovery's scalar reads omit per-item provenance objects, keeping
+those for bounded display reads. Derived field-equivalence decisions are saved
+with the metadata revision during publication (with a one-time legacy backfill),
+so reading the field catalog does not resolve collection-wide values. Large
+metadata previews use a single background reader and a bounded page cache.
+
 Nested source records flatten into dotted fields and structured list cells, never
 extra Items. Imports reject nested arrays containing objects; nested properties
 and value lists remain supported, as do existing saved list columns. The metadata

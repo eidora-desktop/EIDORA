@@ -9,6 +9,12 @@ from MetadataArea.repository import MetadataRepository
 from MetadataArea.domain import MetadataTable
 
 
+def ensure_link_indexes(connection):
+    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata_record_links'").fetchone():
+        connection.execute('''CREATE INDEX IF NOT EXISTS metadata_record_links_reverse
+            ON metadata_record_links(relationship_id,target_id,source_id)''')
+
+
 def list_tables(database: Path) -> tuple[MetadataTable, ...]:
     if not database.exists():
         return ()
@@ -75,6 +81,7 @@ class MetadataTableRepository:
             connection.execute('INSERT INTO metadata_record_links SELECT * FROM metadata_record_links_previous')
             connection.execute('DROP TABLE metadata_record_links_previous')
         connection.execute("CREATE INDEX IF NOT EXISTS metadata_record_links_target ON metadata_record_links(target_id)")
+        ensure_link_indexes(connection)
         connection.execute("CREATE TABLE IF NOT EXISTS metadata_relationship_keys (relationship_id TEXT PRIMARY KEY,source_table TEXT NOT NULL,source_field TEXT NOT NULL,target_table TEXT NOT NULL,target_field TEXT NOT NULL,UNIQUE(source_table,source_field,target_table,target_field))")
 
     def create(self, name: str) -> MetadataTable:
@@ -93,12 +100,20 @@ class MetadataTableRepository:
         return MetadataTable(identity, name)
 
     def field_ids(self, table_id):
-        repo = self.repository(table_id)
-        columns = repo.list_columns()
+        self.repository(table_id)
         with closing(sqlite3.connect(self.database)) as connection, connection:
-            connection.execute("CREATE TABLE IF NOT EXISTS metadata_field_ids (table_id TEXT NOT NULL,name TEXT NOT NULL,field_id TEXT NOT NULL UNIQUE,PRIMARY KEY(table_id,name))")
-            connection.executemany("INSERT OR IGNORE INTO metadata_field_ids VALUES (?,?,?)", ((table_id,column.name,uuid.uuid4().hex) for column in columns if column.name != 'id'))
+            self.ensure_field_ids(connection, table_id)
             return dict(connection.execute("SELECT name,field_id FROM metadata_field_ids WHERE table_id=?", (table_id,)))
+
+    @staticmethod
+    def ensure_field_ids(connection, table_id):
+        import re
+        if not re.fullmatch(r'metadata|table_[0-9a-f]{32}', table_id):
+            raise ValueError('Invalid metadata table identity.')
+        connection.execute("CREATE TABLE IF NOT EXISTS metadata_field_ids (table_id TEXT NOT NULL,name TEXT NOT NULL,field_id TEXT NOT NULL UNIQUE,PRIMARY KEY(table_id,name))")
+        names = [row[1] for row in connection.execute(f'PRAGMA table_info({table_id})') if row[1] != 'id']
+        connection.executemany('INSERT OR IGNORE INTO metadata_field_ids VALUES (?,?,?)',
+                               ((table_id, name, uuid.uuid4().hex) for name in names))
 
     def rename(self, table_id, name):
         repo = self.repository(table_id)

@@ -216,17 +216,16 @@ class MetadataService:
         if self._repository.table_id != 'metadata':
             return rows
         from MetadataArea.related_fields import discovery_columns
-        from MetadataArea.resolution import resolve_overview_field
+        from MetadataArea.resolution import resolve_overview_fields
         _, aliases = discovery_columns(self._repository.database_path)
-        for column in self.list_columns():
-            if column.name == 'id':
-                continue
-            cells = resolve_overview_field(self._repository.database_path, column.name, aliases, [row.id for row in rows])
+        fields = [column.name for column in self.list_columns() if column.name != 'id']
+        resolved = resolve_overview_fields(self._repository.database_path, fields, aliases, [row.id for row in rows])
+        for field, cells in resolved.items():
             for row in rows:
                 cell = cells.get(row.id)
                 if cell is not None:
-                    row.values[column.name] = cell.value
-                    row.resolved[column.name] = cell
+                    row.values[field] = cell.value
+                    row.resolved[field] = cell
         return rows
 
     def update_cell(self, row_id: int, column_name: str, value: MetadataValue) -> None:

@@ -76,6 +76,7 @@ class MetadataAreaController:
         from MetadataArea.controllers.tables_panel_controller import MetadataTablesPanelController
         self._tables_panel = MetadataTablesPanelController(self)
         self._table_model = MetadataTableModel(self._widget)
+        self._table_model.load_failed.connect(self._show_status)
 
         self._table = require_child(self._table_panel, QtWidgets.QTableView, "table_metadata")
         self._metadata_groups_panel.set_row_height(
@@ -141,7 +142,7 @@ class MetadataAreaController:
         self.refresh()
 
     def shutdown(self) -> None:
-        return
+        self._table_model.shutdown()
 
     def refresh(self) -> None:
         if self._media_publication_active:

@@ -34,7 +34,12 @@ class MetadataRepository:
         if self._database_path.exists() and self.is_initialized():
             with closing(self._connect()) as connection, connection:
                 self._ensure_item_registry(connection)
+                from MetadataArea.table_repository import ensure_link_indexes
+                ensure_link_indexes(connection)
             self.ensure_column_summaries()
+            with closing(self._connect()) as connection, connection:
+                from MetadataArea.field_presentation import ensure_field_presentation
+                ensure_field_presentation(connection)
 
     @property
     def database_path(self) -> Path:
@@ -59,6 +64,8 @@ class MetadataRepository:
             "INSERT INTO metadata_state(key,value) VALUES ('revision','1') "
             "ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1"
         )
+        from MetadataArea.field_presentation import refresh_field_presentation
+        refresh_field_presentation(connection)
 
     @contextmanager
     def media_publication(self, media_database: Path, should_cancel=None):
@@ -240,6 +247,19 @@ class MetadataRepository:
         except sqlite3.Error:
             return False
         return row is not None
+
+    @staticmethod
+    def contains_metadata(database_path: Path) -> bool:
+        """Validate recent-project entries without migrations or schema writes."""
+        from shared.persistence.sqlite import connect_read_only
+        if not database_path.is_file():
+            return False
+        try:
+            with closing(connect_read_only(database_path)) as connection:
+                return connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'").fetchone() is not None
+        except sqlite3.Error:
+            return False
 
     def list_columns(self) -> list[MetadataColumn]:
         with closing(self._connect()) as connection, connection:
@@ -1117,7 +1137,9 @@ class MetadataRepository:
     def _order_expression(self, column_name: str, columns: list[MetadataColumn]) -> str:
         quoted = self._quote_identifier(column_name)
         value_type = next((column.value_type.lower() for column in columns if column.name == column_name), "text")
-        if column_name == "id" or value_type in {"int", "integer"}:
+        if column_name == "id":
+            return quoted  # INTEGER PRIMARY KEY already has the required order/index.
+        if value_type in {"int", "integer"}:
             return f"CAST({quoted} AS INTEGER)"
         if value_type == "float":
             return f"CAST({quoted} AS REAL)"

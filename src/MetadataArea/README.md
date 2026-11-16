@@ -24,6 +24,29 @@ The status is also included in tab tooltips; a link does not imply every record 
   visible labels and fields, including linked values, without hidden duplicates.
 - group_repository.py and group_service.py own custom groups.
 
+## Reading connected metadata
+
+Direct links between Items and a source resolve in either stored direction.
+Legacy source-to-parent links retain their direction. Traversal never passes
+through another Item, so shared source records cannot expose a sibling Item's
+other metadata. Duplicate paths coalesce and conflicting scalar values stay
+unmapped; full row previews retain their values and provenance.
+
+Items fetches 200-row pages with all connected columns, querying each source
+once per page. Both link directions have covering indexes; bounded queries are
+driven by the requested IDs rather than a scan of the relationship. Tables larger
+than a page load through one background worker, with at most four cached pages
+and two pending requests. Project/tab/sort changes and publication invalidate
+old results. Publication keeps the previous visible rows until a refresh is safe.
+
+Field catalogs read definitions and persisted equivalence decisions only.
+Metadata publication refreshes those derived decisions in its transaction;
+older projects backfill them once on opening. Recent-project validation is
+read-only and does not initialize repositories. Discovery caches at most eight
+requested columns within a 64 MiB column-data budget, reuses parsed numeric
+arrays, and resolves tooltip provenance only for the requested items. Metadata
+revisions invalidate the caches and prevent late reads from restoring stale data.
+
 ## Current storage boundary
 
 item_membership is the authoritative set of active items. Source rows have their

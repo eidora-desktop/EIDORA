@@ -634,12 +634,12 @@ class AppearancePanelController(UiPanelController):
             combo = self._widget.findChild(QtWidgets.QComboBox, name)
             if combo is None:
                 continue
-            current = str(combo.currentText() or "")
+            current = self._combo_value(combo)
             combo.blockSignals(True)
             combo.clear()
-            combo.addItems(self._continuous_color_columns)
+            self._add_metadata_field_options(combo, self._continuous_color_columns)
             if current in self._continuous_color_columns:
-                combo.setCurrentText(current)
+                combo.setCurrentIndex(combo.findData(current))
             combo.blockSignals(False)
             self._refresh_dynamic_combo_tooltips(combo)
             combo.setEnabled(mapping_available)
