@@ -118,7 +118,7 @@
         <item>
          <widget class="QPushButton" name="button_import_metadata">
           <property name="text">
-           <string>Add files</string>
+           <string>Add Files</string>
           </property>
           <property name="default">
            <bool>false</bool>
@@ -131,27 +131,7 @@
            <string>Link metadata records to Items</string>
           </property>
           <property name="text">
-           <string>Link…</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="button_unlink_table">
-          <property name="toolTip">
-           <string>Remove this source's relationships without deleting its records</string>
-          </property>
-          <property name="text">
-           <string>Unlink</string>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="button_replace_source">
-          <property name="toolTip">
-           <string>Preview an updated source file while preserving matched record identities and links</string>
-          </property>
-          <property name="text">
-           <string>Replace source…</string>
+           <string>Link...</string>
           </property>
          </widget>
         </item>

@@ -42,12 +42,10 @@ class MetadataRelationshipService:
         return self.repository.store.link_records(source, ids, target, targets, name)
 
     def unlink(self, table_id):
-        if table_id == 'metadata':
-            raise ValueError('Select a metadata source tab to unlink.')
         return self.repository.store.unlink_table(table_id)
 
     def can_unlink(self, table_id):
         from MetadataArea.related_fields import relationships
-        return table_id != 'metadata' and any(
+        return any(
             table_id in (source, target)
             for _, _, source, target in relationships(self.repository.store.database))

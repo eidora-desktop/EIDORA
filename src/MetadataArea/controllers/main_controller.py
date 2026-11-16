@@ -330,45 +330,6 @@ class MetadataAreaController:
         if activity is None:
             self._show_status(f"Exported metadata to {destination}")
 
-    def _open_metadata_import(self, preset: MetadataImportPreset) -> None:
-        if self._project is None:
-            return
-        operation_name = preset.label
-        source_path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
-            self._widget, operation_name, "", IMPORT_FILE_FILTER,
-        )
-        if not source_path:
-            self._show_status("Metadata import cancelled")
-            return
-        repository = MetadataRepository(
-            self._project.paths.metadata_database,
-            self._project.paths.metadata_columns,
-            table_id=self._table_id,
-        )
-        dialog = MetadataImportDialogController(
-            MetadataImportService(self._project, repository),
-            Path(source_path),
-            preset,
-            process_manager=self._activity_manager.processes if self._activity_manager else None,
-        )
-        result = dialog.exec()
-        if result is None:
-            self._show_status("Metadata import cancelled")
-            return
-        self._clear_search()
-        self.refresh()
-        if result.impact.affected_groups:
-            self._on_groups_changed()
-        self._notify_metadata_changed()
-        action = {
-            MetadataImportPreset.INITIAL: "Imported metadata",
-            MetadataImportPreset.UPDATE: "Updated metadata",
-            MetadataImportPreset.APPEND: "Appended items",
-            MetadataImportPreset.REPLACE_TABLE: "Replaced source",
-        }.get(result.preset, "Updated metadata")
-        message = f"{action} from {Path(result.source_path).name}"
-        self._show_status(message)
-
     def _wire_search(self) -> None:
         self._table_model.sort_order_changed.connect(self._update_search)
         self._search_edit.textChanged.connect(self._update_search)

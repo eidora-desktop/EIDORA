@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Simplify Metadata controls to Add Files and source-only Link. Items offers Unlink all, Delete all, and Export; remove explicit source-replacement controls.
+
 - Offer metadata linking only when Items exist, restrict automatic and manual links to Items–source pairs, and add Unlink for a source’s saved relationships without deleting records.
 
 - Rename the Project workspace to Assets and move the active project name and project actions into the main window, with Switching Projects first. Project storage and bundle formats remain unchanged.

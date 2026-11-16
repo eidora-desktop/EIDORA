@@ -40,9 +40,7 @@ class MetadataTableRepository:
             return {table_id for pair in pairs for table_id in pair}
 
     def unlink_table(self, table_id):
-        """Remove a source's relationships atomically, retaining every record."""
-        if table_id == 'metadata':
-            raise ValueError('Select a metadata source tab to unlink.')
+        """Remove a table's relationships atomically, retaining every record."""
         repo = self.repository(table_id)
         with closing(sqlite3.connect(self.database)) as connection, connection:
             connection.execute('BEGIN IMMEDIATE')

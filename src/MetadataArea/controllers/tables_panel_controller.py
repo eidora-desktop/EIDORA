@@ -34,10 +34,6 @@ class MetadataTablesPanelController(QtCore.QObject):
         self.first_page = require_child(self.widget, QtWidgets.QWidget, 'page_metadata_table')
         self.link_button = require_child(self.widget, QtWidgets.QPushButton, 'button_link_tables')
         self.link_button.clicked.connect(self._open_links)
-        self.unlink_button = require_child(self.widget, QtWidgets.QPushButton, 'button_unlink_table')
-        self.unlink_button.clicked.connect(lambda: self._run(self._unlink))
-        self.replace_button = require_child(self.widget, QtWidgets.QPushButton, 'button_replace_source')
-        self.replace_button.clicked.connect(lambda: self._run(self._replace_source))
         self.tabs.currentChanged.connect(self._selected)
         self.tabs.tabBar().setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
         self.tabs.tabBar().customContextMenuRequested.connect(self._tab_menu)
@@ -74,13 +70,10 @@ class MetadataTablesPanelController(QtCore.QObject):
         for label, callback in actions:
             if callback in (self._link_tables, self._link) and not self.link_button.isEnabled():
                 continue
-            if callback == self._unlink and not self.unlink_button.isEnabled():
-                continue
             action = menu.addAction(label)
-            if callback == self._link_tables:
-                action.setEnabled(self.link_button.isEnabled())
-            elif callback == self._replace_source:
-                action.setEnabled(self.replace_button.isEnabled())
+            if callback == self._unlink:
+                action.setEnabled(self.owner._project is not None
+                                  and self.relationships.can_unlink(self.owner._table_id))
             callbacks[action] = callback
         selected = menu.exec(parent.mapToGlobal(position))
         if selected in callbacks:
@@ -88,13 +81,17 @@ class MetadataTablesPanelController(QtCore.QObject):
 
     def _tab_menu(self, position):
         index = self.tabs.tabBar().tabAt(position)
-        if index >= 0:
-            self.tabs.setCurrentIndex(index)
-        self._menu(self.tabs.tabBar(), position, [('Replace source…', self._replace_source),
-            ('Link tables…', self._link_tables),
-            ('Unlink', self._unlink),
-            ('Rename table…', self._rename), ('Delete table…', self._delete),
-            ('Export table…', self.owner._on_export_metadata)])
+        if index < 0:
+            return
+        self.tabs.setCurrentIndex(index)
+        if self.owner._table_id == 'metadata':
+            actions = [('Unlink all', self._unlink), ('Delete all', self._delete),
+                       ('Export', self.owner._on_export_metadata)]
+        else:
+            actions = [('Link tables…', self._link_tables), ('Unlink', self._unlink),
+                       ('Rename table…', self._rename), ('Delete table…', self._delete),
+                       ('Export table…', self.owner._on_export_metadata)]
+        self._menu(self.tabs.tabBar(), position, actions)
 
     def _record_menu(self, position):
         self._menu(self.owner._table, position, [('Set value…', self._set_value),
@@ -116,13 +113,9 @@ class MetadataTablesPanelController(QtCore.QObject):
     def update_actions(self):
         available = self.owner._project is not None and not self.owner._media_publication_active
         self.tabs.setEnabled(available)
-        can_link = self.owner._project is not None and self.relationships.can_link()
-        self.link_button.setVisible(can_link)
+        can_link = (self.owner._project is not None and self.owner._table_id != 'metadata'
+                    and self.relationships.can_link())
         self.link_button.setEnabled(available and can_link)
-        can_unlink = self.owner._project is not None and self.relationships.can_unlink(self.owner._table_id)
-        self.unlink_button.setVisible(can_unlink)
-        self.unlink_button.setEnabled(available and can_unlink)
-        self.replace_button.setEnabled(available and self.owner._table_id != 'metadata')
 
     @property
     def relationships(self):
@@ -181,12 +174,6 @@ class MetadataTablesPanelController(QtCore.QObject):
         self.owner.refresh()
         self.owner._notify_metadata_changed()
 
-    def _replace_source(self):
-        if not self.replace_button.isEnabled():
-            return
-        from MetadataArea.importing.domain import MetadataImportPreset
-        self.owner._open_metadata_import(MetadataImportPreset.REPLACE_TABLE)
-
     def _rename(self):
         if self.owner._table_id == 'metadata':
             self.owner._show_status('The first tab is always named Items.')
@@ -227,25 +214,14 @@ class MetadataTablesPanelController(QtCore.QObject):
         ids = self._ids()
         if not ids:
             raise ValueError('Select records first.')
-        tables = [table for table in list_tables(self.store.database)
-                  if table.id != self.owner._table_id
-                  and 'metadata' in (self.owner._table_id, table.id)]
-        target = tables[0]
-        if len(tables) > 1:
-            names = [table.name for table in tables]
-            name, accepted = QtWidgets.QInputDialog.getItem(self.widget, 'Link records', 'Metadata source', names, 0, False)
-            if not accepted:
-                return
-            target = tables[names.index(name)]
-        name = 'Items' if target.id == 'metadata' else target.name
         from MetadataArea.controllers.record_picker_controller import select_records
-        targets = select_records(self.store.repository(target.id))
+        targets = select_records(self.store.repository('metadata'))
         if targets:
-            self.relationships.link_records(self.owner._table_id, ids, target.id, targets, name)
+            self.relationships.link_records(self.owner._table_id, ids, 'metadata', targets, 'Items')
             self._changed()
 
     def _unlink(self):
-        if not self.unlink_button.isEnabled():
+        if not self.relationships.can_unlink(self.owner._table_id):
             return
         from MetadataArea.controllers.operation_dialog_controller import run_operation
         service, table_id = self.relationships, self.owner._table_id
@@ -269,7 +245,8 @@ class MetadataTablesPanelController(QtCore.QObject):
         from MetadataArea.controllers.operation_dialog_controller import run_operation
         table_id = self.owner._table_id
         plan = run_operation(lambda: service.preview(table_id), 'Checking table dependencies…')
-        message = f'Delete this table and its {plan.row_count:,} records?'
+        message = (f'Delete all {plan.row_count:,} Items?' if table_id == 'metadata'
+                   else f'Delete this table and its {plan.row_count:,} records?')
         if plan.descriptions:
             message += '\n\nThis also unlinks or removes:\n' + '\n'.join(plan.descriptions)
         reply = QtWidgets.QMessageBox.question(self.widget, 'Delete metadata table', message,
