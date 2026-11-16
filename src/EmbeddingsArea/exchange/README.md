@@ -15,15 +15,17 @@ Import accepts a selection of files as shards of one set or as separate sets,
 including one-dimensional NumPy files (one vector per file). Structural detection
 recognizes arbitrary vector/identifier field names, JSON arrays, numeric arrays,
 comma/space/semicolon vector strings and numbered feature columns. Ambiguous
-fields stay selectable under Adjust matching. A batch must have one dimension
+fields stay selectable under Import options. A batch must have one dimension
 and unique record identifiers; use generated identities for independent observations.
 Different named vector fields in different shards are detected per member.
 
 Probes inspect headers/samples, not every vector. Validation streams all values
 before publication; that complete validation is necessary to reject malformed or
-nonfinite vectors. Related descriptive fields are retained in the selected metadata
-table. Exact identifier matches reuse records; unmatched vectors create new records
-by default. Conflicting descriptive values require a keep/incoming choice.
+nonfinite vectors. Related descriptive fields are retained in Items. The dialog always imports every
+vector, automatically linking exact identifiers to existing Items and creating missing
+Items. A same-named identifier field takes precedence; otherwise matching fields
+must agree on the Item. Ambiguous identities block publication. Bare arrays create
+new Items without guessing from row order. Conflicting descriptive values require a keep/incoming choice.
 Multiple observations may share a media source while retaining separate identities.
 
 The dialog probes, validates and publishes off the GUI thread. It captures widget
@@ -38,3 +40,7 @@ remain internal. Named label arrays are staged as source descriptions, preservin
 their values independently of normalized matching keys. Companion labels are kept
 separately only when they differ from an embedded field of the same name. Existing
 project columns are not removed by this import change.
+
+The import dialog follows Metadata Import: filename and file details, a read-only
+preview with Item links, collapsed Import options, inline errors, and Cancel/Import
+actions. Destination tables and manual linking strategies are not user choices.

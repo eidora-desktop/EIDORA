@@ -1,50 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>dialog_embedding_import</class>
  <widget class="QDialog" name="dialog_embedding_import">
-  <property name="windowTitle">
-   <string>Import Embeddings</string>
-  </property>
-  <property name="surfaceRole" stdset="0">
-   <string>panel</string>
+  <property name="windowModality">
+   <enum>Qt::WindowModality::ApplicationModal</enum>
   </property>
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>720</width>
-    <height>560</height>
+    <width>800</width>
+    <height>650</height>
    </rect>
   </property>
+  <property name="surfaceRole" stdset="0">
+   <string>panel</string>
+  </property>
   <layout class="QVBoxLayout" name="layout_import">
-   <item><widget class="QComboBox" name="combo_conflict_policy">
-     <property name="visible"><bool>false</bool></property><property name="toolTip"><string>Choose how to resolve existing metadata values</string></property></widget></item>
-   <item><widget class="QLabel" name="label_destination_table"><property name="text"><string>Metadata table</string></property></widget></item>
-   <item><widget class="QComboBox" name="combo_destination_table"/></item>
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <property name="leftMargin">
+    <number>12</number>
+   </property>
+   <property name="topMargin">
+    <number>12</number>
+   </property>
+   <property name="rightMargin">
+    <number>12</number>
+   </property>
+   <property name="bottomMargin">
+    <number>12</number>
+   </property>
    <item>
-    <widget class="QLabel" name="label_import_file_value">
-     <property name="text">
-      <string />
-     </property>
+    <widget class="QWidget" name="panel_source" native="true">
+     <layout class="QVBoxLayout" name="layout_source">
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="label_import_file_value">
+        <property name="sizePolicy">
+         <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+          <horstretch>1</horstretch>
+          <verstretch>0</verstretch>
+         </sizepolicy>
+        </property>
+        <property name="font">
+         <font>
+          <pointsize>18</pointsize>
+          <bold>true</bold>
+         </font>
+        </property>
+        <property name="text">
+         <string>Inspecting…</string>
+        </property>
+        <property name="textFormat">
+         <enum>Qt::TextFormat::PlainText</enum>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="textInteractionFlags">
+         <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_import_format_value">
+        <property name="text">
+         <string>—</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="layout_name">
+        <item>
+         <widget class="QLabel" name="label_name">
+          <property name="text">
+           <string>Name:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="edit_name">
+          <property name="placeholderText">
+           <string>Name for this vector data</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_name_error">
+        <property name="visible">
+         <bool>false</bool>
+        </property>
+        <property name="text">
+         <string />
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="textRole" stdset="0">
+         <string>error</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
     </widget>
    </item>
    <item>
-    <widget class="QLabel" name="label_import_format_value">
-     <property name="text">
-      <string>Inspecting…</string>
-     </property>
+    <widget class="QStackedWidget" name="stack_preview">
+     <widget class="QWidget" name="panel_preview_table">
+      <layout class="QVBoxLayout" name="layout_preview_table">
+       <property name="leftMargin">
+        <number>0</number>
+       </property>
+       <property name="topMargin">
+        <number>0</number>
+       </property>
+       <property name="rightMargin">
+        <number>0</number>
+       </property>
+       <property name="bottomMargin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QTableView" name="table_import_embedding_preview">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>200</height>
+          </size>
+         </property>
+         <property name="editTriggers">
+          <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+         </property>
+         <property name="alternatingRowColors">
+          <bool>true</bool>
+         </property>
+         <property name="toolTip">
+          <string>Sample vectors and their automatic Items links.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="panel_preview_error">
+      <layout class="QVBoxLayout" name="layout_preview_error">
+       <item>
+        <widget class="QLabel" name="label_preview_error">
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>200</height>
+          </size>
+         </property>
+         <property name="text">
+          <string />
+         </property>
+         <property name="textFormat">
+          <enum>Qt::TextFormat::PlainText</enum>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+         <property name="alignment">
+          <set>Qt::AlignmentFlag::AlignCenter</set>
+         </property>
+         <property name="textRole" stdset="0">
+          <string>error</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>
-    <widget class="QLineEdit" name="edit_name">
-     <property name="placeholderText">
-      <string>Name for this vector data</string>
+    <widget class="QLabel" name="label_preview_count">
+     <property name="text">
+      <string>Inspecting embeddings…</string>
      </property>
     </widget>
    </item>
    <item>
     <widget class="QLabel" name="label_import_linking_mode">
+     <property name="visible">
+      <bool>false</bool>
+     </property>
      <property name="text">
-      <string>Detecting connections…</string>
+      <string />
      </property>
      <property name="wordWrap">
       <bool>true</bool>
@@ -52,23 +217,34 @@
     </widget>
    </item>
    <item>
-    <widget class="QCheckBox" name="check_adjust_matching">
+    <widget class="QToolButton" name="button_import_options">
      <property name="text">
-      <string>Adjust matching</string>
+      <string>Import options</string>
+     </property>
+     <property name="checkable">
+      <bool>true</bool>
+     </property>
+     <property name="toolButtonStyle">
+      <enum>Qt::ToolButtonStyle::ToolButtonTextBesideIcon</enum>
+     </property>
+     <property name="autoRaise">
+      <bool>true</bool>
+     </property>
+     <property name="arrowType">
+      <enum>Qt::ArrowType::RightArrow</enum>
      </property>
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="group_import_linking">
-     <property name="visible"><bool>false</bool></property>
-     <property name="title">
-      <string>Matching and format</string>
+    <widget class="QWidget" name="panel_import_options">
+     <property name="visible">
+      <bool>false</bool>
      </property>
      <layout class="QFormLayout" name="layout_matching">
       <item row="0" column="0">
        <widget class="QLabel" name="label_combo_vector_source">
         <property name="text">
-         <string>Vector field</string>
+         <string>Vector field:</string>
         </property>
        </widget>
       </item>
@@ -78,7 +254,7 @@
       <item row="1" column="0">
        <widget class="QLabel" name="label_combo_identifier_source">
         <property name="text">
-         <string>Identifier field</string>
+         <string>Identifier field:</string>
         </property>
        </widget>
       </item>
@@ -86,23 +262,13 @@
        <widget class="QComboBox" name="combo_identifier_source" />
       </item>
       <item row="2" column="0">
-       <widget class="QLabel" name="label_metadata_column">
+       <widget class="QLabel" name="label_identifier_file">
         <property name="text">
-         <string>Match records using</string>
+         <string>Identifier file:</string>
         </property>
        </widget>
       </item>
       <item row="2" column="1">
-       <widget class="QComboBox" name="combo_metadata" />
-      </item>
-      <item row="3" column="0">
-       <widget class="QLabel" name="label_identifier_file">
-        <property name="text">
-         <string>Identifier file</string>
-        </property>
-       </widget>
-      </item>
-      <item row="3" column="1">
        <layout class="QHBoxLayout" name="layout_edit_identifier_file">
         <item>
          <widget class="QLineEdit" name="edit_identifier_file">
@@ -120,24 +286,24 @@
         </item>
        </layout>
       </item>
-      <item row="4" column="0">
+      <item row="3" column="0">
        <widget class="QLabel" name="label_identifier_file_key">
         <property name="text">
-         <string>Identifier field</string>
+         <string>Identifier field:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QComboBox" name="combo_identifier_file_key" />
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="label_edit_sidecar_file">
+        <property name="text">
+         <string>Schema sidecar:</string>
         </property>
        </widget>
       </item>
       <item row="4" column="1">
-       <widget class="QComboBox" name="combo_identifier_file_key" />
-      </item>
-      <item row="5" column="0">
-       <widget class="QLabel" name="label_edit_sidecar_file">
-        <property name="text">
-         <string>Schema sidecar</string>
-        </property>
-       </widget>
-      </item>
-      <item row="5" column="1">
        <layout class="QHBoxLayout" name="layout_edit_sidecar_file">
         <item>
          <widget class="QLineEdit" name="edit_sidecar_file">
@@ -155,10 +321,28 @@
         </item>
        </layout>
       </item>
-      <item row="6" column="1">
-       <widget class="QCheckBox" name="check_skip">
-        <property name="text">
-         <string>Import matched vectors only</string>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <property name="fieldGrowthPolicy">
+       <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+      </property>
+      <item row="5" column="1">
+       <widget class="QComboBox" name="combo_conflict_policy">
+        <property name="visible">
+         <bool>false</bool>
+        </property>
+        <property name="toolTip">
+         <string>Choose how to resolve existing metadata values</string>
         </property>
        </widget>
       </item>
@@ -166,56 +350,115 @@
     </widget>
    </item>
    <item>
-    <widget class="QTableView" name="table_import_embedding_preview">
-     <property name="editTriggers">
-      <set>QAbstractItemView::NoEditTriggers</set>
-     </property>
+    <widget class="QWidget" name="panel_import_actions" native="true">
+     <layout class="QVBoxLayout" name="verticalLayout_8">
+      <property name="spacing">
+       <number>6</number>
+      </property>
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="label_import_embedding_preview_status">
+        <property name="text">
+         <string>Inspecting embeddings…</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+        <property name="visible">
+         <bool>false</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QProgressBar" name="progress_exchange">
+        <property name="value">
+         <number>0</number>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="control_buttons" native="true">
+        <layout class="QHBoxLayout" name="layout_import_dialog_actions">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QPushButton" name="button_close">
+           <property name="text">
+            <string>Cancel</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="spacer_import_dialog_actions">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="button_apply">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Import</string>
+           </property>
+           <property name="default">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
     </widget>
-   </item>
-   <item>
-    <widget class="QLabel" name="label_import_embedding_preview_status">
-     <property name="text">
-      <string />
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QProgressBar" name="progress_exchange">
-     <property name="value">
-      <number>0</number>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="layout_actions">
-     <item>
-      <widget class="QPushButton" name="button_abort">
-       <property name="text">
-        <string>Abort</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="button_close">
-       <property name="text">
-        <string>Cancel</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="button_apply">
-       <property name="text">
-        <string>Import</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
    </item>
   </layout>
+  <property name="windowTitle">
+   <string>Import Embeddings</string>
+  </property>
  </widget>
  <resources />
  <connections />
+ <tabstops>
+  <tabstop>edit_name</tabstop>
+  <tabstop>table_import_embedding_preview</tabstop>
+  <tabstop>button_import_options</tabstop>
+  <tabstop>combo_vector_source</tabstop>
+  <tabstop>combo_identifier_source</tabstop>
+  <tabstop>button_identifier_file</tabstop>
+  <tabstop>combo_identifier_file_key</tabstop>
+  <tabstop>button_sidecar_file</tabstop>
+  <tabstop>combo_conflict_policy</tabstop>
+  <tabstop>button_close</tabstop>
+  <tabstop>button_apply</tabstop>
+ </tabstops>
 </ui>

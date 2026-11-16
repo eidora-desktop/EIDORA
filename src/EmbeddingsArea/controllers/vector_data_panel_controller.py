@@ -165,9 +165,14 @@ class VectorDataPanelController(UiPanelController):
         clustering_active = self._run_has_active_clustering(run_id)
         checkpoint = self._session.runs.inspect_run_checkpoint(run_id)
         menu = QtWidgets.QMenu(anchor)
-        resume = menu.addAction("Resume") if run.state in _RECOVERABLE and checkpoint.get("resumable") else None
-        retry = menu.addAction("Retry…") if dataset is None and not active and resume is None else None
-        again = menu.addAction("Run Again…") if dataset and run.selected_model_id else None
+        model_run = bool(run.selected_model_id)
+        resume = menu.addAction("Resume") if model_run and run.state in _RECOVERABLE and checkpoint.get("resumable") else None
+        retry = menu.addAction("Retry…") if model_run and dataset is None and not active and resume is None else None
+        again = menu.addAction("Run Again…") if dataset else None
+        if again is not None:
+            again.setEnabled(model_run and run.state == EmbeddingRunState.COMPLETED and not active)
+            if not again.isEnabled():
+                again.setToolTip("Run Again is available only for successful model runs.")
         if dataset: menu.addSeparator()
         rename = menu.addAction("Rename…"); export = menu.addAction("Export Data…") if dataset else None
         cite = menu.addAction("Citations…") if dataset else None
@@ -184,6 +189,8 @@ class VectorDataPanelController(UiPanelController):
         if clustering_active:
             remove.setToolTip("This vector data is used by an active clustering run.")
         selected = menu.exec(anchor.mapToGlobal(QtCore.QPoint(0, anchor.height())))
+        if selected is None or not selected.isEnabled():
+            return
         if selected == resume: self._submit_embedding(run_id)
         elif selected in {retry, again} and self._run_again_callback: self._run_again_callback(run_id)
         elif selected == rename: self._rename_dataset(run_id)

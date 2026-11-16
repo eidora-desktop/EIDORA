@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 
-ImportLinkStrategy = Literal["identifier", "row_order", "create_metadata"]
+ImportLinkStrategy = Literal["items", "identifier", "row_order", "create_metadata"]
 
 
 @dataclass(frozen=True)
@@ -75,7 +75,6 @@ class EmbeddingImportInspection:
     dtype: str
     source_has_identifiers: bool
     samples: tuple[EmbeddingImportSample, ...]
-    complete_metadata_columns: tuple[str, ...] = ()
     description_columns: tuple[str, ...] = ()
     identifier_fingerprint: tuple[int, int] | None = None
     sidecar_fingerprint: tuple[int, int] | None = None

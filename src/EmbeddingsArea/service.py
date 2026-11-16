@@ -225,14 +225,7 @@ class EmbeddingRunService:
 
     def rename_run(self, run_id: str, label: str) -> EmbeddingRun:
         run = self.require_run(run_id)
-        normalized = label.strip()
-        if not normalized:
-            raise ValueError("Enter a name for the embedding.")
-        if any(
-            other.id != run_id and other.label.strip().casefold() == normalized.casefold()
-            for other in self._runs_repository.list_runs()
-        ):
-            raise ValueError("An embedding output with this name already exists.")
+        normalized = self._runs_repository.validate_run_label(label, exclude_run_id=run_id)
         updated = replace(run, label=normalized, updated_at=_utc_now())
         self._runs_repository.upsert_run(updated)
         return updated

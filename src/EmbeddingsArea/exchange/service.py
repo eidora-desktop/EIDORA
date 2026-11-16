@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import closing
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 import json
@@ -47,6 +46,9 @@ LOGGER = logging.getLogger(__name__)
 class EmbeddingExchangeService:
     def __init__(self, project, runs, metadata):
         self.project, self.runs, self.metadata = project, runs, metadata
+
+    def validate_import_name(self, label: str) -> str:
+        return self.runs.validate_run_label(label)
 
     def probe_import(
         self, path: Path, *, sidecar_path: Path | None = None
@@ -200,10 +202,9 @@ class EmbeddingExchangeService:
                 identifier_fingerprint=identifier_fingerprint,
                 sidecar_fingerprint=sidecar_fingerprint,
             )
-            complete_columns = self._complete_import_match_columns(inspection)
             if progress_callback is not None:
                 progress_callback(100, "Embedding file is ready to link.")
-            return replace(inspection, complete_metadata_columns=complete_columns)
+            return inspection
         except Exception:
             shutil.rmtree(staging, ignore_errors=True)
             raise
@@ -215,19 +216,30 @@ class EmbeddingExchangeService:
         self,
         inspection: EmbeddingImportInspection,
         *,
-        strategy: str,
+        strategy: str = "items",
         metadata_column: str = "",
         allow_partial: bool = False,
         create_unmatched: bool = False,
         conflict_policy: str = "ask",
     ) -> EmbeddingImportPlan:
-        if strategy not in {"identifier", "row_order", "create_metadata"}:
+        if strategy not in {"items", "identifier", "row_order", "create_metadata"}:
             raise ValueError("Choose a metadata linking strategy.")
         row_count = inspection.row_count
         match_path: Path | None = inspection.staging_path / "metadata_ids.npy"
         fingerprint = ""
 
-        if strategy == "create_metadata":
+        if strategy == "items":
+            if self.metadata.table_id != "metadata":
+                raise ValueError("Embedding imports create and link Items only.")
+            matched = self._match_import_items(inspection, match_path)
+            unmatched = row_count - matched
+            unmatched_metadata = self.metadata.count_rows() - matched
+            selected = row_count
+            create_unmatched = True
+            allow_partial = False
+            can_import = True
+            message = f"Items: {matched:,} linked · {unmatched:,} new."
+        elif strategy == "create_metadata":
             match_path = None
             matched = selected = row_count
             unmatched = 0
@@ -346,6 +358,7 @@ class EmbeddingExchangeService:
     ) -> EmbeddingRun:
         if not plan.can_import or not plan.selected_count:
             raise ValueError(plan.message or "The import plan is not valid.")
+        label = self.validate_import_name(label)
         inspection = plan.inspection
         for member in inspection.probe.members:
             if source_fingerprint(member.source_path) != member.source_fingerprint:
@@ -464,7 +477,7 @@ class EmbeddingExchangeService:
             now = datetime.now(timezone.utc).isoformat()
             run = EmbeddingRun(
                 run_id,
-                label.strip() or inspection.probe.source_path.stem,
+                label,
                 EmbeddingRunState.COMPLETED,
                 progress=100,
                 prepared_input_count=selected_rows,
@@ -556,36 +569,54 @@ class EmbeddingExchangeService:
             return bytes(value).decode("utf-8").strip()
         return str(value).strip()
 
-    def _complete_import_match_columns(
-        self, inspection: EmbeddingImportInspection
-    ) -> tuple[str, ...]:
+    def _match_import_items(self, inspection: EmbeddingImportInspection, match_path: Path) -> int:
+        """Reuse exact, unambiguous item identities; missing identities create Items.
+
+        A same-named source field owns matching when present. Otherwise, accept
+        matches across descriptive fields only when they agree on the item ID.
+        Permanent row numbers are never inferred from arbitrary numeric labels.
+        """
+        matches = np.lib.format.open_memmap(
+            match_path, mode="w+", dtype=np.int64, shape=(inspection.row_count,)
+        )
+        matches[:] = -1
         if not inspection.source_has_identifiers or not self.metadata.is_initialized():
-            return ()
-        complete: list[str] = []
+            matches.flush()
+            return 0
+        options = inspection.interpretation
+        source_key = options.identifier_file_key if options.identifier_path else options.identifier_key
+        source_key = "id_imported" if source_key == "id" else source_key
+        columns = [column.name for column in self.metadata.list_columns()
+                   if column.name != "id" and column.value_type != "list"]
+        preferred = [column for column in columns if column.casefold() == source_key.casefold()]
         with closing(sqlite3.connect(inspection.staging_path / "identifiers.sqlite")) as connection:
-            connection.execute(
-                "ATTACH DATABASE ? AS project_metadata",
-                (str(self.metadata.database_path),),
-            )
-            candidates = [item for item in self.list_import_identifier_columns() if item[1] != "id"]
-            source_key = inspection.interpretation.identifier_key.casefold()
-            candidates.sort(key=lambda item: (item[1].casefold() != source_key,
-                                              not item[1].casefold().endswith(("id", "key", "identifier", "filename"))))
-            for _label, column in candidates[:4]:
-                quoted = '"' + column.replace('"', '""') + '"'
-                matched = connection.execute(
+            connection.execute("ATTACH DATABASE ? AS project_metadata", (str(self.metadata.database_path),))
+            for column in preferred or columns:
+                quoted = self.metadata._quote_identifier(column)
+                rows = connection.execute(
                     f"""
-                    SELECT COUNT(*)
-                    FROM project_metadata.{self.metadata.sql_table} AS project
+                    SELECT imported.row_index, MIN(project.id), COUNT(*)
+                    FROM project_metadata.metadata AS project
                     JOIN identifiers AS imported
-                      ON imported.identifier =
-                         TRIM(COALESCE(CAST(project.{quoted} AS TEXT), ''))
+                      ON imported.identifier = TRIM(COALESCE(CAST(project.{quoted} AS TEXT), ''))
+                    GROUP BY imported.row_index
                     """
-                ).fetchone()[0]
-                if int(matched) and (int(matched) == inspection.row_count or column.casefold() == source_key):
-                    if column in self.metadata.complete_unique_column_names((column,)):
-                        complete.append(column)
-        return tuple(complete)
+                )
+                for row_index, item_id, count in rows:
+                    if count != 1 or (matches[row_index] >= 0 and matches[row_index] != item_id):
+                        raise ValueError(
+                            "An imported identifier matches multiple Items. "
+                            "Use a unique identifier field or correct the conflicting Items values."
+                        )
+                    matches[row_index] = item_id
+        linked = matches[matches >= 0]
+        if len(np.unique(linked)) != len(linked):
+            raise ValueError(
+                "Different imported identifiers match the same Item. "
+                "Use one unique identifier per Item."
+            )
+        matches.flush()
+        return len(linked)
 
     @staticmethod
     def _row_order_fingerprint(row_ids) -> str:

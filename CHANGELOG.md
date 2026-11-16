@@ -4,9 +4,15 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Enable Vector Data’s Run Again action only for successful model runs; imported vectors cannot be rerun, retried, or resumed as model jobs.
+
+- Require unique embedding names when adding or importing outputs, ignoring case and surrounding whitespace. Show duplicate or empty import-name errors inline before publication.
+
 - Refresh Tooltip and Pin metadata fields immediately after clustering groups are published, alongside Appearance, Filters, and Slicer, while preserving selected fields.
 
 - Build Discovery's Random projection from every Items row, without requiring media links. Added Items receive new dots while existing dots retain their positions.
+
+- Import embeddings directly into Items, automatically reusing matching identities and creating missing rows. Align the dialog with Metadata Import using a preview-first layout, collapsed Import options, inline errors, and Cancel/Import actions.
 
 - Simplify Metadata controls to Add Files and source-only Link. Items offers Unlink all, Delete all, and Export; remove explicit source-replacement controls.
 

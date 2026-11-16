@@ -55,6 +55,22 @@ class EmbeddingRunRepository:
             self._upsert_run(connection, run)
             connection.commit()
 
+    def validate_run_label(self, label: str, *, exclude_run_id: str = "") -> str:
+        with closing(self._connect()) as connection:
+            return self._validate_run_label(connection, label, exclude_run_id)
+
+    @staticmethod
+    def _validate_run_label(connection, label: str, exclude_run_id: str = "") -> str:
+        normalized = label.strip()
+        if not normalized:
+            raise ValueError("Enter a name for the embedding.")
+        labels = connection.execute(
+            "SELECT label FROM embedding_runs WHERE id != ?", (exclude_run_id,)
+        )
+        if any(row[0].strip().casefold() == normalized.casefold() for row in labels):
+            raise ValueError("An embedding output with this name already exists.")
+        return normalized
+
     def list_runs(self) -> list[EmbeddingRun]:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
@@ -498,6 +514,14 @@ class EmbeddingRunRepository:
         return connection
 
     def _upsert_run(self, connection: sqlite3.Connection, run: EmbeddingRun) -> None:
+        if not connection.in_transaction:
+            connection.execute("BEGIN IMMEDIATE")
+        previous = connection.execute(
+            "SELECT label FROM embedding_runs WHERE id = ?", (run.id,)
+        ).fetchone()
+        # Unnamed drafts and progress updates of legacy runs remain valid.
+        if run.label.strip() and (previous is None or previous[0] != run.label):
+            self._validate_run_label(connection, run.label, run.id)
         connection.execute(
             """
                 INSERT INTO embedding_runs (
