@@ -115,7 +115,7 @@ class DiscoveryMetadataAccess:
         return payload
 
     def column_names(self) -> tuple[str, ...]:
-        return tuple(column.name for column in self.columns() if not column.name.startswith(("group:", "group-set:")))
+        return tuple(column.name for column in self.columns())
 
     def metadata_ids(self) -> np.ndarray:
         with self._lock:

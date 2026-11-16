@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Refresh Tooltip and Pin metadata fields immediately after clustering groups are published, alongside Appearance, Filters, and Slicer, while preserving selected fields.
+
 - Build Discovery's Random projection from every Items row, without requiring media links. Added Items receive new dots while existing dots retain their positions.
 
 - Simplify Metadata controls to Add Files and source-only Link. Items offers Unlink all, Delete all, and Export; remove explicit source-replacement controls.

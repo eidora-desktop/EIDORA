@@ -798,6 +798,7 @@ class DiscoveryAreaController:
             panel.set_metadata_access(self._metadata_access)
             panel.set_project(self._project)
         self._refresh_metadata_cache(self._project)
+        self._sync_pin_metadata_fields()
 
     def refresh_thumbnail_variants(self) -> None:
         """Reload thumbnail choices without resetting the active projection."""
