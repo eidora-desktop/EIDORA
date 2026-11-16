@@ -18,6 +18,12 @@ Keep metadata IDs canonical and arrays aligned. A snapshot restores its complete
 saved state, including disabled controls; absent state must reset previous values.
 Camera bounds and snapshot crop framing are separate concepts.
 
+Metadata fields are listed once per table. Resolve their values from each plotted
+item through parent links (for example, vector item → face → photo), preserving
+the vector's item identity and row count. Agreeing paths coalesce; conflicting
+parents leave an empty value. Old relationship field IDs remain aliases to stable
+table fields in saved tooltip, pin, appearance, filter, and slicer settings.
+
 Canvas toolbar controls have accessible names and explicit Tab order. In the
 Layers bar, the checkbox toggles visibility and the adjacent arrow toggles
 settings, even for a hidden layer. Enter on the checkbox and its right-click
@@ -30,11 +36,11 @@ include every present group value and generate extra palette colors as needed.
 
 The automatic Random view stays selectable alongside saved projections and
 running jobs. The canvas always loads the highlighted projection, and refreshing
-the list preserves the current selection. Random is a deterministic layout of
-current items explicitly linked to available media. Unlinked metadata rows and
-asset-only analysis items are excluded; without links, the view is empty. Loading
-it writes no projection or preset. Legacy automatic coordinates remain readable
-to preserve annotation positions, but do not block metadata replacement. Saved
+the list preserves the current selection. Random contains one point per current
+Items row, independent of media links, source records, and saved coordinates.
+Adding or removing Items updates its points while retaining the positions of
+existing items. Loading it writes no projection or preset; legacy automatic
+coordinates are ignored and do not block metadata replacement. Saved
 snapshots, pins, marked areas, and explicit projections remain real dependencies.
 Discovery resolves asset-only analysis IDs through the project registry and can
 load saved coordinates without metadata rows. Missing metadata has empty values.
@@ -51,3 +57,19 @@ Hover tooltips show up to 300 characters per metadata value, with an ellipsis
 for longer values. Text wraps within a maximum 360 px section, including URLs
 and identifiers without spaces. Short tooltips remain compact; thumbnail size
 and placement are independent. Full metadata stays unchanged.
+
+Individual-item dialogs show the selected permanent item's metadata through the
+Items service: the same column labels, order, and resolved linked values, without
+Discovery-only mapping fields. The row is fetched by primary key. The field-name
+column starts at a bounded width and is resizable; tooltips retain full contents.
+
+Individual-item dialogs offer named media sources with separate image, video,
+audio, and read-only text views. The selector includes only file extensions
+in the common-format contract in `media_preview_service.py`, shared with the
+packaged playback audit. Video includes MPEG as well as MP4/MOV/MKV/WebM/AVI;
+transport streams and WMA are excluded. TXT, Markdown, CSV/TSV, JSON and JSONL
+display as plain text; PDF and
+Word documents are not supported. JSONL record sources show only the linked
+record. Text reads run off the GUI thread and preview up to 200,000 characters,
+with an explicit notice when truncated. Switching sources cancels pending text
+reads and stops playback without changing the canvas preview source.

@@ -11,13 +11,13 @@ description = """
 EIDORA’s interface follows your workflow across five connected workspaces. Move between them in the main navigation bar.
 """
 
-[project_media_sources]
+[assets_media_sources]
 title = "Media Sources"
 description = """
 Add the folders and files containing your media, and manage them here.
 """
 
-[project_thumbnails]
+[assets_thumbnails]
 title = "Thumbnails"
 description = """
 Create small previews of your media for fast visual browsing in Discovery.

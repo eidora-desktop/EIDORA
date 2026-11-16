@@ -8,13 +8,14 @@ from typing import Any
 
 import numpy as np
 
-from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset
+from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset, MediaSourceKind
 from EmbeddingsArea.runtime.readers import load_embedding_matrix_with_ids
-from EmbeddingsArea.repository import EmbeddingRunRepository, MediaLinkRepository, MediaRepository
+from EmbeddingsArea.repository import EmbeddingRunRepository, MediaRepository
 from MetadataArea.repository import MetadataRepository
 from MetadataArea.group_repository import MetadataGroupRepository
 from MetadataArea.group_service import MetadataGroupService
 from DiscoveryArea.domain import (
+    ItemMediaSource,
     PinnedAnnotation,
     PolygonArea,
     PolygonAreaMetadataWritePreview,
@@ -30,6 +31,7 @@ from DiscoveryArea.filters import (
     filter_matching_from_state_payload,
     required_filter_columns,
 )
+from DiscoveryArea.media_preview_service import supports_media_preview
 from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
 from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
 from DiscoveryArea.discovery_methods.base import ProjectionExecutionResult
@@ -99,6 +101,55 @@ class DiscoveryService:
             project.paths.media / "media_index.db"
         ).linked_assets_for_metadata_ids([int(metadata_id)])
         return assets.get(int(metadata_id))
+
+    def item_metadata_rows(self, project: "Project", metadata_id: int) -> tuple[tuple[str, str], ...]:
+        """Mirror the Items row, including its labels, order and linked values."""
+        from MetadataArea.service import MetadataService
+        from MetadataArea.values import display_value
+
+        metadata = MetadataService(MetadataRepository(
+            project.paths.metadata_database, project.paths.metadata_columns,
+        ))
+        row = metadata.fetch_row(metadata_id)
+        if row is None:
+            return ()
+        return tuple(
+            ("ID" if column.name == "id" else column.label,
+             str(row.id) if column.name == "id" else display_value(row.values.get(column.name, "")))
+            for column in metadata.list_columns()
+        )
+
+    def item_media_sources(self, project: "Project", metadata_id: int) -> tuple[ItemMediaSource, ...]:
+        """List all linked files with catalog labels, keeping the usual preview first."""
+        repository = MediaRepository(project.paths.media / "media_index.db")
+        assets = repository.assets_for_items(
+            [int(metadata_id)], include_inherited=True,
+        ).get(int(metadata_id), [])
+        default = repository.linked_assets_for_metadata_ids([int(metadata_id)]).get(int(metadata_id))
+        sources = {source.id: source for source in repository.list_sources()}
+        if default is not None:
+            assets.sort(key=lambda asset: asset.id != default.id)
+        return tuple(
+            ItemMediaSource(
+                asset.id, asset.source_id, sources[asset.source_id].label,
+                asset.absolute_path, asset.content_type.value,
+                text_record_key=(
+                    asset.source_key
+                    if asset.content_type.value == "text"
+                    and asset.absolute_path.suffix.lower() in {".jsonl", ".ndjson"}
+                    and (
+                        sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN
+                        or (
+                            sources[asset.source_id].source_kind == MediaSourceKind.FILE
+                            and sources[asset.source_id].path.suffix.lower() in {".jsonl", ".ndjson"}
+                        )
+                    )
+                    else ""
+                ),
+            )
+            for asset in assets
+            if supports_media_preview(asset.content_type.value, asset.absolute_path)
+        )
 
     def sync_polygon_area_group(
         self,
@@ -571,7 +622,7 @@ class DiscoveryService:
         metadata_ids: np.ndarray,
     ) -> DiscoveryDataset:
         if option.is_random:
-            return self._random_discovery_dataset(project, metadata_ids)
+            return self._random_discovery_dataset(metadata_ids)
         if option.discovery_file is None:
             return DiscoveryRepository.empty()
         return self._repository.load_coordinates(option.discovery_file, metadata_ids)
@@ -1004,7 +1055,8 @@ class DiscoveryService:
             return canonical_ids
         columns, numeric_columns = required_filter_columns(filters)
         try:
-            text_values, numeric_values = DiscoveryMetadataAccess(project).values_for_ids(
+            access = DiscoveryMetadataAccess(project)
+            text_values, numeric_values = access.values_for_ids(
                 canonical_ids,
                 columns=columns,
                 numeric_columns=numeric_columns,
@@ -1017,6 +1069,7 @@ class DiscoveryService:
             numeric_values,
             canonical_ids,
             filter_matching_from_state_payload(payload),
+            multiple_values=access.multiple_values_for_ids(canonical_ids, columns=columns),
         )
         if mask is None:
             return canonical_ids
@@ -1200,14 +1253,10 @@ class DiscoveryService:
             order = np.concatenate([order, np.array([int(prioritize_last)], dtype=order.dtype)])
         return order
 
-    def _random_discovery_dataset(self, project: "Project", metadata_ids: np.ndarray) -> DiscoveryDataset:
-        """A disposable view, stable per item and never published as an analysis."""
+    @staticmethod
+    def _random_discovery_dataset(metadata_ids: np.ndarray) -> DiscoveryDataset:
+        """One stable point per current Items row, without persisted coordinates."""
         ids = np.asarray(metadata_ids, dtype=np.int64)
-        media_database = project.paths.media / "media_index.db"
-        if ids.size == 0 or not media_database.is_file():
-            return DiscoveryRepository.empty()
-        linked_ids = MediaLinkRepository(media_database).linked_metadata_ids()
-        ids = ids[np.isin(ids, linked_ids)]
         if ids.size == 0:
             return DiscoveryRepository.empty()
         # SplitMix64 gives each ID a stable position, independent of row order,

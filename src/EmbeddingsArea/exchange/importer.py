@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from dataclasses import replace
+from itertools import islice, zip_longest
+from io import BytesIO
 import csv
 import json
 from pathlib import Path
@@ -17,6 +20,7 @@ from EmbeddingsArea.exchange.domain import (
     EmbeddingImportInterpretation,
     EmbeddingImportProbe,
 )
+from EmbeddingsArea.exchange.vector_fields import detect_fields, parse_vector
 from EmbeddingsArea.exchange.formats import (
     ALIASES,
     EIDORA_EMBEDDING_SCHEMA_VERSION,
@@ -57,6 +61,22 @@ def source_fingerprint(path: Path) -> tuple[int, int]:
     return int(stat.st_size), int(stat.st_mtime_ns)
 
 
+def probe_sources(paths) -> EmbeddingImportProbe:
+    """Describe a user-selected batch without loading vector payloads."""
+    members = tuple(probe_source(Path(path)) for path in paths)
+    if not members:
+        raise ValueError("Choose at least one embedding file.")
+    if len(members) == 1:
+        return members[0]
+    return replace(
+        members[0], members=members,
+        format_label=f"{len(members):,} files",
+        size_bytes=sum(member.size_bytes for member in members),
+        row_count_hint=(sum(member.row_count_hint for member in members)
+                        if all(member.row_count_hint is not None for member in members) else None),
+    )
+
+
 def probe_source(path: Path, *, sidecar_path: Path | None = None) -> EmbeddingImportProbe:
     path = Path(path)
     suffix = path.suffix.lower()
@@ -79,49 +99,52 @@ def probe_source(path: Path, *, sidecar_path: Path | None = None) -> EmbeddingIm
     if canonical == ".npy":
         matrix = np.load(path, allow_pickle=False, mmap_mode="r")
         _validate_matrix_header(matrix.shape, matrix.dtype)
-        row_count = int(matrix.shape[0])
+        row_count = int(matrix.shape[0]) if matrix.ndim == 2 else 1
         vectors, default_vector = ("embeddings",), "embeddings"
     elif canonical == ".npz":
         arrays = _npz_headers(path)
-        if "embeddings" not in arrays:
-            raise ValueError("NumPy archive is missing the 'embeddings' array.")
-        shape, dtype = arrays["embeddings"]
-        _validate_matrix_header(shape, dtype)
-        row_count = int(shape[0])
-        vectors, default_vector = ("embeddings",), "embeddings"
-        identifiers = tuple(
-            key
-            for key in ("identifiers", "filenames")
-            if key in arrays
-            and len(arrays[key][0]) == 1
-            and arrays[key][0][0] == row_count
-        )
-        default_identifier = identifiers[0] if identifiers else ""
+        matrices = tuple(key for key, (shape, dtype) in arrays.items()
+                         if len(shape) == 2 and all(shape) and dtype.kind in "fiu")
+        vectors = matrices or tuple(key for key, (shape, dtype) in arrays.items()
+                                   if len(shape) == 1 and all(shape) and dtype.kind in "fiu")
+        default_vector = "embeddings" if "embeddings" in vectors else vectors[0] if len(vectors) == 1 else ""
+        if default_vector:
+            shape, _dtype = arrays[default_vector]
+            row_count = int(shape[0]) if len(shape) == 2 else 1
+        identifiers = tuple(key for key, (shape, _dtype) in arrays.items()
+                            if key not in vectors and len(shape) == 1
+                            and (row_count is None or shape[0] == row_count))
+        default_identifier = _preferred_identifier(identifiers)
         provenance = _npz_provenance(path)
     elif canonical in {".csv", ".tsv"}:
         columns, first = _csv_header(path, canonical)
         if first is None:
             raise ValueError("Expected a nonempty table with a header row.")
-        vectors, wide, identifiers = _table_fields(columns)
-        default_vector = vectors[0] if vectors else ""
+        vectors, wide, identifiers = detect_fields(columns, first)
+        default_vector = vectors[0] if len(vectors) == 1 else ""
         default_identifier = _preferred_identifier(identifiers)
     elif canonical in {".json", ".jsonl"}:
         first, envelope = _probe_json(path, lines=canonical == ".jsonl")
         if envelope is not None:
-            vectors = tuple(key for key in _LIST_VECTOR_FIELDS if _is_vector_collection(envelope.get(key)))
-            identifiers = tuple(key for key in _IDENTIFIER_FIELDS if _is_scalar_collection(envelope.get(key)))
-            if vectors:
-                row_count = len(envelope[vectors[0]])
+            vectors = tuple(key for key, value in envelope.items() if _is_vector_collection(value))
+            identifiers = tuple(key for key, value in envelope.items() if key not in vectors and _is_scalar_collection(value))
+            row_count = None  # Object-array counts are discovered while streaming.
         elif isinstance(first, dict):
-            vectors, wide, identifiers = _table_fields(tuple(str(key) for key in first))
+            vectors, wide, identifiers = detect_fields(tuple(str(key) for key in first), first)
         else:
             raise ValueError("Expected JSON vector records or an object containing vector arrays.")
-        default_vector = vectors[0] if vectors else ""
+        default_vector = vectors[0] if len(vectors) == 1 else ""
         default_identifier = _preferred_identifier(identifiers)
     elif canonical in {".parquet", ".arrow"}:
         columns, row_count, provenance = _arrow_info(path, canonical)
-        vectors, wide, identifiers = _table_fields(columns)
-        default_vector = vectors[0] if vectors else ""
+        sample_batches = _arrow_batches(path, canonical, 1)
+        try:
+            sample_batch = next(sample_batches, None)
+            sample = sample_batch.to_pylist()[0] if sample_batch is not None and sample_batch.num_rows else {}
+        finally:
+            sample_batches.close()
+        vectors, wide, identifiers = detect_fields(columns, sample)
+        default_vector = vectors[0] if len(vectors) == 1 else ""
         default_identifier = _preferred_identifier(identifiers)
     elif canonical == ".h5":
         datasets = _hdf5_datasets(path)
@@ -238,7 +261,25 @@ def iter_source_chunks(
     temporary_path: Path,
     *, chunk_size: int = 4096,
     should_cancel: Callable[[], bool] | None = None,
+    record_sink=None,
 ) -> Iterator[tuple[np.ndarray, list[str] | None]]:
+    if probe.members:
+        if interpretation.identifier_path or interpretation.sidecar_path:
+            raise ValueError("Import files with companion mappings separately.")
+        for member_index, member in enumerate(probe.members):
+            options = replace(
+                interpretation,
+                vector_key=(interpretation.vector_key if interpretation.vector_key in member.vector_candidates
+                            else member.default_vector_key),
+                identifier_key=(interpretation.identifier_key if interpretation.identifier_key in member.identifier_candidates
+                                else member.default_identifier_key),
+                vector_columns=interpretation.vector_columns or member.wide_vector_columns,
+            )
+            directory = temporary_path / f"source_{member_index}"
+            directory.mkdir(exist_ok=True)
+            yield from iter_source_chunks(member, options, directory, chunk_size=chunk_size,
+                                          should_cancel=should_cancel, record_sink=record_sink)
+        return
     path, suffix = probe.source_path, probe.suffix
     external = (
         iter_identifier_values(probe_identifier_source(interpretation.identifier_path), interpretation.identifier_file_key)
@@ -267,11 +308,23 @@ def iter_source_chunks(
                 raise ValueError("Identifier count is smaller than the vector count.") from None
         return output
 
+    def save_array_labels(raw_ids):
+        if record_sink is None or raw_ids is None or not interpretation.identifier_key:
+            return
+        record_sink([{interpretation.identifier_key:
+                      value.decode('utf-8') if isinstance(value, bytes) else str(value)}
+                     for value in raw_ids])
+
     def emit(matrix, raw_ids=None):
+        if getattr(matrix, "ndim", 2) == 1:
+            matrix = matrix.reshape(1, -1)
+            if raw_ids is None and interpretation.identifier_path is None:
+                raw_ids = [path.stem]
         for start in range(0, len(matrix), chunk_size):
             cancelled()
             stop = min(len(matrix), start + chunk_size)
             raw = None if raw_ids is None else raw_ids[start:stop]
+            save_array_labels(raw)
             yield np.asarray(matrix[start:stop]), selected_ids(raw, stop - start)
 
     if suffix == ".npy":
@@ -295,21 +348,30 @@ def iter_source_chunks(
     elif suffix in {".csv", ".tsv"}:
         with path.open(encoding="utf-8-sig", newline="") as handle:
             records = csv.DictReader(handle, delimiter="\t" if suffix == ".tsv" else ",")
-            yield from _emit_record_chunks(records, interpretation, selected_ids, chunk_size, cancelled)
+            yield from _emit_record_chunks(records, interpretation, selected_ids, chunk_size, cancelled, record_sink)
     elif suffix in {".json", ".jsonl"}:
         if suffix == ".jsonl":
-            yield from _emit_record_chunks(_iter_json_lines(path), interpretation, selected_ids, chunk_size, cancelled)
+            yield from _emit_record_chunks(_iter_json_lines(path), interpretation, selected_ids, chunk_size, cancelled, record_sink)
         elif _first_nonspace(path) == "[":
-            yield from _emit_record_chunks(_iter_json_array(path), interpretation, selected_ids, chunk_size, cancelled)
+            yield from _emit_record_chunks(_iter_json_array(path), interpretation, selected_ids, chunk_size, cancelled, record_sink)
         else:
-            payload = json.loads(path.read_text(encoding="utf-8-sig"))
             key = interpretation.vector_key
-            if not isinstance(payload, dict) or key not in payload:
-                raise ValueError(f"Vector field '{key}' was not found.")
-            raw = payload.get(interpretation.identifier_key) if interpretation.identifier_key else None
-            yield from emit(payload[key], raw)
+            vectors = _iter_json_values(path, key)
+            if interpretation.identifier_key:
+                ids = _iter_json_values(path, interpretation.identifier_key)
+                sentinel = object()
+                def records():
+                    for vector, identity in zip_longest(vectors, ids, fillvalue=sentinel):
+                        if vector is sentinel or identity is sentinel:
+                            raise ValueError("Identifier count must equal vector count.")
+                        yield {key: vector, interpretation.identifier_key: identity}
+            else:
+                def records():
+                    for vector in vectors:
+                        yield {key: vector}
+            yield from _emit_record_chunks(records(), interpretation, selected_ids, chunk_size, cancelled, record_sink)
     elif suffix in {".parquet", ".arrow"}:
-        yield from _iter_arrow_chunks(path, suffix, interpretation, selected_ids, chunk_size, cancelled)
+        yield from _iter_arrow_chunks(path, suffix, interpretation, selected_ids, chunk_size, cancelled, record_sink)
     elif suffix == ".h5":
         h5py = _require_dependency("h5py")
         with h5py.File(path, "r") as data:
@@ -321,6 +383,7 @@ def iter_source_chunks(
                 cancelled()
                 stop = min(len(matrix), start + chunk_size)
                 raw = None if ids is None else ids[start:stop]
+                save_array_labels(raw)
                 yield np.asarray(matrix[start:stop]), selected_ids(raw, stop - start)
 
     selected = external if external is not None else sidecar_values
@@ -356,8 +419,7 @@ def iter_identifier_values(probe: EmbeddingImportCompanionProbe, key: str) -> It
             for value in _iter_json_array(path):
                 yield value if key == "<values>" else value.get(key, "")
         else:
-            payload = json.loads(path.read_text(encoding="utf-8-sig"))
-            yield from payload.get(key, [])
+            yield from _iter_json_values(path, key)
     elif suffix in {".parquet", ".arrow"}:
         for batch in _arrow_batches(path, suffix, 4096, [key]):
             yield from batch.column(0).to_pylist()
@@ -381,31 +443,41 @@ def identifier_database(path: Path) -> sqlite3.Connection:
     return connection
 
 
-def _emit_record_chunks(records, interpretation, identifiers, chunk_size, cancelled):
+def _emit_record_chunks(records, interpretation, identifiers, chunk_size, cancelled, record_sink=None):
     vectors: list[list[float]] = []
+    descriptions = []
     raw_ids: list[object] | None = [] if interpretation.identifier_key else None
     for row in records:
         cancelled()
         if not isinstance(row, dict):
             raise ValueError("Every vector record must be an object.")
         vectors.append(_table_vector(row, interpretation))
+        if record_sink is not None:
+            descriptions.append(row)
         if raw_ids is not None:
             raw_ids.append(row.get(interpretation.identifier_key, ""))
         if len(vectors) == chunk_size:
+            if record_sink is not None:
+                record_sink(descriptions)
+                descriptions = []
             yield np.asarray(vectors), identifiers(raw_ids, len(vectors))
             vectors, raw_ids = [], [] if interpretation.identifier_key else None
     if vectors:
+        if record_sink is not None:
+            record_sink(descriptions)
         yield np.asarray(vectors), identifiers(raw_ids, len(vectors))
 
 
-def _iter_arrow_chunks(path, suffix, interpretation, identifiers, chunk_size, cancelled):
+def _iter_arrow_chunks(path, suffix, interpretation, identifiers, chunk_size, cancelled, record_sink=None):
     columns = list(interpretation.vector_columns)
     if interpretation.vector_key:
         columns = [interpretation.vector_key]
     if interpretation.identifier_key and interpretation.identifier_key not in columns:
         columns.append(interpretation.identifier_key)
-    for batch in _arrow_batches(path, suffix, chunk_size, columns):
+    for batch in _arrow_batches(path, suffix, chunk_size, None if record_sink is not None else columns):
         cancelled()
+        if record_sink is not None:
+            record_sink(batch.to_pylist())
         matrix = _arrow_vector_matrix(batch, interpretation)
         raw = (
             _arrow_column(batch, interpretation.identifier_key).to_pylist()
@@ -455,10 +527,7 @@ def _arrow_info(
             reader = pa.ipc.open_file(source)
             return (
                 tuple(reader.schema.names),
-                sum(
-                    reader.get_batch(index).num_rows
-                    for index in range(reader.num_record_batches)
-                ),
+                None,  # IPC has no cheap total; count during the streaming import.
                 _schema_provenance(reader.schema.metadata),
             )
         except pa.ArrowInvalid:
@@ -497,9 +566,7 @@ def _arrow_vector_matrix(batch, interpretation: EmbeddingImportInterpretation):
         if pa.types.is_list(column.type) or pa.types.is_large_list(column.type):
             dtype = column.flatten().to_numpy(zero_copy_only=False).dtype
             return np.asarray(column.to_pylist(), dtype=dtype)
-        raise ValueError(
-            f"Arrow field '{interpretation.vector_key}' is not a vector-list column."
-        )
+        return np.asarray([parse_vector(value) for value in column.to_pylist()])
     return np.column_stack(
         [
             _arrow_column(batch, name).to_numpy(zero_copy_only=False)
@@ -569,7 +636,11 @@ def _table_fields(columns: tuple[str, ...]):
 
 
 def _preferred_identifier(candidates: tuple[str, ...]) -> str:
-    return next((name for name in _IDENTIFIER_FIELDS if name in candidates), "")
+    known = next((name for name in candidates if name.lower() in _IDENTIFIER_FIELDS), "")
+    if known:
+        return known
+    keys = [name for name in candidates if name.lower().endswith(("_id", "_key"))]
+    return keys[0] if len(keys) == 1 else candidates[0] if len(candidates) == 1 else ""
 
 
 def _wide_columns(columns: tuple[str, ...]) -> tuple[str, ...]:
@@ -579,12 +650,7 @@ def _wide_columns(columns: tuple[str, ...]) -> tuple[str, ...]:
 
 def _table_vector(row: dict[str, object], interpretation: EmbeddingImportInterpretation) -> list[float]:
     if interpretation.vector_key:
-        value = row.get(interpretation.vector_key)
-        if isinstance(value, str):
-            value = json.loads(value)
-        if not isinstance(value, (list, tuple, np.ndarray)):
-            raise ValueError(f"Vector field '{interpretation.vector_key}' is not an array.")
-        return [float(item) for item in value]
+        return parse_vector(row.get(interpretation.vector_key))
     if not interpretation.vector_columns:
         raise ValueError("Choose the vector columns to import.")
     return [float(row[name]) for name in interpretation.vector_columns]
@@ -601,10 +667,30 @@ def _probe_json(path: Path, *, lines: bool):
             return next(_iter_json_array(path)), None
         except StopIteration:
             raise ValueError("The selected JSON array is empty.") from None
-    payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    if not isinstance(payload, dict):
-        raise ValueError("Expected a JSON array or object.")
-    return None, payload
+    ijson = _require_dependency("ijson")
+    with path.open("rb") as handle:
+        sample = handle.read(256 * 1024)
+    fields = {}
+    try:
+        for prefix, event, value in ijson.parse(BytesIO(sample), use_float=True):
+            if prefix.endswith(".item.item") and event == "number":
+                key = prefix[:-10]
+                fields.setdefault(key, [[value]])
+            elif prefix.endswith(".item") and event in {"string", "number"}:
+                key = prefix[:-5]
+                fields.setdefault(key, [value])
+    except ijson.IncompleteJSONError:
+        if len(sample) < path.stat().st_size:
+            pass  # Detection is deliberately bounded; import validates the full stream.
+        else:
+            raise ValueError("The JSON document is incomplete or malformed.") from None
+    return None, fields
+
+
+def _iter_json_values(path, key):
+    ijson = _require_dependency("ijson")
+    with path.open("rb") as handle:
+        yield from ijson.items(handle, f"{key}.item", use_float=True)
 
 
 def _iter_json_lines(path: Path):
@@ -762,7 +848,7 @@ def _hdf5_provenance(path: Path) -> dict[str, object]:
 
 
 def _validate_matrix_header(shape, dtype) -> None:
-    if len(shape) != 2 or not all(shape) or np.dtype(dtype).kind not in "fiu":
+    if len(shape) not in {1, 2} or not all(shape) or np.dtype(dtype).kind not in "fiu":
         raise ValueError("Select a nonempty two-dimensional numeric vector matrix.")
 
 

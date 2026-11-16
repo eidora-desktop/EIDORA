@@ -2,19 +2,24 @@ from __future__ import annotations
 
 import html
 import re
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from MetadataArea.domain import MetadataColumn, MetadataRow, MetadataSearchMatch
 from MetadataArea.service import MetadataService
+from MetadataArea.values import display_value
 
 
 class MetadataTableModel(QtCore.QAbstractTableModel):
     """Read-only table model that pages metadata rows from the project store."""
 
     sort_order_changed = QtCore.Signal()
+    load_failed = QtCore.Signal(str)
 
     PAGE_SIZE = 200
+    MAX_CACHED_PAGES = 4
     MATCH_RANGES_ROLE = QtCore.Qt.ItemDataRole.UserRole + 1
     MARKER_BACKGROUND = "#fff176"
     MARKER_FOREGROUND = "#000000"
@@ -26,7 +31,19 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         self._row_count = 0
         self._order_by = "id"
         self._descending = False
-        self._cache: dict[int, list[MetadataRow]] = {}
+        self._cache: OrderedDict[int, list[MetadataRow]] = OrderedDict()
+        self._generation = 0
+        self._closed = False
+        self._requested_pages = OrderedDict()
+        self._errors = {}
+        self._future = None
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='metadata-preview')
+        self._poll_timer = QtCore.QTimer(self)
+        self._poll_timer.setInterval(15)
+        self._poll_timer.timeout.connect(self._poll_page)
+        # Workers only own a service and plain results, never a Qt object.
+        executor = self._executor
+        self.destroyed.connect(lambda: executor.shutdown(wait=False, cancel_futures=True))
         self._match_cells_by_row: dict[int, tuple[int, ...]] = {}
         self._active_match: MetadataSearchMatch | None = None
         self._search_query = ""
@@ -37,10 +54,61 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         self._pending_page = False
 
     def set_publication_active(self, active: bool) -> None:
+        was_active = self._publication_active
         self._publication_active = active
-        if not active and self._pending_page:
+        if active:
+            self._invalidate_pages(clear_cache=False)
+        if not active and was_active:
+            self._invalidate_pages()
             self._pending_page = False
             self._emit_all_data_changed()
+
+    def shutdown(self) -> None:
+        self._closed = True
+        self._invalidate_pages()
+        self._poll_timer.stop()
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def _invalidate_pages(self, *, clear_cache=True):
+        self._generation += 1
+        if clear_cache:
+            self._cache.clear()
+        self._requested_pages.clear()
+        self._errors.clear()
+
+    def _start_page(self):
+        if self._future is not None or self._closed or self._publication_active or not self._requested_pages:
+            return
+        page, _ = self._requested_pages.popitem(last=True)
+        self._loading_page = page
+        self._loading_generation = self._generation
+        self._future = self._executor.submit(
+            self._service.fetch_rows, order_by=self._order_by, descending=self._descending,
+            limit=self.PAGE_SIZE, offset=page)
+        self._poll_timer.start()
+
+    def _poll_page(self):
+        if self._future is None or not self._future.done():
+            return
+        future, self._future = self._future, None
+        page = self._loading_page
+        if self._loading_generation == self._generation and not self._closed:
+            try:
+                self._cache_page(page, future.result())
+            except Exception as exc:
+                self._errors[page] = str(exc)
+                self.load_failed.emit(f'Metadata preview failed: {exc}')
+            self.dataChanged.emit(self.index(page, 0),
+                                  self.index(min(self._row_count, page + self.PAGE_SIZE) - 1, len(self._columns) - 1),
+                                  [])
+        self._poll_timer.stop()
+        self._start_page()
+
+    def _cache_page(self, page, rows):
+        self._cache[page] = rows
+        self._cache.move_to_end(page)
+        while len(self._cache) > self.MAX_CACHED_PAGES:
+            self._cache.popitem(last=False)
 
     @property
     def order_by(self) -> str:
@@ -62,7 +130,7 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         self._row_count = row_count
         self._order_by = "id"
         self._descending = False
-        self._cache.clear()
+        self._invalidate_pages()
         self._match_cells_by_row.clear()
         self._active_match = None
         self._search_query = ""
@@ -78,7 +146,7 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         self._row_count = 0
         self._order_by = "id"
         self._descending = False
-        self._cache.clear()
+        self._invalidate_pages()
         self._match_cells_by_row.clear()
         self._active_match = None
         self._search_query = ""
@@ -106,6 +174,18 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
             value = self._value_for_index(index)
             if value is None:
                 return None
+            row = self._row_at(index.row())
+            cell = row.resolved.get(self._columns[index.column()].name) if row else None
+            if cell and (len(cell.records) > 1 or cell.is_list):
+                from MetadataArea.table_repository import list_tables
+                names = {table.id: table.name for table in list_tables(self._service._repository.database_path)}
+                details = '\n'.join(f'{names.get(record.source_table, "Items")}: {display_value(record.value)}' for record in cell.records)
+                if len(cell.values) > 1:
+                    details += '\nMultiple values: scalar visual mappings are unmapped.'
+                action = ('Double-click to open a source record.'
+                          if any(record.source_table != 'metadata' for record in cell.records)
+                          else 'Double-click to edit the list as JSON.')
+                return self._wrapped_tooltip(details + '\n' + action)
             return self._wrapped_tooltip(str(value))
         if role not in (
             QtCore.Qt.ItemDataRole.DisplayRole,
@@ -125,12 +205,19 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
             and orientation == QtCore.Qt.Orientation.Horizontal
         ):
             return QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
+        if orientation == QtCore.Qt.Orientation.Horizontal and 0 <= section < len(self._columns):
+            source_tab = self._columns[section].source_tab
+            if source_tab and role == QtCore.Qt.ItemDataRole.ToolTipRole:
+                return source_tab
+            if source_tab and role == QtCore.Qt.ItemDataRole.DecorationRole:
+                from shared.qt.icons import current_icon_color, tinted_icon_pixmap
+                return QtGui.QIcon(tinted_icon_pixmap("metadata_link", QtCore.QSize(14, 14), current_icon_color()))
         if role != QtCore.Qt.ItemDataRole.DisplayRole:
             return None
         if orientation == QtCore.Qt.Orientation.Horizontal and 0 <= section < len(self._columns):
             if self._columns[section].name == "id":
                 return "ID"
-            return self._columns[section].name
+            return self._columns[section].label
         if orientation == QtCore.Qt.Orientation.Vertical:
             return str(section + 1)
         return None
@@ -144,7 +231,7 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         self.layoutAboutToBeChanged.emit()
         self._order_by = self._columns[column].name
         self._descending = order == QtCore.Qt.SortOrder.DescendingOrder
-        self._cache.clear()
+        self._invalidate_pages()
         self.clear_search_matches()
         self.layoutChanged.emit()
         # Rebuild row-offset search results after the view has handled the layout.
@@ -163,7 +250,7 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         if row_index < 0 or row_index >= self._row_count or not self._columns:
             return
         page_start = (row_index // self.PAGE_SIZE) * self.PAGE_SIZE
-        self._cache.pop(page_start, None)
+        self._invalidate_pages()
         self.dataChanged.emit(
             self.index(row_index, 0),
             self.index(row_index, len(self._columns) - 1),
@@ -177,7 +264,7 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
 
     def refresh_current_order(self) -> None:
         self.layoutAboutToBeChanged.emit()
-        self._cache.clear()
+        self._invalidate_pages()
         self.layoutChanged.emit()
         self._emit_all_data_changed()
 
@@ -210,20 +297,33 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         self._emit_all_data_changed()
 
     def _row_at(self, row_index: int) -> MetadataRow | None:
-        if self._service is None or row_index < 0 or row_index >= self._row_count:
+        if self._closed or self._service is None or row_index < 0 or row_index >= self._row_count:
             return None
         page_start = (row_index // self.PAGE_SIZE) * self.PAGE_SIZE
         if page_start not in self._cache:
             if self._publication_active:
                 self._pending_page = True
                 return None
-            self._cache[page_start] = self._service.fetch_rows(
+            if page_start in self._errors:
+                return None
+            if self._row_count > self.PAGE_SIZE:
+                if not (self._future is not None and self._loading_page == page_start
+                        and self._loading_generation == self._generation):
+                    self._requested_pages[page_start] = None
+                    self._requested_pages.move_to_end(page_start)
+                    while len(self._requested_pages) > 2:
+                        self._requested_pages.popitem(last=False)
+                    self._start_page()
+                return None
+            # Tiny tables have bounded work and do not need a worker round trip.
+            self._cache_page(page_start, self._service.fetch_rows(
                 order_by=self._order_by,
                 descending=self._descending,
                 limit=self.PAGE_SIZE,
                 offset=page_start,
-            )
+            ))
         page = self._cache[page_start]
+        self._cache.move_to_end(page_start)
         page_index = row_index - page_start
         if page_index >= len(page):
             return None
@@ -231,12 +331,15 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
 
     def _value_for_index(self, index: QtCore.QModelIndex | QtCore.QPersistentModelIndex) -> str | None:
         row = self._row_at(index.row())
-        if row is None or not 0 <= index.column() < len(self._columns):
+        if row is None:
+            page = (index.row() // self.PAGE_SIZE) * self.PAGE_SIZE
+            return 'Unable to load' if page in self._errors else None
+        if not 0 <= index.column() < len(self._columns):
             return None
         column = self._columns[index.column()]
         if column.name == "id":
             return str(row.id)
-        return row.values.get(column.name, "")
+        return display_value(row.values.get(column.name, ""))
 
     def _match_ranges_for_index(self, index: QtCore.QModelIndex | QtCore.QPersistentModelIndex):
         matching_columns = self._match_cells_by_row.get(index.row(), ())
@@ -273,7 +376,7 @@ class MetadataTableModel(QtCore.QAbstractTableModel):
         self.dataChanged.emit(
             top_left,
             bottom_right,
-            [self.MATCH_RANGES_ROLE],
+            [],
         )
 
     @staticmethod

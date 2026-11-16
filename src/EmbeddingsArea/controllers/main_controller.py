@@ -36,11 +36,13 @@ class EmbeddingsAreaController:
         self._status_callback = status_callback
         self._activity_manager = activity_manager
         self._metadata_changed_callback: Callable[[], None] | None = None
+        self._thumbnails_requested_callback = None
         self._panels: list[UiPanelController] = []
         self._vector_data_panel: VectorDataPanelController | None = None
         self._local_models_panel: LocalModelsPanelController | None = None
         self._model_install_coordinator = ModelInstallCoordinator(activity_manager)
         self._execution_coordinator = ExecutionCoordinator(activity_manager)
+        self._execution_coordinator.thumbnails_requested.connect(self._start_default_thumbnails)
         self._model_zoo_dialog: ModelZooDialogController | None = None
         self._load_panels()
         QtCore.QTimer.singleShot(0, self._configure_layout_splitters)
@@ -81,6 +83,16 @@ class EmbeddingsAreaController:
 
     def set_metadata_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._metadata_changed_callback = callback
+
+    def set_thumbnails_requested_callback(self, callback) -> None:
+        self._thumbnails_requested_callback = callback
+
+    def _start_default_thumbnails(self, run_id: str) -> None:
+        if self._thumbnails_requested_callback is not None:
+            try:
+                self._thumbnails_requested_callback(run_id)
+            except Exception as exc:  # The embedding has already completed.
+                self._show_status(f"Could not start default thumbnails: {exc}")
 
     def refresh_clustering_groups(self):
         if self._vector_data_panel is not None:
@@ -243,6 +255,8 @@ class EmbeddingsAreaController:
         except Exception as exc:  # noqa: BLE001
             self._show_status(str(exc))
         self._refresh_views()
+        if self._vector_data_panel is not None:
+            self._vector_data_panel.select_output("embedding", submitted)
 
     def _notify_metadata_changed(self) -> None:
         if self._metadata_changed_callback is not None:

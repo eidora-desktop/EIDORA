@@ -160,12 +160,12 @@ def inspect_media_source(
                     if content_type is None:
                         continue
                     relative_path = (
-                        file_path.name if source_path.is_file()
+                        file_path.name if file_path == source_path
                         else file_path.relative_to(root).as_posix()
                     )
                     batch.append((
                         relative_path,
-                        str(file_path.resolve()),
+                        str(file_path),
                         "",
                         content_type.value,
                         int(stat.st_size),
@@ -249,20 +249,16 @@ def iter_inspected_media_assets(
                         scanned_at=scanned_at,
                     )
             return
-        for relative_path, absolute_path, _member_name, _recorded_size, _recorded_mtime in rows:
+        for relative_path, absolute_path, _member_name, recorded_size, recorded_mtime in rows:
             if should_cancel and should_cancel():
                 raise RuntimeError("Media indexing cancelled.")
             asset_path = Path(str(absolute_path))
-            try:
-                stat = asset_path.stat()
-            except OSError:
-                continue
             yield _inspected_media_asset(
                 source,
                 relative_path=str(relative_path),
                 absolute_path=asset_path,
-                size_bytes=int(stat.st_size),
-                mtime_ns=_mtime_ns(stat),
+                size_bytes=recorded_size,
+                mtime_ns=recorded_mtime,
                 scanned_at=scanned_at,
             )
 

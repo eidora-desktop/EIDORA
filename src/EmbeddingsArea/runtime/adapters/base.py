@@ -32,6 +32,8 @@ class AdapterRunConfig:
     package_directory: Path | None = None
     phase_callback: Callable[[str], None] | None = None
     prepared_batch_budget_bytes: int = 256 * 1024 * 1024
+    batch_size: int = 8
+    batch_profile: object | None = None
 
 
 class RuntimeEmbeddingAdapter(Protocol):

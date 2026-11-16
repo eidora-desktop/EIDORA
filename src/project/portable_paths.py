@@ -6,7 +6,7 @@ class ProjectPaths:
     def __init__(self, root: Path | None):
         self.root = Path(root).resolve() if root is not None else None
 
-    def encode(self, value: Path | str | None) -> str:
+    def encode(self, value: Path | str | None, *, resolved: bool = False) -> str:
         if not value:
             return ""
         text = str(value)
@@ -18,7 +18,7 @@ class ProjectPaths:
                 return text
             return text.replace("\\", "/")
         try:
-            return path.resolve().relative_to(self.root).as_posix()
+            return (path if resolved else path.resolve()).relative_to(self.root).as_posix()
         except ValueError:
             return text
 

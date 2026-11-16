@@ -9,6 +9,16 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
+class ItemMediaSource:
+    asset_id: str
+    source_id: str
+    label: str
+    path: Path
+    content_type: str
+    text_record_key: str = ""
+
+
+@dataclass(frozen=True)
 class Discovery:
     name: str
     method: str

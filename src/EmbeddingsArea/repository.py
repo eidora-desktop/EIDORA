@@ -3,12 +3,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import asdict, replace
 import hashlib
-from itertools import zip_longest
+from itertools import islice, zip_longest
 import json
 from pathlib import Path
+import re
 import sqlite3
 from tempfile import TemporaryDirectory
-from contextlib import closing
+from contextlib import closing, nullcontext
 
 from EmbeddingsArea.domain import (
     EmbeddingRun,
@@ -53,6 +54,22 @@ class EmbeddingRunRepository:
         with closing(self._connect()) as connection, connection:
             self._upsert_run(connection, run)
             connection.commit()
+
+    def validate_run_label(self, label: str, *, exclude_run_id: str = "") -> str:
+        with closing(self._connect()) as connection:
+            return self._validate_run_label(connection, label, exclude_run_id)
+
+    @staticmethod
+    def _validate_run_label(connection, label: str, exclude_run_id: str = "") -> str:
+        normalized = label.strip()
+        if not normalized:
+            raise ValueError("Enter a name for the embedding.")
+        labels = connection.execute(
+            "SELECT label FROM embedding_runs WHERE id != ?", (exclude_run_id,)
+        )
+        if any(row[0].strip().casefold() == normalized.casefold() for row in labels):
+            raise ValueError("An embedding output with this name already exists.")
+        return normalized
 
     def list_runs(self) -> list[EmbeddingRun]:
         with closing(self._connect()) as connection, connection:
@@ -108,46 +125,91 @@ class EmbeddingRunRepository:
             self._replace_run_inputs(connection, run.id, inputs)
             connection.commit()
 
+    def publish_generated_run(self, run, inputs, metadata_database, *, expected_metadata_revision=None):
+        from MetadataArea.repository import MetadataRepository
+        from MetadataArea.table_repository import MetadataTableRepository
+        from EmbeddingsArea.item_binding import bind_generated_items
+        metadata = MetadataRepository(metadata_database)
+        with closing(metadata._connect()) as connection, connection:
+            MetadataTableRepository._ensure_catalog(connection)
+        with closing(self._connect()) as connection, connection:
+            connection.execute("ATTACH DATABASE ? AS imported_metadata", (str(metadata_database),))
+            from project.domain import ProjectStoragePaths
+            media_path = ProjectStoragePaths(self._database_path.parent.parent).media / 'media_index.db'
+            if media_path.exists():
+                connection.execute("ATTACH DATABASE ? AS media_store", (str(media_path),))
+            connection.execute("BEGIN IMMEDIATE")
+            if expected_metadata_revision is not None:
+                revision = connection.execute("SELECT value FROM imported_metadata.metadata_state WHERE key='revision'").fetchone()
+                if (int(revision[0]) if revision else 0) != expected_metadata_revision:
+                    raise ValueError("Items or metadata changed during execution. Prepare the run again.")
+            bound = bind_generated_items(connection, inputs)
+            if media_path.exists():
+                affected = set()
+                for observation in bound:
+                    for part in observation.components or (observation,):
+                        if connection.execute("SELECT 1 FROM media_store.media_assets asset JOIN media_store.media_sources source ON source.id=asset.source_id WHERE asset.id=? AND source.source_kind!='metadata_column'", (part.media_item_id,)).fetchone():
+                            connection.execute("""INSERT OR IGNORE INTO media_store.media_links
+                                (id,media_asset_id,source_id,metadata_row_id,metadata_column,matched_value,strategy,status,confidence,is_manual,created_at,updated_at)
+                                VALUES (?,?,?,?,?,?,'manual','linked',1,0,?,?)""",
+                                (f'run_{run.id}_{observation.ordinal}_{part.media_item_id}', part.media_item_id,
+                                 part.source_id, observation.metadata_row_id, '', part.source_key, run.updated_at, run.updated_at))
+                            affected.add(part.source_id)
+                for source in affected:
+                    MediaLinkRepository._finish_publication(connection, source, run.updated_at)
+            self._replace_run_inputs(connection, run.id, bound)
+            self._upsert_run(connection, run)
+            connection.execute("UPDATE imported_metadata.metadata_state SET value=CAST(value AS INTEGER)+1 WHERE key='revision'")
+
     def save_imported_run(
         self,
         run,
         inputs,
         *,
         metadata_database: Path,
-        create_identifiers=None,
+        create_items=False,
         metadata_column="",
+        source_identifier_column="",
         expected_metadata_fingerprint: str = "",
         expected_row_order_fingerprint: str = "",
+        expected_metadata_revision=None,
+        create_unmatched=False,
+        metadata_table="metadata",
+        description_columns=(),
+        description_rows=None,
+        conflict_policy="ask",
     ) -> None:
         """Publish links and optional metadata rows in one SQLite transaction."""
+        if not re.fullmatch(r"metadata|table_[0-9a-f]{32}", metadata_table):
+            raise ValueError("Invalid metadata table identity.")
+        schema_table = "metadata_column_schema" if metadata_table == "metadata" else f"{metadata_table}_columns"
         metadata_database.parent.mkdir(parents=True, exist_ok=True)
         with closing(self._connect()) as connection, connection:
             connection.execute("ATTACH DATABASE ? AS imported_metadata", (str(metadata_database),))
             connection.execute("BEGIN IMMEDIATE")
-            if create_identifiers is not None:
-                connection.execute("CREATE TABLE IF NOT EXISTS imported_metadata.metadata (id INTEGER PRIMARY KEY AUTOINCREMENT)")
-                if connection.execute("SELECT COUNT(*) FROM imported_metadata.metadata").fetchone()[0]:
-                    raise ValueError("Metadata changed after inspection. Inspect the import again.")
-                columns = {row[1] for row in connection.execute("PRAGMA imported_metadata.table_info(metadata)")}
-                if "embedding_identifier" not in columns:
-                    connection.execute("ALTER TABLE imported_metadata.metadata ADD COLUMN embedding_identifier TEXT")
-                sentinel = object()
+            if expected_metadata_revision is not None:
+                row = connection.execute("SELECT value FROM imported_metadata.metadata_state WHERE key='revision'").fetchone()
+                if (int(row[0]) if row else 0) != expected_metadata_revision:
+                    raise ValueError("Metadata changed after preview. Inspect the import again.")
+            if create_items or create_unmatched:
+                column = metadata_column or source_identifier_column
+                quoted = '"' + column.replace('"', '""') + '"'
+                columns = {row[1] for row in connection.execute(f"PRAGMA imported_metadata.table_info({metadata_table})")}
+                if column and column not in columns:
+                    connection.execute(f"ALTER TABLE imported_metadata.{metadata_table} ADD COLUMN {quoted} TEXT")
+                registry = "project_items" if metadata_table == "metadata" else "source_record_indexes"
+                connection.execute(f"UPDATE imported_metadata.sqlite_sequence SET seq=MAX(seq, COALESCE((SELECT seq FROM imported_metadata.sqlite_sequence WHERE name='{registry}'),0)) WHERE name='{metadata_table}'")
                 source_inputs = inputs
-                source_identifiers = create_identifiers
 
                 def linked_inputs():
-                    for item, identifier in zip_longest(
-                        source_inputs, source_identifiers, fillvalue=sentinel
-                    ):
-                        if item is sentinel or identifier is sentinel:
-                            raise ValueError(
-                                "Identifier count must equal the imported vector count."
-                            )
-                        cursor = connection.execute(
-                            "INSERT INTO imported_metadata.metadata (embedding_identifier) VALUES (?)",
-                            (str(identifier),),
-                        )
-                        yield replace(item, metadata_row_id=int(cursor.lastrowid))
+                    for item in source_inputs:
+                        if item.metadata_row_id is None:
+                            cursor = (connection.execute(
+                                f"INSERT INTO imported_metadata.{metadata_table} ({quoted}) VALUES (?)", (item.source_key,),
+                            ) if column else connection.execute(
+                                f"INSERT INTO imported_metadata.{metadata_table} DEFAULT VALUES"))
+                            item = replace(item, metadata_row_id=int(cursor.lastrowid))
+                        yield item
 
                 inputs = linked_inputs()
             elif metadata_column:
@@ -156,7 +218,7 @@ class EmbeddingRunRepository:
                 quoted = '"' + metadata_column.replace('"', '""') + '"'
                 digest = hashlib.sha256()
                 rows = connection.execute(
-                    f"SELECT id, {quoted} FROM imported_metadata.metadata ORDER BY id"
+                    f"SELECT id, {quoted} FROM imported_metadata.{metadata_table} ORDER BY id"
                 )
                 for row in rows:
                     value = "" if row[1] is None else str(row[1]).strip()
@@ -169,14 +231,72 @@ class EmbeddingRunRepository:
             elif expected_row_order_fingerprint:
                 digest = hashlib.sha256()
                 for row in connection.execute(
-                    "SELECT id FROM imported_metadata.metadata ORDER BY id"
+                    f"SELECT id FROM imported_metadata.{metadata_table} ORDER BY id"
                 ):
                     digest.update(str(int(row[0])).encode("ascii"))
                     digest.update(b"\n")
                 if digest.hexdigest() != expected_row_order_fingerprint:
                     raise ValueError("Metadata changed after matching. Match the rows again.")
+            if description_columns:
+                existing_columns = {row[1] for row in connection.execute(f"PRAGMA imported_metadata.table_info({metadata_table})")}
+                for name in description_columns:
+                    if name == "id":
+                        raise ValueError("Imported descriptions cannot replace permanent IDs.")
+                    field = '"' + name.replace('"', '""') + '"'
+                    if name not in existing_columns:
+                        connection.execute(f"ALTER TABLE imported_metadata.{metadata_table} ADD COLUMN {field} TEXT")
+                linked = inputs
+                fields = {name: '"' + name.replace('"', '""') + '"' for name in description_columns}
+                select_fields = ','.join(fields.values())
+
+                def described_inputs():
+                    for item, values in zip(linked, description_rows, strict=True):
+                        current = connection.execute(
+                            f"SELECT {select_fields} FROM imported_metadata.{metadata_table} WHERE id=?",
+                            (item.metadata_row_id,),
+                        ).fetchone()
+                        existing = dict(zip(fields, current)) if current else {}
+                        updates = {}
+                        for name, value in values.items():
+                            if name not in fields or not value:
+                                continue
+                            old = str(existing.get(name) or '')
+                            if old and old != value:
+                                if conflict_policy == 'ask':
+                                    raise ValueError("Metadata values changed; review the conflicts again.")
+                                if conflict_policy == 'keep':
+                                    continue
+                            updates[name] = value
+                        if updates:
+                            assignments = ','.join(f'{fields[name]}=?' for name in updates)
+                            connection.execute(
+                                f"UPDATE imported_metadata.{metadata_table} SET {assignments} WHERE id=?",
+                                (*updates.values(), item.metadata_row_id),
+                            )
+                        yield item
+                inputs = described_inputs()
+            if metadata_table != 'metadata':
+                from EmbeddingsArea.item_binding import bind_source_items
+                inputs = bind_source_items(connection, inputs, metadata_table)
             self._upsert_run(connection, run)
             self._replace_run_inputs(connection, run.id, inputs)
+            if metadata_table != 'metadata':
+                connection.execute("UPDATE imported_metadata.metadata_state SET value=CAST(value AS INTEGER)+1 WHERE key='revision'")
+            if create_items or create_unmatched:
+                if column:
+                    unique = connection.execute(f"SELECT COUNT(DISTINCT {quoted}) FROM imported_metadata.{metadata_table}").fetchone()[0]
+                    connection.execute(
+                        f"INSERT INTO imported_metadata.{schema_table}(name,position,value_type,nullable,unique_values) "
+                        "VALUES (?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET unique_values=excluded.unique_values",
+                        (column, len(columns)-1, "text", 1, unique),
+                    )
+                connection.execute("INSERT INTO imported_metadata.metadata_state(key,value) VALUES ('revision','1') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1")
+            if description_columns:
+                for position,name in enumerate(description_columns):
+                    field = '"' + name.replace('"', '""') + '"'
+                    unique = connection.execute(f"SELECT COUNT(DISTINCT {field}) FROM imported_metadata.{metadata_table}").fetchone()[0]
+                    connection.execute(f"INSERT INTO imported_metadata.{schema_table}(name,position,value_type,nullable,unique_values) VALUES (?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET unique_values=excluded.unique_values", (name,position,'text',1,unique))
+                connection.execute("UPDATE imported_metadata.metadata_state SET value=CAST(value AS INTEGER)+1 WHERE key='revision'")
             connection.commit()
 
     def count_run_inputs(self, run_id: str) -> int:
@@ -394,6 +514,14 @@ class EmbeddingRunRepository:
         return connection
 
     def _upsert_run(self, connection: sqlite3.Connection, run: EmbeddingRun) -> None:
+        if not connection.in_transaction:
+            connection.execute("BEGIN IMMEDIATE")
+        previous = connection.execute(
+            "SELECT label FROM embedding_runs WHERE id = ?", (run.id,)
+        ).fetchone()
+        # Unnamed drafts and progress updates of legacy runs remain valid.
+        if run.label.strip() and (previous is None or previous[0] != run.label):
+            self._validate_run_label(connection, run.label, run.id)
         connection.execute(
             """
                 INSERT INTO embedding_runs (
@@ -662,56 +790,72 @@ class MediaRepository:
 
     def synchronize_source_assets(
         self, source_id, assets, *, updated_at, batch_size=2000,
-        progress_callback=None, should_cancel=None, stage_callback=None,
+        progress_callback=None, should_cancel=None, stage_callback=None, replacement_path=None, inspected=False, expected_count=0,
     ):
         """Discover once off-store, then publish one complete catalog generation."""
         from EmbeddingsArea.domain import MediaProgress
-        count, scan_cursor = 0, ""
-        with TemporaryDirectory(prefix="eidora-media-scan-") as directory:
-            stage_path = Path(directory) / "scan.db"
-            with closing(self._connect()) as connection:
-                schema = connection.execute("SELECT sql FROM sqlite_master WHERE name='media_assets'").fetchone()[0]
-            with closing(sqlite3.connect(stage_path)) as stage, stage:
-                stage.execute(schema)
-                batch = []
-                for asset in assets:
-                    if should_cancel and should_cancel():
-                        raise RuntimeError("Media indexing cancelled.")
-                    batch.append(asset)
-                    scan_cursor = asset.relative_path
-                    if len(batch) == batch_size:
+        count, scan_cursor = expected_count if inspected else 0, ""
+        staging = nullcontext() if inspected else TemporaryDirectory(prefix="eidora-media-scan-")
+        with staging as directory:
+            if not inspected:
+                stage_path = Path(directory) / "scan.db"
+                with closing(self._connect()) as connection:
+                    schema = connection.execute("SELECT sql FROM sqlite_master WHERE name='media_assets'").fetchone()[0]
+                with closing(sqlite3.connect(stage_path)) as stage, stage:
+                    stage.execute(schema)
+                    batch = []
+                    for asset in assets:
+                        if should_cancel and should_cancel():
+                            raise RuntimeError("Media indexing cancelled.")
+                        batch.append(asset)
+                        scan_cursor = asset.relative_path
+                        if len(batch) == batch_size:
+                            self._upsert_assets(stage, batch, strict=True)
+                            count += len(batch)
+                            batch.clear()
+                            if progress_callback:
+                                progress_callback(count)
+                            if stage_callback:
+                                stage_callback(MediaProgress("Discovering files", count))
+                    if batch:
                         self._upsert_assets(stage, batch, strict=True)
                         count += len(batch)
-                        batch.clear()
                         if progress_callback:
                             progress_callback(count)
-                        if stage_callback:
-                            stage_callback(MediaProgress("Discovering files", count))
-                if batch:
-                    self._upsert_assets(stage, batch, strict=True)
-                    count += len(batch)
-                    if progress_callback:
-                        progress_callback(count)
-                stage.commit()
+                    stage.commit()
             if should_cancel and should_cancel():
                 raise RuntimeError("Media indexing cancelled.")
             with closing(self._connect()) as connection:
-                connection.execute("ATTACH DATABASE ? AS scan_stage", (str(stage_path),))
+                if not inspected:
+                    connection.execute("ATTACH DATABASE ? AS scan_stage", (str(stage_path),))
                 if should_cancel:
                     connection.set_progress_handler(lambda: int(should_cancel()), 1000)
                 try:
                     connection.execute("BEGIN IMMEDIATE")
                     connection.execute("UPDATE media_assets SET status=?,updated_at=? WHERE source_id=?",
                                        (MediaAssetStatus.MISSING.value, updated_at, source_id))
-                    cursor = connection.execute("SELECT * FROM scan_stage.media_assets ORDER BY rowid")
+                    if inspected:
+                        # The inspection manifest is already a bounded, cancellable stage.
+                        # Consume it directly; do not write a second copy of the catalog.
+                        pending = iter(assets)
+                    else:
+                        cursor = connection.execute("SELECT * FROM scan_stage.media_assets ORDER BY rowid")
+                        pending = (self._asset_from_row(row) for row in cursor)
                     completed = 0
-                    while rows := cursor.fetchmany(batch_size):
+                    while batch := list(islice(pending, batch_size)):
                         if should_cancel and should_cancel():
                             raise RuntimeError("Media indexing cancelled.")
-                        self._upsert_assets(connection, [self._asset_from_row(row) for row in rows])
-                        completed += len(rows)
+                        self._upsert_assets(connection, batch, resolved=inspected)
+                        completed += len(batch)
+                        if inspected and progress_callback:
+                            progress_callback(completed)
+                        scan_cursor = batch[-1].relative_path
                         if stage_callback:
                             stage_callback(MediaProgress("Indexing", completed, count))
+                    count = completed
+                    if replacement_path is not None:
+                        connection.execute("UPDATE media_sources SET path=? WHERE id=?",
+                                           (self._paths.encode(replacement_path), source_id))
                     connection.execute("UPDATE media_sources SET source_revision=source_revision+1 WHERE id=?", (source_id,))
                     if stage_callback:
                         stage_callback(MediaProgress("Saving", count, count))
@@ -725,7 +869,7 @@ class MediaRepository:
                     raise
         return count, scan_cursor
 
-    def _upsert_assets(self, connection: sqlite3.Connection, assets: list[MediaAsset], *, strict=False) -> None:
+    def _upsert_assets(self, connection: sqlite3.Connection, assets: list[MediaAsset], *, strict=False, resolved=False) -> None:
         query = """
             INSERT INTO media_assets (
                 id, source_id, source_key, absolute_path, relative_path, display_name,
@@ -751,7 +895,7 @@ class MediaRepository:
                     asset.id,
                     asset.source_id,
                     asset.source_key,
-                    self._paths.encode(asset.absolute_path),
+                    self._paths.encode(asset.absolute_path, resolved=resolved),
                     asset.relative_path,
                     asset.display_name,
                     asset.content_type.value,
@@ -820,88 +964,112 @@ class MediaRepository:
                 for row in rows:
                     yield self._asset_from_row(row)
 
-    def linked_assets_for_metadata_ids(
-        self,
-        metadata_ids: list[int] | tuple[int, ...],
-    ) -> dict[int, MediaAsset]:
-        """Resolve only requested linked media rows instead of scanning the catalog."""
+    def assets_for_items(self, item_ids, *, source_ids=(), include_inherited=False,
+                         should_cancel=None, progress_callback=None):
+        """Resolve media through approved record paths, in bounded item batches.
 
-        ordered_ids = list(dict.fromkeys(int(value) for value in metadata_ids))
-        if not ordered_ids:
-            return {}
-        output: dict[int, MediaAsset] = {}
-        with closing(self._connect()) as connection, connection:
-            for start in range(0, len(ordered_ids), SQLITE_IN_QUERY_BATCH_SIZE):
-                chunk = ordered_ids[start : start + SQLITE_IN_QUERY_BATCH_SIZE]
-                placeholders = ",".join("?" for _ in chunk)
-                rows = connection.execute(
-                    f"""
-                    SELECT
-                        links.metadata_row_id AS metadata_row_id,
-                        assets.id, assets.source_id, assets.source_key,
-                        assets.absolute_path, assets.relative_path, assets.display_name,
-                        assets.content_type, assets.fingerprint, assets.size_bytes,
-                        assets.mtime_ns, assets.status, assets.created_at, assets.updated_at
-                    FROM media_links AS links
-                    INNER JOIN media_assets AS assets
-                      ON assets.id = links.media_asset_id
-                    WHERE links.metadata_row_id IN ({placeholders})
-                      AND links.status = ?
-                      AND assets.status = ?
-                    ORDER BY links.metadata_row_id, links.updated_at DESC, assets.id
-                    """,
-                    (
-                        *chunk,
-                        MediaLinkStatus.LINKED.value,
-                        MediaAssetStatus.READY.value,
-                    ),
-                ).fetchall()
-                for row in rows:
-                    metadata_id = int(row["metadata_row_id"])
-                    if metadata_id not in output:
-                        output[metadata_id] = self._asset_from_row(row)
-        from project.item_repository import ItemRepository
+        Direct media takes precedence over inherited media. Return all candidates
+        so embedding preparation can reject ambiguity instead of choosing a file.
+        Preview selectors can include inherited candidates alongside direct media.
+        """
+        from concurrent.futures import CancelledError
         from project.domain import ProjectStoragePaths
-
         metadata_path = ProjectStoragePaths(self._database_path.parent.parent).metadata_database
-        if metadata_path.exists():
-            identities = ItemRepository(metadata_path).asset_ids_for_items(
-                [value for value in ordered_ids if value not in output]
-            )
-            by_asset = {}
-            values = list(set(identities.values()))
-            with closing(self._connect()) as connection:
-                for start in range(0, len(values), SQLITE_IN_QUERY_BATCH_SIZE):
-                    batch = values[start:start + SQLITE_IN_QUERY_BATCH_SIZE]
-                    placeholders = ','.join('?' for _ in batch)
-                    for row in connection.execute(
-                        f"SELECT * FROM media_assets WHERE id IN ({placeholders}) AND status=? AND excluded=0",
-                        (*batch, MediaAssetStatus.READY.value),
-                    ):
-                        by_asset[str(row["id"])] = self._asset_from_row(row)
-            output.update((item_id, by_asset[asset_id]) for item_id, asset_id in identities.items()
-                          if asset_id in by_asset)
+        ids = list(dict.fromkeys(int(value) for value in item_ids))
+        output = {}
+        if not ids:
+            return output
+        def check_cancelled():
+            if should_cancel is not None and should_cancel():
+                raise CancelledError("Media lookup cancelled.")
+
+        check_cancelled()
+        with closing(self._connect()) as connection:
+            if should_cancel is not None:
+                connection.set_progress_handler(lambda: int(should_cancel()), 1000)
+            try:
+                has_items = has_relations = False
+                if metadata_path.exists():
+                    connection.execute("ATTACH DATABASE ? AS item_store", (str(metadata_path),))
+                    names = {row[0] for row in connection.execute("SELECT name FROM item_store.sqlite_master WHERE type='table'")}
+                    has_items = 'project_items' in names
+                    has_relations = {'metadata_record_links', 'metadata_relationships'} <= names
+                for start in range(0, len(ids), 200):
+                    check_cancelled()
+                    batch = ids[start:start + 200]
+                    record_sources = {}
+                    if has_relations:
+                        record_sources = dict(connection.execute(f"""SELECT DISTINCT link.source_id, relation.source_table
+                            FROM item_store.metadata_record_links link
+                            JOIN item_store.metadata_relationships relation ON relation.id=link.relationship_id
+                            WHERE link.source_id IN ({','.join('?' for _ in batch)})""", batch))
+                    seed = ','.join("(?,?,?)" for _ in batch)
+                    traverse = """UNION SELECT reached.item, relation.target_table, link.target_id
+                        FROM reached JOIN item_store.metadata_relationships relation ON relation.source_table=reached.source
+                        JOIN item_store.metadata_record_links link ON link.relationship_id=relation.id
+                            AND link.source_id=reached.record""" if has_relations else ''
+                    registry = """UNION SELECT reached.item, identity.asset_id, 0 FROM reached
+                        JOIN item_store.project_items identity ON identity.id=reached.item
+                        WHERE identity.asset_id IS NOT NULL""" if has_items else ''
+                    source_filter = f"AND assets.source_id IN ({','.join('?' for _ in source_ids)})" if source_ids else ''
+                    query = f"""WITH RECURSIVE reached(item,source,record) AS (VALUES {seed} {traverse}),
+                        candidates(item,asset,priority) AS (
+                            SELECT reached.item, link.media_asset_id, CASE WHEN reached.record=reached.item THEN 0 ELSE 1 END
+                            FROM reached CROSS JOIN media_links link INDEXED BY idx_media_links_metadata_row ON link.metadata_row_id=reached.record AND link.status='linked'
+                            {registry})
+                        SELECT candidates.item AS item_id, MIN(candidates.priority) AS priority, assets.*
+                        FROM candidates CROSS JOIN media_assets assets ON assets.id=candidates.asset
+                        WHERE assets.status='ready' AND assets.excluded=0 {source_filter}
+                        GROUP BY candidates.item, assets.id ORDER BY candidates.item, priority, assets.id"""
+                    priorities = {}
+                    parameters = [value for identity in batch for value in (identity, record_sources.get(identity, "metadata"), identity)]
+                    # Drive indexed asset lookups from this small candidate batch.
+                    for row in connection.execute(query, (*parameters, *source_ids)):
+                        identity, priority = int(row['item_id']), int(row['priority'])
+                        if identity not in priorities:
+                            priorities[identity] = priority
+                        if include_inherited or priority == priorities[identity]:
+                            output.setdefault(identity, []).append(self._asset_from_row(row))
+                    if progress_callback is not None:
+                        progress_callback(min(start + len(batch), len(ids)), len(ids))
+            except sqlite3.OperationalError:
+                check_cancelled()
+                raise
         return output
 
-    def analysis_item_counts(self) -> dict[str, int]:
-        """Count linked or independently prepared assets for thumbnail choices."""
-        from project.domain import ProjectStoragePaths
+    def linked_assets_for_metadata_ids(self, metadata_ids, *, source_ids=(),
+                                       should_cancel=None, progress_callback=None):
+        """Choose a deterministic preview; runs use assets_for_items to check ambiguity."""
+        return {identity: next((asset for asset in assets if asset.content_type in
+                               {MediaContentType.IMAGE, MediaContentType.VIDEO}), assets[0])
+                for identity, assets in self.assets_for_items(metadata_ids, source_ids=source_ids,
+                    should_cancel=should_cancel, progress_callback=progress_callback).items()}
 
+    def analysis_item_counts(self) -> dict[str, int]:
+        """Count usable assets reachable from active items, including source records."""
+        from project.domain import ProjectStoragePaths
         metadata_path = ProjectStoragePaths(self._database_path.parent.parent).metadata_database
+        if not metadata_path.exists():
+            return {}
         with closing(self._connect()) as connection:
-            identity_join = ""
-            identity_condition = ""
-            if metadata_path.exists():
-                connection.execute("ATTACH DATABASE ? AS item_store", (str(metadata_path),))
-                if connection.execute("SELECT 1 FROM item_store.sqlite_master WHERE name='project_items'").fetchone():
-                    identity_join = "LEFT JOIN item_store.project_items AS items ON items.asset_id=assets.id"
-                    identity_condition = " OR items.id IS NOT NULL"
-            return {str(row[0]): int(row[1]) for row in connection.execute(
-                "SELECT assets.source_id,COUNT(DISTINCT assets.id) FROM media_assets AS assets "
-                "LEFT JOIN media_links AS links ON links.media_asset_id=assets.id AND links.status='linked' "
-                f"{identity_join} WHERE assets.status='ready' AND assets.excluded=0 "
-                f"AND (links.metadata_row_id IS NOT NULL{identity_condition}) GROUP BY assets.source_id"
-            )}
+            connection.execute("ATTACH DATABASE ? AS item_store", (str(metadata_path),))
+            tables = {row[0] for row in connection.execute("SELECT name FROM item_store.sqlite_master WHERE type='table'")}
+            if 'item_membership' not in tables:
+                return {}
+            traversal = """UNION SELECT relation.target_table, link.target_id FROM reached
+                JOIN item_store.metadata_relationships relation ON relation.source_table=reached.source
+                JOIN item_store.metadata_record_links link ON link.relationship_id=relation.id AND link.source_id=reached.record""" if 'metadata_record_links' in tables else ''
+            return {str(row[0]): int(row[1]) for row in connection.execute(f"""
+                WITH RECURSIVE reached(source,record) AS (
+                    SELECT 'metadata',id FROM item_store.item_membership {traversal}),
+                linked(asset) AS (
+                    SELECT link.media_asset_id FROM reached JOIN media_links link ON link.metadata_row_id=reached.record
+                    WHERE link.status='linked'
+                    UNION SELECT identity.asset_id FROM item_store.project_items identity
+                    JOIN item_store.item_membership item ON item.id=identity.id WHERE identity.asset_id IS NOT NULL)
+                SELECT assets.source_id,COUNT(DISTINCT assets.id) FROM linked
+                JOIN media_assets assets ON assets.id=linked.asset WHERE assets.status='ready' AND assets.excluded=0
+                GROUP BY assets.source_id""")}
 
     def source_identifier_values(self, source_id: str, strategy: MediaMatchStrategy = MediaMatchStrategy.IDENTIFIER_EQUALS) -> set[str]:
         with closing(self._connect()) as connection, connection:
@@ -974,6 +1142,7 @@ class MediaRepository:
             ).fetchall()
             rule_rows = connection.execute(
                 "SELECT source_id, metadata_column FROM media_link_settings UNION "
+                "SELECT source_id, value AS metadata_column FROM media_link_settings, json_each(metadata_columns_json) UNION "
                 "SELECT source_id, metadata_column FROM media_match_rules"
             ).fetchall()
         counts = {
@@ -1005,6 +1174,7 @@ class MediaRepository:
                     missing_count=int(source_counts.get("missing_count", 0)),
                     error_count=int(source_counts.get("error_count", 0)),
                     metadata_columns=tuple(columns_by_source.get(source.id, [])),
+
                 )
             )
         return summaries
@@ -1143,6 +1313,10 @@ class MediaRepository:
                 );
                 """
             )
+            if "metadata_columns_json" not in {row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")}:
+                connection.execute("ALTER TABLE media_link_settings ADD COLUMN metadata_columns_json TEXT NOT NULL DEFAULT '[]'")
+            if "table_id" not in {row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")}:
+                connection.execute("ALTER TABLE media_link_settings ADD COLUMN table_id TEXT NOT NULL DEFAULT 'metadata'")
             _execute_statements(connection,
                 """
                 CREATE INDEX IF NOT EXISTS idx_media_assets_source ON media_assets(source_id);
@@ -1212,20 +1386,6 @@ class MediaLinkRepository:
         self._database_path = database_path
         MediaRepository(database_path)
 
-    def linked_metadata_ids(self) -> list[int]:
-        """Item IDs with explicit links to available, included media assets."""
-        with closing(self._connect()) as connection:
-            return [int(row[0]) for row in connection.execute(
-                """
-                SELECT DISTINCT links.metadata_row_id
-                FROM media_links AS links
-                INNER JOIN media_assets AS assets ON assets.id = links.media_asset_id
-                WHERE links.status = ? AND assets.status = ? AND assets.excluded = 0
-                ORDER BY links.metadata_row_id
-                """,
-                (MediaLinkStatus.LINKED.value, MediaAssetStatus.READY.value),
-            )]
-
     def matching_records(self, source_id: str, field: str, should_cancel=None):
         column = {"filename": "display_name", "relative_path": "relative_path", "identifier": "source_key"}.get(field)
         if column is None:
@@ -1255,7 +1415,8 @@ class MediaLinkRepository:
             saved = connection.execute("SELECT * FROM media_link_settings WHERE source_id=?", (source_id,)).fetchone()
             if saved:
                 return MediaLinkRequest(source_id, saved['source_field'], saved['metadata_column'], saved['comparison'],
-                                        bool(saved['ignore_case']), bool(saved['replace_existing']), bool(saved['create_missing']))
+                                        bool(saved['ignore_case']), bool(saved['replace_existing']), bool(saved['create_missing']), saved['table_id'],
+                                        tuple(json.loads(saved['metadata_columns_json'])))
             row = connection.execute(
                 "SELECT * FROM media_match_rules WHERE source_id=? ORDER BY updated_at DESC LIMIT 1", (source_id,)
             ).fetchone()
@@ -1273,7 +1434,9 @@ class MediaLinkRepository:
     def publish_plan(self, plan, metadata, *, updated_at, progress=None, should_cancel=None):
         from EmbeddingsArea.domain import MediaProgress
         request = plan.request
-        strategy = {"exact": "identifier_equals", "filename": "filename", "stem": "filename_stem"}[request.comparison]
+        if request.create_missing or plan.new_rows:
+            raise ValueError("Media matching cannot create records.")
+        strategy = {"exact": "identifier_equals", "filename": "filename", "stem": "filename_stem", "stem_suffix": "filename_stem"}[request.comparison]
         total = len(plan.matches) + len(plan.new_rows)
         with metadata.media_publication(self._database_path, should_cancel) as connection:
             source = connection.execute("SELECT source_revision FROM media_store.media_sources WHERE id=?", (request.source_id,)).fetchone()
@@ -1288,29 +1451,23 @@ class MediaLinkRepository:
                 if should_cancel and should_cancel():
                     raise RuntimeError("Media operation cancelled.")
                 batch = plan.matches[start:start+2000]
-                self._publish_link_batch(connection, request.source_id, request.metadata_column, strategy, batch, updated_at)
+                by_column = {}
+                for match in batch:
+                    column = plan.match_columns.get(match[:2], request.metadata_column)
+                    by_column.setdefault(column, []).append(match)
+                for column, column_batch in by_column.items():
+                    self._publish_link_batch(connection, request.source_id, column, strategy, column_batch, updated_at)
                 completed += len(batch)
                 if progress:
                     progress(MediaProgress("Linking", completed, total))
-            for start in range(0, len(plan.new_rows), 2000):
-                if should_cancel and should_cancel():
-                    raise RuntimeError("Media operation cancelled.")
-                batch = plan.new_rows[start:start+2000]
-                ids = metadata.append_media_rows(connection, [request.metadata_column], [(value,) for _, value in batch])
-                self._publish_link_batch(connection, request.source_id, request.metadata_column, strategy,
-                    [(asset_id, row_id, value) for (asset_id, value), row_id in zip(batch, ids, strict=True)], updated_at)
-                completed += len(batch)
-                if progress:
-                    progress(MediaProgress("Creating metadata and linking", completed, total))
-            if plan.new_rows:
-                metadata.finish_media_rows(connection, [request.metadata_column])
             # Legacy rules remain untouched and are never executed automatically.
             connection.execute(
                 "INSERT OR REPLACE INTO media_store.media_link_settings "
-                "(source_id,source_field,metadata_column,comparison,ignore_case,replace_existing,create_missing) "
-                "VALUES (?,?,?,?,?,?,?)",
+                "(source_id,source_field,metadata_column,comparison,ignore_case,replace_existing,create_missing,table_id,metadata_columns_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (request.source_id, request.source_field, request.metadata_column, request.comparison,
-                 int(request.ignore_case), int(request.replace_existing), int(request.create_missing)),
+                 int(request.ignore_case), int(request.replace_existing), int(request.create_missing), request.table_id,
+                 json.dumps(request.selected_columns)),
             )
             self._finish_publication(connection, request.source_id, updated_at)
             if progress:
@@ -1318,38 +1475,8 @@ class MediaLinkRepository:
         if plan.new_rows:
             metadata.refresh_schema_mirror()
 
-    def create_initial_metadata(self, source_id, metadata, *, updated_at, progress=None, should_cancel=None):
-        from EmbeddingsArea.domain import MediaProgress
-        count = 0
-        with metadata.media_publication(self._database_path, should_cancel) as connection:
-            exists = connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata'").fetchone()
-            if exists and connection.execute("SELECT 1 FROM metadata LIMIT 1").fetchone():
-                return 0
-            total = int(connection.execute(
-                "SELECT COUNT(*) FROM media_store.media_assets WHERE source_id=? AND status='ready' AND excluded=0", (source_id,)
-            ).fetchone()[0])
-            # The same connection reads assets and writes links: no second reader lock.
-            cursor = connection.execute(
-                "SELECT id,display_name,relative_path FROM media_store.media_assets "
-                "WHERE source_id=? AND status='ready' AND excluded=0 ORDER BY rowid", (source_id,)
-            )
-            while batch := cursor.fetchmany(2000):
-                if should_cancel and should_cancel():
-                    raise RuntimeError("Media operation cancelled.")
-                ids = metadata.append_media_rows(connection, ["filename", "relative_path"], [(row[1], row[2]) for row in batch])
-                self._publish_link_batch(connection, source_id, "filename", "manual",
-                    [(row[0], row_id, row[1]) for row, row_id in zip(batch, ids, strict=True)], updated_at)
-                count += len(batch)
-                if progress:
-                    progress(MediaProgress("Creating metadata and linking", count, total))
-            if count:
-                metadata.finish_media_rows(connection, ["filename", "relative_path"])
-                self._finish_publication(connection, source_id, updated_at)
-                if progress:
-                    progress(MediaProgress("Saving", count, count))
-        if count:
-            metadata.refresh_schema_mirror()
-        return count
+    def create_initial_metadata(self, source_id, metadata, **kwargs):
+        raise ValueError("Import or calculate embeddings to create items.")
 
     @staticmethod
     def _publish_link_batch(connection, source_id, column, strategy, batch, updated_at):
@@ -1511,11 +1638,11 @@ class MediaLinkRepository:
             ).fetchall()
         return {str(row[0]) for row in rows if str(row[0]).strip()}
 
-    def links_for_assets(self, asset_ids: list[str]) -> dict[str, MediaLink]:
+    def links_for_assets(self, asset_ids: list[str]) -> dict[str, list[MediaLink]]:
         ordered_ids = list(dict.fromkeys(str(asset_id) for asset_id in asset_ids if str(asset_id).strip()))
         if not ordered_ids:
             return {}
-        links: dict[str, MediaLink] = {}
+        links: dict[str, list[MediaLink]] = {}
         with closing(self._connect()) as connection, connection:
             for start in range(0, len(ordered_ids), SQLITE_IN_QUERY_BATCH_SIZE):
                 chunk = ordered_ids[start : start + SQLITE_IN_QUERY_BATCH_SIZE]
@@ -1532,8 +1659,7 @@ class MediaLinkRepository:
                 ).fetchall()
                 for row in rows:
                     asset_id = str(row["media_asset_id"])
-                    if asset_id not in links:
-                        links[asset_id] = self._link_from_row(row)
+                    links.setdefault(asset_id, []).append(self._link_from_row(row))
         return links
 
     def _connect(self) -> sqlite3.Connection:

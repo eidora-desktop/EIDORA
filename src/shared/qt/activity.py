@@ -42,6 +42,9 @@ class _ActivityPresenter:
     def refresh_summary(self) -> None:
         records = list(self._manager.processes.records.values())
         visible_activities = [record for record in self._manager._activities.values() if record.visible]
+        if len(records) == 1 and records[0].footer_label and not visible_activities:
+            self.button.hide()
+            return
         running = sum(record.state == "running" for record in records) + len(visible_activities)
         queued = sum(record.state == "queued" for record in records)
         paused = sum(record.state == "paused" for record in records)
@@ -197,7 +200,7 @@ class ActivityManager(QtCore.QObject):
         return self.processes.records.items()
 
     def _background_processes_changed(self) -> None:
-        self.presenter.refresh_summary()
+        self._refresh_indicator()
         if self.processes.records:
             self.indicator.show()
         elif not self._activities:
@@ -392,7 +395,22 @@ class ActivityManager(QtCore.QObject):
         if not visible:
             self._progress_bar.hide()
             self._cancel_button.hide()
-            if not (hasattr(self, "processes") and self.processes.records):
+            records = list(self.processes.records.values()) if hasattr(self, "processes") else []
+            if records:
+                record = next((item for item in reversed(records) if item.state == "running"), records[-1])
+                self._label.setText(record.footer_label or f"{record.panel}: {record.message or record.title}")
+                if record.footer_label or record.progress >= 0:
+                    busy = record.progress < 0 and record.state == "running" and not record.cancelled
+                    self._progress_bar.setRange(0, 0 if busy else 100)
+                    self._progress_bar.setValue(max(0, min(100, record.progress)))
+                    self._progress_bar.setFormat(
+                        ("Cancelling" if record.cancelled else record.state.capitalize())
+                        if record.footer_label else "%p%"
+                    )
+                    self._progress_bar.show()
+                self.indicator.show()
+            else:
+                self._label.clear()
                 self.indicator.hide()
             return
         _activity_id, record = visible[-1]

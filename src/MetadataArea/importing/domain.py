@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from MetadataArea.domain import MetadataValue
 
 
 class MetadataImportPreset(str, Enum):
     INITIAL = "initial"
+    MERGE = "merge"
     APPEND = "append"
     UPDATE = "update"
     REPLACE_TABLE = "replace_table"
@@ -14,10 +16,11 @@ class MetadataImportPreset(str, Enum):
     @property
     def label(self) -> str:
         return {
-            self.INITIAL: "Import Metadata",
+            self.INITIAL: "Add metadata files",
+            self.MERGE: "Add metadata files",
             self.APPEND: "Append Items",
             self.UPDATE: "Update Metadata",
-            self.REPLACE_TABLE: "Replace Metadata Table",
+            self.REPLACE_TABLE: "Replace source",
         }[self]
 
 
@@ -79,7 +82,7 @@ class MetadataImportInspection:
     row_count: int
     columns: tuple[str, ...]
     schemas: tuple[MetadataColumnSchema, ...]
-    samples: tuple[dict[str, str], ...]
+    samples: tuple[dict[str, MetadataValue], ...]
     source_fingerprint: str
     warnings: tuple[str, ...] = ()
 
@@ -160,6 +163,8 @@ class MetadataImportPlan:
     can_import: bool = False
     messages: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
+    conflict_policy: str = "ask"
+    conflicts: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,7 @@
 # Architecture
 
 EIDORA Desktop is a PySide desktop application organized around product areas.
-Project, metadata, embeddings, Discovery, and Figures workflows are implemented.
+Assets, metadata, embeddings, Discovery, and Figures workflows are implemented.
 See the public [source guide](../src/README.md) for concise contributor rules.
 
 The goal of this structure is to keep the project readable as it grows. UI wiring, application behavior, persistence, and computation should stay separate so each part can be tested and changed without pulling the whole application into the change.
@@ -12,7 +12,7 @@ Implemented now:
 
 - Application startup through `app`.
 - Main window navigation between area pages.
-- Feature-sliced area packages for project resources, metadata, embeddings, discovery, and figures.
+- Feature-sliced area packages for assets, metadata, embeddings, discovery, and figures.
 - Designer-owned `.ui` files loaded at runtime.
 - Area-level and panel-level controllers for UI composition.
 - Shared Qt helpers for loading UI files, wiring panels, icons, deferred calls, worker signals, and cross-area activity feedback.
@@ -38,7 +38,7 @@ Top-level package:
 src/
   app.py                  Application entry point
   MainWindow/             Main shell and navigation
-  ProjectArea/            Active-project media sources and thumbnail preparation
+  AssetsArea/            Active-project media sources and thumbnail preparation
   MetadataArea/           Metadata import, table, and metadata workflows
   EmbeddingsArea/         Embedding runs, models, and clustering
   DiscoveryArea/         Discovery generation, canvas, filters, snapshots
@@ -131,11 +131,54 @@ Project identity, manifest, recent-entry, and path value objects live in
 `project/domain.py`; filesystem validation and manifest I/O live in
 `project/storage.py`. The storage module re-exports the moved types for compatibility.
 
-Project storage compatibility is identified by a project-root `project.json` manifest. The current v1 manifest contains `schema_version` and `name`; project opening should validate this manifest and the required storage layout before returning a `Project`.
+Project storage compatibility is identified by a project-root `project.json` manifest. The current v2 manifest contains `schema_version` and `name`; project opening should validate this manifest and the required storage layout before returning a `Project`.
+
+## Metadata storage transition
+
+Active item membership lives in `item_membership`; source records no longer
+become analysis items merely by existing. The root metadata table remains the
+Items storage anchor, with membership updated in its publication transaction.
+Source tabs show only their own fields and hide internal indexes. Item and source
+index allocation are independent. `project/record_identity.py` owns the source counter in a disjoint int64 range, retaining compatibility with
+integer media references. Internal record references are qualified as
+`record:<table>:<index>`. Item numbers start at 1; source operations never advance
+the item sequence. Existing saved identities and reserved numbers remain stable.
+
+`MetadataArea/resolution.py` traverses approved, table-qualified record links and
+returns `ResolvedCell`/`ResolvedValue` objects with origin references. UNION
+coalesces duplicate paths and terminates cycles. Paged reads resolve only their
+requested items, using bounded SQLite parameter batches. Items and Discovery use
+the same resolver. Display, filtering, and scalar mappings consume this contract
+explicitly: all values for display, any/no matching value for positive/negative
+filters, and only unambiguous values for scalar mappings.
+
+Direct Items/source associations resolve in either stored direction; legacy
+source-parent traversal stays directed and cannot cross through another Item.
+The resolver batches columns per source, with indexed direct joins for ordinary
+collections. Discovery's scalar reads omit per-item provenance objects, keeping
+those for bounded display reads. Derived field-equivalence decisions are saved
+with the metadata revision during publication (with a one-time legacy backfill),
+so reading the field catalog does not resolve collection-wide values. Large
+metadata previews use a single background reader and a bounded page cache.
+
+Nested source records flatten into dotted fields and structured list cells, never
+extra Items. Imports reject nested arrays containing objects; nested properties
+and value lists remain supported, as do existing saved list columns. The metadata
+cell codec stores arrays as UTF-8 JSON blobs alongside existing scalar text, so literal
+text cannot be mistaken for a list. The resolver exposes individual list entries
+for filtering and a single distinct value for scalar mappings. Table and export
+formatting preserve arrays; Discovery's renderer continues to receive aligned
+scalar arrays and visibility masks.
+
+`EmbeddingsArea/item_binding.py` binds source observations and media assets to
+items inside vector publication. Model preparation can use unlinked media and
+source-text records without creating items; successful execution publishes items
+and run bindings together. Failed publication rolls back membership and links.
+Source-file provenance remains independent of editable tab names.
 
 ## Computation And Long-Running Work
 
-Thumbnail creation uses `ProjectArea/thumbnail_service.py` to resolve linked
+Thumbnail creation uses `AssetsArea/thumbnail_service.py` to resolve linked
 image or video media to canonical metadata IDs. `thumbnail_generator.py` resizes
 images with a bounded worker pool and launches at most two isolated video workers
 to decode first, middle, last, or deterministic-random stills through PyAV.
@@ -165,6 +208,42 @@ Use `shared/` for infrastructure that is genuinely cross-area:
 - `shared/persistence`: generic persistence helpers.
 - `shared/diagnostics`: logging and error helpers.
 - `shared/icons`: icon resources and manifest.
+
+Diagnostics retain five local sessions with rotating logs, unexpected Python-error
+hooks, and best-effort native crash/Python stack capture. The automatic store has
+a 10 MiB file-content budget. An interprocess admission lock reserves 1 MiB per
+session before any capture begins, accounting for larger legacy sessions and
+removing the oldest inactive sessions first. An active session uses at most two
+256 KiB event logs, a 256 KiB trace, 4 KiB context, and small control files. UTF-8
+byte accounting and LF-only output keep rotation exact on every platform. New
+disk capture is declined if protected or undeletable reports occupy the budget;
+logging never rescans the store on each event.
+
+An application-owned Qt
+heartbeat rearms Python's built-in fault-handler timeout; an unresponsive GUI
+produces one stack snapshot after 30 seconds, at most three stalls per session.
+Native fault-handler output goes to a nonblocking pipe, not a growing file. A
+small `diagnostic-trace` worker drains the pipe, writes at most 256 KiB including
+a truncation notice, discards excess bytes, and exits at EOF. Its lock protects
+the report while it finishes after the parent's crash. It imports no Qt or
+compute libraries and supports Windows windowed executables without Python
+standard streams. A stalled/unavailable collector may lose trace bytes but must
+never block EIDORA or fall back to unbounded files. This does not terminate jobs
+or identify the cause of a stall. Existing debugger
+fault handlers are preserved. Worker failures feed the same log through their
+owning controllers; isolated native worker crashes retain the parent-reported
+error, not a guaranteed child stack dump.
+
+MainWindow's Designer-owned **Diagnostics...** dialog reads bounded tails from
+recent sessions, masks paths where possible, and lets users edit, save, or copy a
+plain-text report for manual email to **mail@eidora.org**. There is no upload,
+telemetry, or automatic email. No project files, media, environment variables, or
+local-variable dumps are collected; arbitrary error text still requires review.
+Reports live in local application data independently of project/source storage.
+Disk-full reporting is best effort and never a prerequisite for startup. Saved
+reports replace their destination only after writing succeeds.
+Manually exported reports and operating-system crash reports are outside the
+automatic store's budget and are never deleted by its cleanup.
 
 Do not put feature behavior in `shared/` just because two places might eventually use it. Start inside the owning area, then extract only when duplication is real.
 
@@ -226,12 +305,14 @@ Surface palettes also expose the current background to custom painters. Native
 palette changes alone must not own surface painting: stylesheet-backed panels
 and detached settings windows need the shared rules to repaint live.
 
-## Simplified Project and metadata workflows
+## Simplified Assets and metadata workflows
 
-Project composes Media Sources and Thumbnails in one horizontal splitter. The
-Artifacts UI is removed; internal thumbnail/embedding artifacts remain. Project
-linking exposes only exact relative paths or record IDs to one metadata column,
-with separate Link and source-scoped Relink actions. Scanning never creates rows.
+Assets composes Media Sources and Thumbnails in one horizontal splitter. The
+Artifacts UI is removed; internal thumbnail/embedding artifacts remain. Assets
+matching reads resolved Item fields and previews explicit path/identifier rules,
+with separate Match Items and source-scoped Relink actions. Registration is usable
+without matching. Scanning and matching never create rows. Source relocation
+publishes the new path with its indexed assets while preserving IDs.
 
 Metadata importing owns four fixed operations: initial import, append unmatched
 items, update matching rows (nonblank values), and authoritative table replacement.
@@ -251,9 +332,10 @@ appearing in the active collection. Active IDs combine current metadata rows and
 asset identities explicitly prepared for analysis. Existing `metadata_id` API and
 array names remain compatibility names for permanent item IDs.
 
-Model configuration offers metadata text columns and linked indexed assets.
-Preparation materializes selected text columns in the worker and uses existing
-row identities. Linked assets use their linked identities; unlinked assets are
-excluded from embedding runs. Discovery, groups, and thumbnail resolution accept
-the resulting IDs. The automatic random layout is a disposable view, while
-user-saved analyses and annotations remain dependencies.
+Local-model configuration offers registered file-based Media Sources only. Run Model
+prepares available assets and validates item assignments in the background, then
+starts automatically without a separate review. Multimodal inputs use established
+associations; the dialog offers no scope or metadata-key pairing choices. Saved
+legacy run snapshots remain supported. Only successful vector publication creates
+items and commits run/media bindings. Missing or ambiguous inputs never manufacture
+metadata rows. Saved input provenance is independent of later media relocation.

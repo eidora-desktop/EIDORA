@@ -36,6 +36,7 @@ class MetadataAreaController:
     ) -> None:
         self._widget = load_ui("MetadataArea", "ui/metadata_area.ui", parent)
         self._project: Project | None = None
+        self._table_id = "metadata"
         self._status_callback = status_callback
         self._activity_manager = activity_manager
         self._groups_changed_callback: Callable[[], None] | None = None
@@ -72,29 +73,22 @@ class MetadataAreaController:
             QtWidgets.QSizePolicy.Policy.Expanding,
         )
         groups_host.setMaximumWidth(groups_host.sizeHint().width())
+        from MetadataArea.controllers.tables_panel_controller import MetadataTablesPanelController
+        self._tables_panel = MetadataTablesPanelController(self)
         self._table_model = MetadataTableModel(self._widget)
+        self._table_model.load_failed.connect(self._show_status)
 
         self._table = require_child(self._table_panel, QtWidgets.QTableView, "table_metadata")
         self._metadata_groups_panel.set_row_height(
             self._table.verticalHeader().defaultSectionSize()
         )
         self._table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self._table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
         self._table.setItemDelegate(MetadataHighlightDelegate(self._table))
         self._table.horizontalHeader().setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.horizontalHeader().customContextMenuRequested.connect(self._on_header_context_menu)
         self._import_button = require_child(self._table_panel, QtWidgets.QPushButton, "button_import_metadata")
-        self._export_button = require_child(self._table_panel, QtWidgets.QAbstractButton, "button_export_metadata")
-        self._add_columns_button = require_child(
-            self._table_panel,
-            QtWidgets.QPushButton,
-            "button_add_columns",
-        )
-        self._add_rows_button = require_child(
-            self._table_panel,
-            QtWidgets.QPushButton,
-            "button_add_rows",
-        )
+        self._export_button = QtGui.QAction("Export table…", self._widget)
         self._search_edit = require_child(self._table_panel, QtWidgets.QLineEdit, "edit_metadata_search")
         self._search_column_combo = require_child(self._table_panel, QtWidgets.QComboBox, "combo_search_column")
         self._match_case_button = require_child(
@@ -124,13 +118,8 @@ class MetadataAreaController:
         self._wire_search()
         self._table.doubleClicked.connect(self._edit_cell)
         self._import_button.clicked.connect(self._on_import_metadata)
-        self._export_button.clicked.connect(self._on_export_metadata)
-        self._add_columns_button.clicked.connect(
-            lambda: self._open_metadata_import(MetadataImportPreset.UPDATE)
-        )
-        self._add_rows_button.clicked.connect(
-            lambda: self._open_metadata_import(MetadataImportPreset.APPEND)
-        )
+        self._export_button.triggered.connect(self._on_export_metadata)
+        self._tables_panel.connect_records()
         self._render_empty_state("No project loaded")
 
     @property
@@ -148,11 +137,12 @@ class MetadataAreaController:
 
     def set_project(self, project: Project | None) -> None:
         self._project = project
+        self._table_id = "metadata"
         self._metadata_groups_panel.set_project(project)
         self.refresh()
 
     def shutdown(self) -> None:
-        return
+        self._table_model.shutdown()
 
     def refresh(self) -> None:
         if self._media_publication_active:
@@ -167,9 +157,10 @@ class MetadataAreaController:
     def set_media_publication_active(self, active: bool) -> None:
         self._media_publication_active = active
         self._table_model.set_publication_active(active)
-        for control in (self._import_button, self._add_columns_button, self._add_rows_button,
+        for control in (self._import_button,
                         self._export_button, self._search_edit, self._search_column_combo):
             control.setEnabled(not active)
+        self._tables_panel.update_actions()
         self._metadata_groups_panel.widget.setEnabled(not active)
         if not active:
             if self._refresh_after_media:
@@ -188,6 +179,13 @@ class MetadataAreaController:
             descending=self._table_model.descending,
         )
         if row_offset is None:
+            from MetadataArea.table_repository import MetadataTableRepository, list_tables
+            store = MetadataTableRepository(self._project.paths.metadata_database)
+            for table in list_tables(store.database):
+                if table.id != self._table_id and store.repository(table.id).row_offset_for_id(int(metadata_id)) is not None:
+                    self._table_id = table.id
+                    self.refresh()
+                    return self.select_metadata_row(metadata_id)
             return False
         index = self._table_model.index(row_offset, 0)
         if not index.isValid():
@@ -203,6 +201,7 @@ class MetadataAreaController:
         return True
 
     def _refresh(self) -> None:
+        self._tables_panel.refresh()
         self._metadata_groups_panel.refresh()
         if self._project is None:
             self._render_empty_state("No project loaded")
@@ -220,8 +219,10 @@ class MetadataAreaController:
             return
 
         if self._is_empty_metadata_project():
-            self._render_empty_state("No metadata imported")
-            self._show_status("No metadata imported")
+            message = ("No items yet. Import embeddings or run an embedding model to create items."
+                       if self._table_id == "metadata" else "No metadata imported")
+            self._render_empty_state(message)
+            self._show_status(message)
             return
 
         self._render_table()
@@ -243,16 +244,51 @@ class MetadataAreaController:
         return panel
 
     def _on_import_metadata(self) -> None:
-        if self._project is None:
-            show_error(self._widget, "Import Metadata", "Open or create a project before importing metadata.")
-            self._show_status("No project loaded")
+        if self._project is None or self._media_publication_active:
             return
-        preset = (
-            MetadataImportPreset.REPLACE_TABLE
-            if self._has_metadata_rows()
-            else MetadataImportPreset.INITIAL
-        )
-        self._open_metadata_import(preset)
+        sources, _ = QtWidgets.QFileDialog.getOpenFileNames(self._widget, "Add metadata files", "", IMPORT_FILE_FILTER)
+        if not sources:
+            self._show_status("Metadata import cancelled")
+            return
+        from MetadataArea.table_repository import MetadataTableRepository, list_tables
+        from MetadataArea.source_repository import MetadataSourceRepository
+        from MetadataArea.controllers.operation_dialog_controller import run_operation
+        store = MetadataTableRepository(self._project.paths.metadata_database)
+        for source in sources:
+            created = None
+            matching_source = run_operation(
+                lambda: MetadataSourceRepository(store.database).find(Path(source)),
+                "Checking metadata source…")
+            if matching_source:
+                self._table_id, unchanged = matching_source
+                if unchanged:
+                    self.refresh()
+                    self._show_status(f"Already imported {Path(source).name}")
+                    continue
+            else:
+                names = {table.name for table in list_tables(store.database)}
+                name, suffix = Path(source).name, 2
+                while name in names:
+                    name = f"{Path(source).name} {suffix}"
+                    suffix += 1
+                created = store.create(name)
+                self._table_id = created.id
+            repo = store.repository(self._table_id)
+            preset = MetadataImportPreset.REPLACE_TABLE if matching_source else MetadataImportPreset.INITIAL
+            dialog = MetadataImportDialogController(MetadataImportService(self._project, repo), Path(source), preset,
+                process_manager=self._activity_manager.processes if self._activity_manager else None)
+            result = dialog.exec()
+            if result is None and created:
+                store.delete(created.id)
+                self._table_id = list_tables(store.database)[0].id
+            if result is not None:
+                self.refresh()
+                self._notify_metadata_changed()
+                self._show_status(f"Imported metadata from {Path(source).name}")
+                self._tables_panel._link_tables()
+            else:
+                self.refresh()
+                break
 
     def _on_export_metadata(self) -> None:
         if self._project is None or not self._has_metadata_rows():
@@ -295,44 +331,6 @@ class MetadataAreaController:
         if activity is None:
             self._show_status(f"Exported metadata to {destination}")
 
-    def _open_metadata_import(self, preset: MetadataImportPreset) -> None:
-        if self._project is None:
-            return
-        operation_name = preset.label
-        source_path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
-            self._widget, operation_name, "", IMPORT_FILE_FILTER,
-        )
-        if not source_path:
-            self._show_status("Metadata import cancelled")
-            return
-        repository = MetadataRepository(
-            self._project.paths.metadata_database,
-            self._project.paths.metadata_columns,
-        )
-        dialog = MetadataImportDialogController(
-            MetadataImportService(self._project, repository),
-            Path(source_path),
-            preset,
-            process_manager=self._activity_manager.processes if self._activity_manager else None,
-        )
-        result = dialog.exec()
-        if result is None:
-            self._show_status("Metadata import cancelled")
-            return
-        self._clear_search()
-        self.refresh()
-        if result.impact.affected_groups:
-            self._on_groups_changed()
-        self._notify_metadata_changed()
-        action = {
-            MetadataImportPreset.INITIAL: "Imported metadata",
-            MetadataImportPreset.UPDATE: "Updated metadata",
-            MetadataImportPreset.APPEND: "Appended items",
-            MetadataImportPreset.REPLACE_TABLE: "Replaced metadata",
-        }.get(result.preset, "Updated metadata")
-        message = f"{action} from {Path(result.source_path).name}"
-        self._show_status(message)
-
     def _wire_search(self) -> None:
         self._table_model.sort_order_changed.connect(self._update_search)
         self._search_edit.textChanged.connect(self._update_search)
@@ -350,7 +348,7 @@ class MetadataAreaController:
         self._table.setSortingEnabled(False)
         self._table_model.clear()
         empty_model = QtGui.QStandardItemModel(1, 1, self._table)
-        empty_model.setHorizontalHeaderLabels(["Metadata"])
+        empty_model.setHorizontalHeaderLabels(["Items" if self._table_id == "metadata" else "Metadata"])
         item = QtGui.QStandardItem(message)
         item.setEditable(False)
         empty_model.setItem(0, 0, item)
@@ -379,10 +377,8 @@ class MetadataAreaController:
         return self._row_count > 0
 
     def _update_import_button(self) -> None:
-        self._import_button.setText("Replace…" if self._has_metadata_rows() else "Import…")
         self._export_button.setEnabled(self._has_metadata_rows())
-        self._add_columns_button.setEnabled(self._has_metadata_rows())
-        self._add_rows_button.setEnabled(self._has_metadata_rows())
+        self._tables_panel.update_actions()
 
     def _update_search(self) -> None:
         if self._media_publication_active:
@@ -473,8 +469,27 @@ class MetadataAreaController:
         row_id = self._table_model.row_id_at(index.row())
         if column_name is None or row_id is None:
             return
+        if self._table_id == 'metadata' and column_name != 'id':
+            from MetadataArea.resolution import resolve_overview_field
+            from MetadataArea.related_fields import discovery_columns
+            from MetadataArea.table_repository import list_tables
+            database = self._project.paths.metadata_database
+            _, aliases = discovery_columns(database)
+            cell = resolve_overview_field(database, column_name, aliases, [row_id]).get(row_id)
+            records = [record for record in cell.records if record.source_table != 'metadata'] if cell else []
+            if records:
+                names = {table.id: table.name for table in list_tables(database)}
+                labels = [f'{position + 1}. {names[record.source_table]}: {record.value}' for position, record in enumerate(records)]
+                selected, accepted = (labels[0], True) if len(records) == 1 else QtWidgets.QInputDialog.getItem(
+                    self._widget, 'Linked values', 'Open source record', labels, 0, False)
+                if accepted:
+                    record = records[labels.index(selected)]
+                    self._table_id = record.source_table
+                    self.refresh()
+                    self.select_metadata_row(record.record_index)
+                return
         if column_name == "id":
-            self._show_status("Metadata ID values cannot be edited")
+            self._show_status("Item IDs cannot be edited")
             return
 
         editor = QtWidgets.QPlainTextEdit()
@@ -541,7 +556,7 @@ class MetadataAreaController:
         if column_name is None:
             return
         if column_name == "id":
-            self._show_status("Metadata ID column cannot be renamed or deleted")
+            self._show_status("The item ID column cannot be renamed or deleted")
             return
 
         menu = QtWidgets.QMenu(header)
@@ -555,13 +570,17 @@ class MetadataAreaController:
             self._delete_metadata_column(column_name)
 
     def _rename_metadata_column(self, column_name: str) -> None:
-        new_name, accepted = self._ask_text("Rename Metadata Column", "New column name:", text=column_name)
+        new_name, accepted = self._ask_text("Rename Metadata Column", "New column name:", text=next((column.label for column in self._columns if column.name == column_name), column_name))
         if not accepted:
             self._show_status("Rename metadata column cancelled")
             return
 
         try:
-            self._metadata_service().rename_column(column_name, new_name)
+            service = self._metadata_service()
+            if self._table_id == 'metadata' or column_name.startswith(('table:', 'relation:')):
+                service.rename_label(column_name, new_name)
+            else:
+                service.rename_column(column_name, new_name)
         except Exception as exc:
             show_error(self._widget, "Rename Metadata Column Failed", str(exc))
             self._show_status("Rename metadata column failed")
@@ -640,13 +659,13 @@ class MetadataAreaController:
     def _column_label(column: MetadataColumn) -> str:
         if column.name == "id":
             return "ID"
-        return column.name
+        return column.label
 
     def _metadata_service(self) -> MetadataService:
         if self._project is None:
             raise RuntimeError("No project is loaded")
         paths = self._project.paths
-        return MetadataService(MetadataRepository(paths.metadata_database, paths.metadata_columns))
+        return MetadataService(MetadataRepository(paths.metadata_database, paths.metadata_columns, table_id=self._table_id))
 
     def _notify_metadata_changed(self) -> None:
         if self._metadata_changed_callback is not None:

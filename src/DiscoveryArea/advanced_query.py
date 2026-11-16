@@ -76,6 +76,7 @@ def evaluate_advanced_query(
     metadata_values: Mapping[str, np.ndarray],
     metadata_numeric_values: Mapping[str, np.ndarray],
     item_count: int,
+    multiple_values=None,
 ) -> np.ndarray:
     parsed = _parse(expression)
     return np.asarray(
@@ -84,6 +85,7 @@ def evaluate_advanced_query(
             metadata_values,
             metadata_numeric_values,
             max(0, int(item_count)),
+            multiple_values,
         ),
         dtype=bool,
     )
@@ -311,14 +313,25 @@ def _evaluate_node(
     text_values: Mapping[str, np.ndarray],
     numeric_values: Mapping[str, np.ndarray],
     item_count: int,
+    multiple_values=None,
 ) -> np.ndarray:
     if isinstance(node, _Logical):
-        left = _evaluate_node(node.left, text_values, numeric_values, item_count)
-        right = _evaluate_node(node.right, text_values, numeric_values, item_count)
+        left = _evaluate_node(node.left, text_values, numeric_values, item_count, multiple_values)
+        right = _evaluate_node(node.right, text_values, numeric_values, item_count, multiple_values)
         return left & right if node.operator == "AND" else left | right
     if isinstance(node, _Negation):
-        return ~_evaluate_node(node.operand, text_values, numeric_values, item_count)
+        return ~_evaluate_node(node.operand, text_values, numeric_values, item_count, multiple_values)
     if isinstance(node, _Predicate):
+        if multiple_values and node.field in multiple_values:
+            from dataclasses import replace
+            from DiscoveryArea.multiple_values import any_value_matches
+            if node.operator == 'IS EMPTY':
+                return np.asarray([not any(str(value).strip() for value in values)
+                                   for values in multiple_values[node.field]], dtype=bool)
+            positive = replace(node, operator='==') if node.operator == '!=' else node
+            result = any_value_matches(multiple_values[node.field],
+                lambda values: _evaluate_predicate(positive, {node.field: values}, {}, len(values)))
+            return ~result if node.operator == '!=' else result
         return _evaluate_predicate(node, text_values, numeric_values, item_count)
     return np.zeros(item_count, dtype=bool)
 

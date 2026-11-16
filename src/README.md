@@ -7,7 +7,7 @@ version. Feature areas own their workflows; keep cross-area wiring in the shell.
 | --- | --- |
 | [MainWindow](MainWindow/README.md) | Navigation and project actions |
 | [project](project/README.md) | Project identity, layout, opening and bundles |
-| [ProjectArea](ProjectArea/README.md) | Active-project media sources and thumbnail preparation |
+| [AssetsArea](AssetsArea/README.md) | Active-project media sources and thumbnail preparation |
 | [MetadataArea](MetadataArea/README.md) | Metadata table, import/export and custom groups |
 | [EmbeddingsArea](EmbeddingsArea/README.md) | Media indexing, models, embedding runs and clustering |
 | [DiscoveryArea](DiscoveryArea/README.md) | Projections, interactive canvas, filters and snapshots |

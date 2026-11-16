@@ -7,10 +7,14 @@ import sys
 def main(argv: list[str] | None = None) -> int:
     """Start the EIDORA desktop application."""
     multiprocessing.freeze_support()
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments[:2] == ["--internal-worker", "diagnostic-trace"]:
+        from shared.internal_workers import dispatch_internal_worker
+
+        return dispatch_internal_worker(arguments[1:])
     from shared.matplotlib_runtime import configure_matplotlib_cache
 
     configure_matplotlib_cache()
-    arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments[:1] == ["--internal-worker"]:
         from shared.internal_workers import dispatch_internal_worker
 
@@ -22,8 +26,6 @@ def main(argv: list[str] | None = None) -> int:
 
     from PySide6 import QtWidgets
 
-    from MainWindow.controllers import MainWindowController, ProjectChooserController
-    from project.service import ProjectService
     from eidora_version import __version__
     from shared.diagnostics.logging import configure_logging
     from shared.qt.dialog_windows import (
@@ -51,6 +53,13 @@ def main(argv: list[str] | None = None) -> int:
     app.setOrganizationDomain("eidora.app")
     app.setApplicationName("EIDORA Desktop")
     app.setApplicationVersion(__version__)
+    from shared.qt.diagnostics import DiagnosticsMonitor
+
+    diagnostics = DiagnosticsMonitor(app)
+    # Keep diagnostics installed before importing and constructing workspaces.
+    from MainWindow.controllers import MainWindowController, ProjectChooserController
+    from project.service import ProjectService
+
     install_dialog_window_policy(app)
     install_theme(app)
     install_keyboard_focus(app)
@@ -89,15 +98,19 @@ def main(argv: list[str] | None = None) -> int:
         raise
     if controller is None:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
+        diagnostics.close()
         return 0
 
     app.aboutToQuit.connect(controller.shutdown)
+    controller.window.destroyed.connect(diagnostics.close)
     controller.show()
     set_dialog_window_owner(app, controller.window)
     app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
 
     if owns_app:
-        return int(app.exec())
+        result = int(app.exec())
+        diagnostics.close()
+        return result
     return 0
 
 

@@ -15,6 +15,7 @@ from MetadataArea.service import MetadataService
 from project.domain import Project, RecentProjectEntry
 from project.storage import (
     CURRENT_PROJECT_SCHEMA_VERSION,
+    read_project_manifest,
     PROJECT_MANIFEST_FILENAME,
     ProjectStoragePaths,
     ensure_current_project_schema,
@@ -86,6 +87,8 @@ class ProjectService:
         path = Path(root).expanduser().resolve()
         if not path.exists() or not path.is_dir():
             raise FileNotFoundError(path)
+        from MetadataArea.table_deletion_service import recover_table_removals
+        recover_table_removals(path)
         project = self._project_from_path(path)
         metadata_repository = self._metadata_repository(project)
         if not metadata_repository.is_initialized():
@@ -113,7 +116,7 @@ class ProjectService:
         for path, last_opened_at in records:
             try:
                 project = self._project_from_path(path)
-                if not self._metadata_repository(project).is_initialized():
+                if not MetadataRepository.contains_metadata(project.paths.metadata_database):
                     continue
             except (FileNotFoundError, ValueError, OSError):
                 continue
@@ -170,8 +173,9 @@ class ProjectService:
             raise ValueError("Selected directory is not a valid EIDORA project: missing metadata/metadata.db.")
 
         renamed_name = self._sanitize_name(name)
-        write_project_manifest(root, renamed_name, project.schema_version)
-        return Project(name=renamed_name, root=root, schema_version=project.schema_version)
+        version = max(project.schema_version, read_project_manifest(project.paths.manifest).schema_version)
+        write_project_manifest(root, renamed_name, version)
+        return Project(name=renamed_name, root=root, schema_version=version)
 
     def export_project_bundle(self, project: Project, destination: Path | str) -> Path:
         destination_path = Path(destination).expanduser()

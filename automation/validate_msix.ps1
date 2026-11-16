@@ -4,7 +4,7 @@ param(
     [Parameter(Mandatory)][string]$SubmissionPackage,
     [Parameter(Mandatory)][string]$TestPackage,
     [Parameter(Mandatory)][string]$ReportDirectory,
-    [int]$TimeoutSeconds = 600
+    [int]$TimeoutSeconds = 900
 )
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -90,6 +90,11 @@ namespace EidoraMsix {
     $result = Get-Content -LiteralPath $selfTestReport -Raw | ConvertFrom-Json
     if ($result.ok -ne $true -or $result.windows_package_full_name -ne $package.PackageFullName) {
         throw 'Installed self-test failed or ran without the expected package identity.'
+    }
+    if ($result.media_playback.ok -ne $true -or $result.media_playback.cases.Count -eq 0 -or
+        $result.media_playback.cases.Count -ne $result.media_playback.expected_case_count -or
+        @($result.media_playback.cases | Where-Object { $_.ok -ne $true -or $_.probe.packaged -ne $true }).Count -ne 0) {
+        throw 'Installed MSIX did not pass the complete media-playback audit.'
     }
     $expectedWorkspace = Join-Path $env:USERPROFILE 'EIDORA\workspace_projects'
     if ([IO.Path]::GetFullPath($result.default_workspace_root) -ne $expectedWorkspace) {

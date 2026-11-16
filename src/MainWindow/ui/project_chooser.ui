@@ -160,6 +160,7 @@
       </item>
       <item><widget class="QPushButton" name="button_starter"><property name="text"><string>Create MET Example…</string></property></widget></item>
       <item><widget class="QPushButton" name="button_storage"><property name="toolTip"><string>Manage storage and cached resources</string></property><property name="text"><string>Storage…</string></property></widget></item>
+      <item><widget class="QPushButton" name="button_report"><property name="text"><string>Diagnostics...</string></property></widget></item>
      </layout>
     </widget>
    </item>
@@ -195,6 +196,12 @@
         <property name="text">
          <string>Recent projects</string>
         </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="label_diagnostics_notice">
+        <property name="text"><string>A previous session ended unexpectedly or recorded a crash or freeze. Open Diagnostics... to review the report.</string></property>
+        <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>
       <item>

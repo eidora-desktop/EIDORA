@@ -160,7 +160,6 @@ class FiltersPanelController(UiPanelController):
         "categorical",
         "date",
         "datetime",
-        "list",
     }
 
     def _wire(self) -> None:
@@ -1216,6 +1215,8 @@ class FiltersPanelController(UiPanelController):
     def apply_filter_state_payload(self, payload: dict) -> None:
         if not isinstance(payload, dict):
             return
+        if self._metadata_access is not None:
+            payload = self._metadata_access.canonical_field_payload(payload)
         rules = payload.get("rules")
         mode = "advanced" if str(payload.get("mode") or "simple").strip().casefold() == "advanced" else "simple"
         advanced_query = str(payload.get("advanced_query") or "").strip()

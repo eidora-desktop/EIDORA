@@ -4,6 +4,160 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Simplify the thumbnail footer to “Creating thumbnails” with the same progress state as the Assets panel.
+
+- Fix stalled thumbnail input resolution on large collections with indexed, cancellable lookups; show live thumbnail preparation/progress in the footer, clear stale activity labels, finish footer cancellation for queued jobs, and omit video frame settings from image jobs.
+
+- Close Run Model immediately and prepare inputs in the embedding card with pause/cancel support. After successful embedding completion, run optional default thumbnails as a separate Assets job with aspect-preserving previews, tracked in the footer without changing workspaces.
+
+- Simplify the batch selector by removing its explanatory paragraph; Auto now prefers faster batches when the throughput gap exceeds 2%, matching High's tolerance.
+
+- Offer Auto, High, Low and fixed batches of 4, 8, 16, 32 or 64 for embedding runs. Tune High through larger CoreML batches, retain mild thermal throughput, remove fixed per-batch waits, and reduce soft memory pressure gradually while keeping critical safety pauses and recovery.
+
+- Recover embedding batch sizes gradually after temporary resource pressure clears, preserving measured preferences and resuming interrupted Auto comparisons without weakening memory, thermal, disk or allocation-failure limits. Report temporary reductions and recovery with resource readings.
+
+- Guard embedding runs with memory, available thermal and disk checks; compare Auto batches of 8, 16 and 32 over longer measurement windows, retaining measured speeds and selection reasons in the run report. Support fixed CoreML batches up to 32 and checkpoint at 4,096 items or 10 seconds. Preserve readable reasons for resumable safety pauses.
+
+- Default embedding runs to automatic batch tuning with a saved manual override in Advanced settings & parameters; show live batch size, counts and speed directly above the progress bar.
+
+- Keep embedding inference batches independent of checkpoint saves, throttle live reporting, and use compact status labels with an incremental bounded Vector Data activity log.
+
+- Match Discovery item previews to the selected Items row, using readable column names and the same linked values; keep values visible beside long field names.
+
+- Present Run Model as a focused form with a model heading, stacked Media Source/output/device fields, source counts and paths, and collapsed “Advanced settings & parameters”.
+
+- Show linked/total media counts beside source status icons combined with the media type; tighten Metadata tabs while retaining complete scrolling labels.
+
+- Place media-source and Metadata-tab status icons after their labels; show a red question mark for unlinked media and retain linked-column tooltips.
+
+- Show a fixed-width disabled “linked” label for linked media sources, show their link icon beside the name, and offer Relink... in source options.
+
+- Simplify local embedding runs to registered file-based Media Sources and one Run Model action, with automatic background validation and collapsed advanced settings.
+
+- Standardize Media Sources, Models, and Vector Data options on Snapshot-style 22-pixel toolbuttons, with matching Link... and Run... actions; use standard pushbutton heights and 6-pixel gaps.
+
+- Match Media Sources action buttons to Models with standard pushbuttons and a 4-pixel gap; label model options “...”.
+
+- Compact Media Sources to two-line rows, with source details above the path and Link/status beside the top-right options button.
+
+- Show vector counts and saved embedding file sizes on Embeddings cards, with exact byte counts in tooltips.
+
+- Put source actions in a row options button, move Link to a natural-size left control with a smaller linked icon and Items-column tooltip, and show linked counts beside the media type.
+
+- Limit item previews to a shared common-format contract, including MPEG, and require packaged playback audits on every release target. Check WAV variants, default/software video decoding, source switching and per-case diagnostics without adding runtime libraries; distinguish decoding success from audible-device QA.
+
+- Consolidate media matching into Link… with an explicit replacement checkbox and added, kept, and removed link counts.
+
+- Speed up metadata inspection with bounded batches, compact temporary tables and deferred indexes; show provisional samples, reuse completed type checks, and label database progress “Writing rows”. Full validation and transactional safeguards remain required.
+
+- Load audio metadata when selecting an item preview so duration and seeking are available before playback starts.
+
+- Match media folders against multiple metadata columns and filename lists, allowing several assets per Item with saved column selections and complete Source previews.
+
+- Label the Media Sources linking pushbutton and context-menu action “Link...” to match the Metadata workflow.
+
+- Index ordinary media folders with one inspection stage, reuse captured file statistics, and avoid repeated per-file path resolution while retaining transactional publication.
+
+- Give Media Sources full-width rows with separate progress, show cancellable folder/archive inspection immediately, and prevent duplicate rows when switching projects.
+
+- Resolve linked metadata in Items and Discovery regardless of matching direction; show readable mapped-size fields, load complete previews in bounded background pages, and reuse compact metadata columns and saved field summaries for faster project opening.
+
+- Identify sessions interrupted by force quit even without a crash trace, and show their saved diagnostics before the new session after restarting.
+
+- Enforce a 10 MiB budget for automatic diagnostics, with oldest-inactive-session cleanup, byte-exact log rotation, and bounded crash traces that cannot grow after a freeze or crash.
+
+- Give Discovery item previews dedicated image, video, audio, and read-only text views; limit the source selector to supported file formats and resolve JSONL text to the linked record.
+
+- Simplify the Help pop-up: place About EIDORA first, separate the remaining help options, and keep update checks in About instead of a duplicate pop-up action.
+
+- Add a media source selector to Discovery’s individual item dialog, using Media Sources names and allowing image, video, and audio previews across directly linked and inherited media.
+
+- Add Help → Diagnostics... with editable reports for manual submission to mail@eidora.org, bounded session logs, crash/freeze stack capture, and recovery guidance for common storage and access failures. Keep sharing information above the report and put the user's problem description before technical details.
+
+- Enable Vector Data’s Run Again action only for successful model runs; imported vectors cannot be rerun, retried, or resumed as model jobs.
+
+- Require unique embedding names when adding or importing outputs, ignoring case and surrounding whitespace. Show duplicate or empty import-name errors inline before publication.
+
+- Refresh Tooltip and Pin metadata fields immediately after clustering groups are published, alongside Appearance, Filters, and Slicer, while preserving selected fields.
+
+- Build Discovery's Random projection from every Items row, without requiring media links. Added Items receive new dots while existing dots retain their positions.
+
+- Import embeddings directly into Items, automatically reusing matching identities and creating missing rows. Align the dialog with Metadata Import using a preview-first layout, collapsed Import options, inline errors, and Cancel/Import actions.
+
+- Simplify Metadata controls to Add Files and source-only Link. Items offers Unlink all, Delete all, and Export; remove explicit source-replacement controls.
+
+- Offer metadata linking only when Items exist, restrict automatic and manual links to Items–source pairs, and add Unlink for a source’s saved relationships without deleting records.
+
+- Rename the Project workspace to Assets and move the active project name and project actions into the main window, with Switching Projects first. Project storage and bundle formats remain unchanged.
+
+- Align Media Source matching with the Metadata Link dialog: suggest settings from actual matches, preview source and item values together, and keep manual adjustments in collapsed Link options.
+
+- Show metadata import column, file-reading, and applicable matching settings directly inside the collapsed Import options panel without tabs or an extra enclosing box.
+
+- Keep registered media available without creating items or requiring matching. Match existing Items through linked metadata, validate embedding inputs and item reuse automatically before execution, and create items only when vectors publish successfully.
+- Resolve thumbnails to canonical items and relocate registered media without changing asset identities or saved embedding provenance.
+
+- Match the metadata import header to Link tables with a prominent filename, file details, and left-aligned preview headers; remove redundant preview and result headings while retaining the sample row count.
+
+- Simplify Link tables to a compact match headline, source-to-target columns, and labeled preview filter; retain the displayed-row count, use left-aligned column (table) headers, and show existing-link status on the disabled action button.
+
+- Show source and target matching values side by side in Link tables, emphasize source coverage, and filter unmatched or multiple-match records across the complete collection.
+
+- Simplify Link tables around the automatically suggested match and record preview. Keep manual columns and multiple-match approval in collapsed Link options, with a retry action and clear guidance when detection finds no match.
+
+- Show source-tab link status with a chain icon for linked tables and a red broken chain for unlinked tables; retain source paths in status tooltips.
+
+- Flatten nested metadata properties into fields and retain value lists and empty entries. Reject nested arrays of objects with a short, field-specific error inside the import dialog and restructuring guidance; existing saved lists remain readable. Discovery filters match list entries; coloring uses unambiguous values and leaves conflicting values unmapped. JSON exports preserve arrays.
+
+- Fix metadata import Include checkboxes painting at the top of the table on macOS; give each column its own checkbox that scrolls with its row.
+
+- Reserve consecutive numbering for items: source metadata uses a separate internal index counter and qualified record references, so imports and replacements cannot create gaps in future item numbers.
+
+- Center metadata imports on a data preview, with column settings, file reading, and matching in collapsed Import options. Preview all selected columns and keep matching and replacement outcomes visible.
+
+- Separate active item membership from source records. Source tabs hide internal indexes and inherited fields; vector imports and successful model runs publish explicit item bindings.
+- Resolve all approved linked values with provenance for Items and Discovery. Add explicit multiple-match approval and a manual record picker; use any/no-value filtering and unambiguous scalar mappings.
+
+- Track imported metadata by source path and content instead of tab name. Unchanged reimports focus the existing tab; changed sources require replacement preview, and tab tooltips show source paths.
+
+- Remove retired automatic-linking and metadata-preview helpers, simplify embedding item creation, and share column-label rules. Fix overview exports to use visible fields and labels, and avoid duplicate physical-field reads.
+
+- Distinguish the fixed Items tab with bold text and a small star beside italic imported metadata tabs; underline and subtly shade the selected tab. Tighten icon-to-label spacing and use a connected chain or question mark for link status.
+
+- Replace manual Metadata row/column creation with a source-replacement preview that retains matched IDs and links, blocks broken dependencies, and disables Link when no additional source tabs exist.
+
+- Embedding imports retain the supplied label field once instead of adding embedding_identifier; unlabelled vectors create items without a generated label column.
+
+- Hide equivalent numbered metadata copies in Items and Discovery, preserve columns whose aligned values differ, and expose only the canonical item ID in Discovery.
+
+- Consolidate fully matching approved link keys under the Items label; automatically number remaining duplicate field labels and allow unique overview label edits without changing source headers.
+
+- Linked metadata uses plain field labels in Items and Discovery; spreadsheet headers show a link icon with the source tab in a tooltip instead of extra relationship ID columns.
+
+- Metadata imports now open in separate filename tabs, leaving the initial Items tab empty with guidance to import or generate embeddings.
+
+### Changed
+
+- Keep the first Metadata tab named Items and open a compact linking dialog after import, preselecting the strongest exact match with a live background preview.
+
+- Metadata imports suggest relationships without applying them; a visible Link… action opens review for the selected table.
+
+- Link metadata tables automatically through unique filename or named-key matches in either import order, and provide **Link tables…** with an exact-match preview for explicit column matching.
+- Show readable related-field names in Discovery tooltip and pin selectors and rendered text while retaining stable saved field identities.
+
+- Import multiple embedding files with detected vector/identifier fields, flexible numeric encodings, retained descriptions, and exact matching that keeps unmatched vectors.
+- Organize metadata in named table tabs with shared-source and one-hop record relationships, dependency-aware table removal, and three main actions while retaining all search controls.
+
+- Use the available height for Mapped and Custom Fill Color tables in Discovery Appearance.
+
+### Fixed
+
+- Resolve Discovery metadata through vector-item → face → photo links, expose each table field once, and preserve saved selections without duplicate empty relationship fields. Reuse matching relationships across table, key, and relationship-name changes.
+
+- Complete embedding imports before reporting success and immediately refresh Vector Data; probe files in background workers and coalesce progress updates.
+
+- Limit thumbnail progress updates so large collections do not flood the interface during automatic or manual thumbnail creation.
+
 ## 0.2.7 — Prepared
 
 ### Changed

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 
-ImportLinkStrategy = Literal["identifier", "row_order", "create_metadata"]
+ImportLinkStrategy = Literal["items", "identifier", "row_order", "create_metadata"]
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,7 @@ class EmbeddingImportProbe:
     provenance: dict[str, object] = field(default_factory=dict)
     sidecar_path: Path | None = None
     sidecar_fingerprint: tuple[int, int] | None = None
+    members: tuple[EmbeddingImportProbe, ...] = ()
 
     @property
     def default_interpretation(self) -> EmbeddingImportInterpretation:
@@ -74,7 +75,7 @@ class EmbeddingImportInspection:
     dtype: str
     source_has_identifiers: bool
     samples: tuple[EmbeddingImportSample, ...]
-    complete_metadata_columns: tuple[str, ...] = ()
+    description_columns: tuple[str, ...] = ()
     identifier_fingerprint: tuple[int, int] | None = None
     sidecar_fingerprint: tuple[int, int] | None = None
 
@@ -93,3 +94,7 @@ class EmbeddingImportPlan:
     allow_partial: bool
     can_import: bool
     message: str
+    create_unmatched: bool = False
+    metadata_revision: int = 0
+    conflict_policy: str = "ask"
+    conflicts: tuple[tuple[str, int], ...] = ()

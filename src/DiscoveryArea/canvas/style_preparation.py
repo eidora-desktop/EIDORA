@@ -40,6 +40,7 @@ class CanvasStyleRequest:
     filter_matching: FilterMatching = FilterMatching.ALL
     metadata_values: Mapping[str, np.ndarray] = field(default_factory=dict)
     metadata_numeric_values: Mapping[str, np.ndarray] = field(default_factory=dict)
+    metadata_multiple_values: Mapping[str, tuple] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -134,12 +135,14 @@ def build_canvas_style(
         numeric_values,
         metadata_ids,
         request.filter_matching,
+        multiple_values=request.metadata_multiple_values,
     )
     slicer_mask = None
     if request.slicer_column:
         values = text_values.get(request.slicer_column)
         if values is not None:
-            slicer_mask = np.isin(values, np.asarray(request.slicer_values, dtype=np.str_))
+            from DiscoveryArea.multiple_values import membership_mask
+            slicer_mask = membership_mask(values, request.slicer_values, request.metadata_multiple_values.get(request.slicer_column))
             if bool(np.all(slicer_mask)):
                 slicer_mask = None
     if filter_mask is None:

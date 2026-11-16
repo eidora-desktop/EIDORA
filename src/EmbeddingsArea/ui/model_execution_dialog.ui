@@ -3,155 +3,255 @@
  <class>dialog_model_execution</class>
  <widget class="QDialog" name="dialog_model_execution">
   <property name="geometry">
-   <rect>
-    <x>0</x>
-    <y>0</y>
-    <width>620</width>
-    <height>560</height>
-   </rect>
+   <rect><x>0</x><y>0</y><width>560</width><height>450</height></rect>
   </property>
-  <property name="windowTitle">
-   <string>Run Embedding Model</string>
-  </property>
-  <layout class="QVBoxLayout" name="layout_root">
-   <property name="topMargin">
-    <number>12</number>
-   </property>
+  <property name="windowTitle"><string>Run Embedding Model</string></property>
+  <property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <layout class="QVBoxLayout" name="layout_root" stretch="1,0">
+   <property name="spacing"><number>0</number></property>
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
    <item>
-    <layout class="QGridLayout" name="grid_run_summary">
-     <item row="0" column="0">
-      <widget class="QLabel" name="label_model_title">
-       <property name="text">
-        <string>Model:</string>
-       </property>
-      </widget>
-     </item>
-     <item row="0" column="1">
-      <widget class="QLabel" name="label_model_value">
-       <property name="text">
-        <string>Embedding model</string>
-       </property>
-       <property name="textFormat">
-        <enum>Qt::TextFormat::PlainText</enum>
-       </property>
-       <property name="wordWrap">
-        <bool>true</bool>
-       </property>
-       <property name="textInteractionFlags">
-        <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
-       </property>
-      </widget>
-     </item>
-     <item row="1" column="1">
-      <widget class="QLineEdit" name="edit_output_name"/>
-     </item>
-     <item row="1" column="0">
-      <widget class="QLabel" name="label_output_name">
-       <property name="text">
-        <string>Output name:</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
-   </item>
-   <item>
-    <widget class="QGroupBox" name="group_inputs">
-     <property name="title">
-      <string>Inputs</string>
-     </property>
-     <layout class="QFormLayout" name="form_inputs"/>
+    <widget class="QScrollArea" name="scroll_run_form">
+     <property name="frameShape"><enum>QFrame::Shape::NoFrame</enum></property>
+     <property name="widgetResizable"><bool>true</bool></property>
+     <widget class="QWidget" name="panel_run_form">
+      <property name="surfaceRole" stdset="0"><string>panel</string></property>
+      <layout class="QVBoxLayout" name="layout_run_form">
+       <property name="spacing"><number>18</number></property>
+       <property name="leftMargin"><number>22</number></property>
+       <property name="topMargin"><number>22</number></property>
+       <property name="rightMargin"><number>22</number></property>
+       <property name="bottomMargin"><number>22</number></property>
+       <item>
+        <layout class="QVBoxLayout" name="layout_model_heading">
+         <property name="spacing"><number>4</number></property>
+         <item>
+          <widget class="QLabel" name="label_model_value">
+           <property name="sizePolicy"><sizepolicy hsizetype="Ignored" vsizetype="Preferred"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           <property name="font"><font><pointsize>18</pointsize><bold>true</bold></font></property>
+           <property name="text"><string>Embedding model</string></property>
+           <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+           <property name="wordWrap"><bool>true</bool></property>
+           <property name="textInteractionFlags"><set>Qt::TextInteractionFlag::TextSelectableByMouse</set></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_model_details">
+           <property name="text"><string>Model details</string></property>
+           <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+           <property name="wordWrap"><bool>true</bool></property>
+           <property name="textRole" stdset="0"><string>secondary</string></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QWidget" name="panel_inputs">
+         <layout class="QVBoxLayout" name="layout_inputs">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
+          <item>
+           <layout class="QFormLayout" name="form_inputs">
+            <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
+            <property name="rowWrapPolicy"><enum>QFormLayout::RowWrapPolicy::WrapAllRows</enum></property>
+            <property name="verticalSpacing"><number>6</number></property>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="label_source_summary">
+            <property name="sizePolicy"><sizepolicy hsizetype="Ignored" vsizetype="Preferred"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
+            <property name="text"><string>Select a registered Media Source.</string></property>
+            <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+            <property name="wordWrap"><bool>true</bool></property>
+            <property name="textRole" stdset="0"><string>secondary</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <layout class="QVBoxLayout" name="layout_output_name">
+         <property name="spacing"><number>6</number></property>
+         <item>
+          <widget class="QLabel" name="label_output_name">
+           <property name="text"><string>Output name</string></property>
+           <property name="buddy"><cstring>edit_output_name</cstring></property>
+          </widget>
+         </item>
+         <item><widget class="QLineEdit" name="edit_output_name"/></item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QWidget" name="panel_execution">
+         <layout class="QVBoxLayout" name="layout_execution">
+          <property name="spacing"><number>6</number></property>
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
+          <item>
+           <layout class="QFormLayout" name="form_execution">
+            <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
+            <property name="rowWrapPolicy"><enum>QFormLayout::RowWrapPolicy::WrapAllRows</enum></property>
+            <property name="verticalSpacing"><number>6</number></property>
+           </layout>
+          </item>
+          <item alignment="Qt::AlignmentFlag::AlignLeft">
+           <widget class="QPushButton" name="button_enable_cuda">
+            <property name="text"><string>Enable NVIDIA GPU…</string></property>
+            <property name="visible"><bool>false</bool></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="panel_thumbnails">
+         <layout class="QVBoxLayout" name="layout_thumbnails">
+          <property name="spacing"><number>3</number></property>
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
+          <item>
+           <widget class="QCheckBox" name="check_create_thumbnails">
+            <property name="text"><string>Create thumbnails (with default settings)</string></property>
+            <property name="toolTip"><string>Create default thumbnails after the embedding run completes.</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="label_thumbnails_note">
+            <property name="text"><string>For media previews after this run.</string></property>
+            <property name="indent"><number>22</number></property>
+            <property name="wordWrap"><bool>true</bool></property>
+            <property name="textRole" stdset="0"><string>secondary</string></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="line_advanced_settings">
+         <property name="frameShape"><enum>QFrame::Shape::HLine</enum></property>
+         <property name="frameShadow"><enum>QFrame::Shadow::Sunken</enum></property>
+         <property name="separatorRole" stdset="0"><string>inset</string></property>
+        </widget>
+       </item>
+       <item alignment="Qt::AlignmentFlag::AlignLeft">
+        <widget class="QToolButton" name="button_advanced_settings">
+         <property name="text"><string>Advanced settings &amp;&amp; parameters</string></property>
+         <property name="accessibleName"><string>Advanced settings &amp; parameters</string></property>
+         <property name="checkable"><bool>true</bool></property>
+         <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonTextBesideIcon</enum></property>
+         <property name="autoRaise"><bool>true</bool></property>
+         <property name="arrowType"><enum>Qt::ArrowType::RightArrow</enum></property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="panel_advanced_settings">
+         <property name="visible"><bool>false</bool></property>
+         <layout class="QVBoxLayout" name="layout_advanced_settings">
+          <property name="spacing"><number>12</number></property>
+          <property name="leftMargin"><number>0</number></property>
+          <property name="topMargin"><number>0</number></property>
+          <property name="rightMargin"><number>0</number></property>
+          <property name="bottomMargin"><number>0</number></property>
+          <item>
+           <layout class="QFormLayout" name="form_batch_settings">
+            <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
+            <property name="horizontalSpacing"><number>12</number></property>
+            <item row="0" column="0">
+             <widget class="QLabel" name="label_batch_size">
+              <property name="text"><string>Batch performance</string></property>
+              <property name="buddy"><cstring>combo_batch_mode</cstring></property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QWidget" name="panel_batch_size">
+              <layout class="QHBoxLayout" name="layout_batch_size">
+               <property name="leftMargin"><number>0</number></property>
+               <property name="topMargin"><number>0</number></property>
+               <property name="rightMargin"><number>0</number></property>
+               <property name="bottomMargin"><number>0</number></property>
+               <property name="spacing"><number>8</number></property>
+               <item>
+                <widget class="QComboBox" name="combo_batch_mode">
+                 <property name="toolTip"><string>Auto balances speed and headroom. Low uses smaller batches and more conservative memory limits. High tests larger batches and uses more available memory. Short runs use a starting size. All policies retain critical memory, temperature and disk limits.</string></property>
+                 <property name="accessibleName"><string>Batch performance</string></property>
+                 <item><property name="text"><string>Auto</string></property></item>
+                 <item><property name="text"><string>High</string></property></item>
+                 <item><property name="text"><string>Low</string></property></item>
+                 <item><property name="text"><string>4</string></property></item>
+                 <item><property name="text"><string>8</string></property></item>
+                 <item><property name="text"><string>16</string></property></item>
+                 <item><property name="text"><string>32</string></property></item>
+                 <item><property name="text"><string>64</string></property></item>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QFormLayout" name="form_parameters">
+            <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
+            <property name="horizontalSpacing"><number>12</number></property>
+            <property name="verticalSpacing"><number>8</number></property>
+           </layout>
+          </item>
+          <item alignment="Qt::AlignmentFlag::AlignLeft">
+           <widget class="QPushButton" name="button_reset_preparation">
+            <property name="text"><string>Reset to Model Defaults</string></property>
+            <property name="autoDefault"><bool>false</bool></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>
-    <widget class="QGroupBox" name="group_parameters">
-     <property name="title">
-      <string>Execution settings</string>
-     </property>
-     <layout class="QFormLayout" name="form_parameters"/>
+    <widget class="QWidget" name="panel_footer">
+     <property name="surfaceRole" stdset="0"><string>area</string></property>
+     <layout class="QVBoxLayout" name="layout_footer">
+      <property name="spacing"><number>8</number></property>
+      <property name="leftMargin"><number>22</number></property>
+      <property name="topMargin"><number>12</number></property>
+      <property name="rightMargin"><number>22</number></property>
+      <property name="bottomMargin"><number>12</number></property>
+      <item>
+       <widget class="QLabel" name="label_error">
+        <property name="text"><string/></property>
+        <property name="visible"><bool>false</bool></property>
+        <property name="wordWrap"><bool>true</bool></property>
+        <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+        <property name="textRole" stdset="0"><string>error</string></property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="layout_buttons">
+        <property name="spacing"><number>8</number></property>
+        <item><spacer name="button_spacer"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>0</height></size></property></spacer></item>
+        <item><widget class="QPushButton" name="button_cancel"><property name="text"><string>Cancel</string></property><property name="autoDefault"><bool>false</bool></property></widget></item>
+        <item><widget class="QPushButton" name="button_run"><property name="text"><string>Run Model</string></property><property name="default"><bool>true</bool></property></widget></item>
+       </layout>
+      </item>
+     </layout>
     </widget>
-   </item>
-   <item alignment="Qt::AlignmentFlag::AlignHCenter">
-    <widget class="QPushButton" name="button_enable_cuda">
-     <property name="text"><string>Enable NVIDIA GPU…</string></property>
-     <property name="visible"><bool>false</bool></property>
-    </widget>
-   </item>
-   <item alignment="Qt::AlignmentFlag::AlignHCenter">
-    <widget class="QPushButton" name="button_reset_preparation">
-     <property name="text">
-      <string>Reset to Model Defaults</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <widget class="QCheckBox" name="check_create_thumbnails">
-     <property name="text">
-      <string>Create default thumbnails after completion</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <spacer name="spacer">
-     <property name="orientation">
-      <enum>Qt::Orientation::Vertical</enum>
-     </property>
-     <property name="sizeHint" stdset="0">
-      <size>
-       <width>20</width>
-       <height>20</height>
-      </size>
-     </property>
-    </spacer>
-   </item>
-   <item>
-    <widget class="QLabel" name="label_error">
-     <property name="text">
-      <string/>
-     </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
-     <property name="textRole" stdset="0">
-      <string>error</string>
-     </property>
-    </widget>
-   </item>
-   <item>
-    <layout class="QHBoxLayout" name="layout_buttons">
-     <item>
-      <spacer name="button_spacer">
-       <property name="orientation">
-        <enum>Qt::Orientation::Horizontal</enum>
-       </property>
-       <property name="sizeHint" stdset="0">
-        <size>
-         <width>40</width>
-         <height>20</height>
-        </size>
-       </property>
-      </spacer>
-     </item>
-     <item>
-      <widget class="QPushButton" name="button_cancel">
-       <property name="text">
-        <string>Cancel</string>
-       </property>
-      </widget>
-     </item>
-     <item>
-      <widget class="QPushButton" name="button_run">
-       <property name="text">
-        <string>Run Model</string>
-       </property>
-       <property name="default">
-        <bool>true</bool>
-       </property>
-      </widget>
-     </item>
-    </layout>
    </item>
   </layout>
  </widget>
+ <tabstops><tabstop>edit_output_name</tabstop><tabstop>check_create_thumbnails</tabstop><tabstop>button_advanced_settings</tabstop><tabstop>combo_batch_mode</tabstop><tabstop>button_reset_preparation</tabstop><tabstop>button_cancel</tabstop><tabstop>button_run</tabstop></tabstops>
  <resources/>
  <connections/>
 </ui>

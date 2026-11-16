@@ -103,6 +103,8 @@ numpy==2.5.3 ; sys_platform != "darwin" or platform_machine != "x86_64"
     #   scipy
     #   umap-learn
 # CPU-only base; optional GPU runtime versions live in cuda-downloads.json.
+psutil==7.2.2
+    # via eidora-desktop (pyproject.toml)
 onnxruntime==1.26.0; (sys_platform == 'win32' or sys_platform == 'linux') and (platform_machine == 'AMD64' or platform_machine == 'x86_64')
 
 odfpy==1.4.1

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import threading
 from PySide6 import QtCore
 
 class _EmbeddingRunThread(QtCore.QThread):
@@ -10,12 +11,42 @@ class _EmbeddingRunThread(QtCore.QThread):
     message = QtCore.Signal(str, str)
     telemetry = QtCore.Signal(str, object)
 
-    def __init__(self, project, run_id: str, *, create_thumbnails=False, parent=None):
+    def __init__(self, project, run_id: str, *, parent=None):
         super().__init__(parent)
         from EmbeddingsArea.generation_service import EmbeddingGenerationJob
-        self._job = EmbeddingGenerationJob(project, run_id, create_thumbnails=create_thumbnails,
-            finished=self.result_ready.emit, failed=self.failed.emit, progress=self.progress.emit,
-            message=self.message.emit, telemetry=self.telemetry.emit)
+        self._progress_lock = threading.Lock()
+        self._pending_progress = None
+        self._progress_timer = QtCore.QTimer(self)
+        self._progress_timer.setInterval(250)
+        self._progress_timer.timeout.connect(self._flush_progress)
+        self.started.connect(self._progress_timer.start)
+        self.finished.connect(self._stop_reporting)
+        self._job = EmbeddingGenerationJob(project, run_id,
+            finished=self.result_ready.emit, failed=self.failed.emit, progress=self._receive_progress,
+            message=self._receive_message, telemetry=self.telemetry.emit)
+
+    def _receive_progress(self, run_id, value, detail):
+        # A blocked GUI retains one latest update, never a queue of batch signals.
+        with self._progress_lock:
+            self._pending_progress = (run_id, value, detail)
+
+    def _receive_message(self, run_id, detail):
+        with self._progress_lock:
+            if self._pending_progress is not None:
+                self._pending_progress = (run_id, self._pending_progress[1], detail)
+        self.message.emit(run_id, detail)
+
+    @QtCore.Slot()
+    def _flush_progress(self):
+        with self._progress_lock:
+            update, self._pending_progress = self._pending_progress, None
+        if update is not None:
+            self.progress.emit(*update)
+
+    @QtCore.Slot()
+    def _stop_reporting(self):
+        self._progress_timer.stop()
+        self._flush_progress()
 
     def request_pause(self):
         job = self._job

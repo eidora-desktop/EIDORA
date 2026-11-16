@@ -206,6 +206,7 @@ def _canvas_style_request_with_metadata(
         request,
         metadata_values=text_values,
         metadata_numeric_values=numeric_values,
+        metadata_multiple_values=metadata_access.multiple_values_for_ids(request.metadata_ids, columns=columns),
     )
 
 
@@ -797,6 +798,7 @@ class DiscoveryAreaController:
             panel.set_metadata_access(self._metadata_access)
             panel.set_project(self._project)
         self._refresh_metadata_cache(self._project)
+        self._sync_pin_metadata_fields()
 
     def refresh_thumbnail_variants(self) -> None:
         """Reload thumbnail choices without resetting the active projection."""
@@ -2127,43 +2129,19 @@ class DiscoveryAreaController:
         self._open_metadata_callback = callback
 
     def _selection_actions_dialog_data(self, metadata_id: int) -> SelectionActionsDialogData:
-        columns = self._metadata_columns()
-        requested = {column for column in columns if column != "id"}
-        metadata_text, _numeric = self._metadata_values_for_ids(
-            np.asarray([int(metadata_id)], dtype=np.int64),
-            columns=requested,
-            numeric_columns=set(),
+        rows = (
+            self._service.item_metadata_rows(self._project, int(metadata_id))
+            if self._project is not None else (("ID", str(metadata_id)),)
         )
-        rows: list[tuple[str, str]] = []
-        for column in columns:
-            if column == "id":
-                rows.append(("ID", str(metadata_id)))
-                continue
-            values = metadata_text.get(column)
-            rows.append((column, "" if values is None or values.size == 0 else str(values[0])))
-        if not any(column == "id" for column in columns):
-            rows.insert(0, ("ID", str(metadata_id)))
         panel = self._panel(LayersSettingPanelController)
         display = panel.pin_display_settings_payload() if panel is not None else {}
         variants = self._service.list_thumbnail_variants(self._project) if self._project is not None else []
-        source_file_path = ""
-        source_content_type = ""
-        source_file_unavailable_reason = ""
+        media_sources = ()
         if self._project is not None:
             try:
-                media_asset = self._service.linked_media_asset(
-                    self._project,
-                    int(metadata_id),
-                )
+                media_sources = self._service.item_media_sources(self._project, int(metadata_id))
             except (OSError, sqlite3.Error, ValueError):
-                media_asset = None
-            if media_asset is not None:
-                source_file_path = str(media_asset.absolute_path)
-                source_content_type = media_asset.content_type.value
-                if not media_asset.absolute_path.is_file():
-                    source_file_unavailable_reason = (
-                        "The linked source file is no longer available."
-                    )
+                pass
         dataset = self._active_dataset
         option = self._discovery_options.get(self._active_discovery_key)
         neighbor_source_label = ""
@@ -2231,9 +2209,7 @@ class DiscoveryAreaController:
             neighbor_thumbnail_variant_id=str(
                 display.get("tooltip_thumbnail_variant_id") or "none"
             ),
-            source_file_path=source_file_path,
-            source_content_type=source_content_type,
-            source_file_unavailable_reason=source_file_unavailable_reason,
+            media_sources=media_sources,
         )
 
     def _metadata_pin_scope_mode(self, metadata_id: int) -> str:
@@ -2259,6 +2235,7 @@ class DiscoveryAreaController:
         variant_id: str,
         target_px: int,
         prefer_original: bool = False,
+        source_asset_id: str = "",
     ) -> None:
         del target
         if self._thumbnail_service is None:
@@ -2269,6 +2246,7 @@ class DiscoveryAreaController:
                 target_px=max(1, int(target_px)),
                 variant_id=str(variant_id),
                 prefer_original=bool(prefer_original),
+                source_asset_id=source_asset_id,
             )
         )
 
@@ -2928,6 +2906,8 @@ class DiscoveryAreaController:
             (DecodedThumbnail, ThumbnailDecodeFailure),
         ):
             dialog_controller.apply_thumbnail(payload)
+        if isinstance(payload, (DecodedThumbnail, ThumbnailDecodeFailure)) and payload.source_asset_id:
+            return
         if isinstance(payload, ThumbnailDecodeFailure):
             self._handle_thumbnail_decode_failure(payload)
             return
@@ -3193,7 +3173,9 @@ class DiscoveryAreaController:
             np.asarray([int(item.get("metadata_id", -1)) for item in payload], dtype=np.int64),
             columns=set(fields) - {"id"},
             numeric_columns=set(),
+            display=True,
         )
+        labels = self._metadata_field_labels()
         for idx, item in enumerate(payload):
             metadata_id = int(item.get("metadata_id", -1))
             lines: list[str] = []
@@ -3203,7 +3185,7 @@ class DiscoveryAreaController:
                     continue
                 values = metadata_text.get(field)
                 value = values[idx] if values is not None and idx < values.shape[0] else ""
-                lines.append(f"{field}\t{value}")
+                lines.append(f"{labels.get(field, field)}\t{value}")
             item["lines"] = lines
             item["thumbnail_variant_id"] = variant_id
             item["thumbnail_size"] = int(thumbnail_size)
@@ -3364,6 +3346,8 @@ class DiscoveryAreaController:
         fields = self._metadata_columns()
         panel.set_metadata_fields(
             fields,
+            labels=self._metadata_field_labels(),
+            aliases=self._metadata_access.field_aliases() if self._metadata_access is not None else {},
             tooltip_checked=panel.selected_tooltip_fields(),
             pin_checked=panel.selected_pin_fields(),
         )
@@ -3382,8 +3366,10 @@ class DiscoveryAreaController:
             np.asarray([int(metadata_id)], dtype=np.int64),
             columns=requested_fields,
             numeric_columns=set(),
+            display=True,
         )
         lines: list[str] = []
+        labels = self._metadata_field_labels()
         for field in fields:
             key = str(field).strip()
             if key == "id":
@@ -3395,7 +3381,7 @@ class DiscoveryAreaController:
                     if values is None or values.size == 0
                     else _CanvasTooltipPopup._truncate_value(str(values[0]))
                 )
-                lines.append(f"{key}\t{value}" if show_label else value)
+                lines.append(f"{labels.get(key, key)}\t{value}" if show_label else value)
         return lines
 
     def _refresh_metadata_cache(self, project: Project) -> None:
@@ -3414,6 +3400,11 @@ class DiscoveryAreaController:
 
     def _metadata_columns(self) -> list[str]:
         return list(self._metadata_columns_cache or ["id"])
+
+    def _metadata_field_labels(self) -> dict[str, str]:
+        if self._metadata_access is None:
+            return {}
+        return {column.name: column.label for column in self._metadata_access.columns()}
 
     def _load_pins_for_active_discovery(self) -> None:
         if self._project is None or self._canvas_widget is None:
@@ -4643,6 +4634,9 @@ class DiscoveryAreaController:
     def _begin_discovery_run(self, request: _QueuedDiscoveryRun) -> None:
         if request is not self._active_discovery_run or self._discovery_cancel_requested:
             return
+        from shared.diagnostics.service import LOGGER
+
+        LOGGER.info("Discovery projection started")
         panel = self._panel(DiscoveryPanelController)
         if panel is not None:
             panel.set_run_started(request.run_id)
@@ -4956,6 +4950,11 @@ class DiscoveryAreaController:
         self._complete_pending_discovery_display_if_ready()
 
     def _handle_discovery_run_failed(self, message: str) -> None:
+        from shared.diagnostics.service import record_failure
+
+        guidance = record_failure("Discovery projection failed", message)
+        if guidance:
+            message = f"{message}\n\n{guidance}"
         self._discovery_debug("discovery_worker_failed_signal", message=message)
         self._pending_discovery_error = message
         self._pending_discovery_option_key = None
@@ -5674,6 +5673,8 @@ class DiscoveryAreaController:
             metadata_numeric_values,
             dataset.metadata_ids,
             filter_matching,
+            multiple_values=(self._metadata_access.multiple_values_for_ids(dataset.metadata_ids, columns=columns)
+                             if self._metadata_access is not None else None),
         )
         return self._combine_visibility_masks(filter_mask, slicer_mask)
 
@@ -5714,7 +5715,9 @@ class DiscoveryAreaController:
         column_values = metadata_text.get(column)
         if column_values is None:
             return None
-        mask = np.isin(column_values, np.asarray(tuple(allowed), dtype=np.str_))
+        from DiscoveryArea.multiple_values import membership_mask
+        multiple = self._metadata_access.multiple_values_for_ids(dataset.metadata_ids, columns={column}) if self._metadata_access else {}
+        mask = membership_mask(column_values, allowed, multiple.get(column))
         if np.all(mask):
             return None
         return mask
@@ -5725,6 +5728,7 @@ class DiscoveryAreaController:
         *,
         columns: set[str] | None = None,
         numeric_columns: set[str] | None = None,
+        display: bool = False,
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         if metadata_ids.size == 0:
             return {}, {}
@@ -5741,6 +5745,7 @@ class DiscoveryAreaController:
                     metadata_ids,
                     columns=requested_columns,
                     numeric_columns=requested_numeric,
+                    display=display,
                 )
             except Exception:
                 return {}, {}

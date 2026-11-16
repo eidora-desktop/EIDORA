@@ -159,6 +159,8 @@ class LayersSettingPanelController(UiPanelController):
         self._tooltip_thumbnail_size_slider_filter = _TooltipThumbnailSizeSliderFilter(self)
         self._tooltip_thumbnail_size_slider.installEventFilter(self._tooltip_thumbnail_size_slider_filter)
         self._available_metadata_fields: list[str] = ["id", "label", "category"]
+        self._metadata_field_labels: dict[str, str] = {}
+        self._metadata_field_aliases: dict[str, str] = {}
         self._last_thumbnail_selection: dict[str, str] = {"pins": "none", "tooltip": "none"}
         self._active_thumbnail_variants: list[tuple[str, str]] = []
         self._thumbnail_defaults_applied = False
@@ -901,7 +903,8 @@ class LayersSettingPanelController(UiPanelController):
             list_widget.clear()
             checked = {str(field).strip() for field in checked_fields if str(field).strip()}
             for field in self._available_metadata_fields:
-                item = QtWidgets.QListWidgetItem(field)
+                item = QtWidgets.QListWidgetItem(self._metadata_field_labels.get(field, field))
+                item.setData(QtCore.Qt.ItemDataRole.UserRole, field)
                 item.setFlags(
                     item.flags()
                     | QtCore.Qt.ItemFlag.ItemIsUserCheckable
@@ -917,11 +920,15 @@ class LayersSettingPanelController(UiPanelController):
         self,
         fields: list[str],
         *,
+        labels: dict[str, str] | None = None,
+        aliases: dict[str, str] | None = None,
         tooltip_checked: list[str] | None = None,
         pin_checked: list[str] | None = None,
     ) -> None:
         cleaned = [str(field).strip() for field in fields if str(field).strip()]
         self._available_metadata_fields = cleaned or ["id", "label", "category"]
+        self._metadata_field_labels = dict(labels or {})
+        self._metadata_field_aliases = dict(aliases or {})
         self._suspend_pin_display_changed = True
         if self._pin_fields is not None:
             pin_list = self._field_list(self._pin_fields, "pins")
@@ -962,7 +969,7 @@ class LayersSettingPanelController(UiPanelController):
         for row in range(selected.count()):
             item = selected.item(row)
             if item.checkState() == QtCore.Qt.CheckState.Checked:
-                output.append(item.text())
+                output.append(str(item.data(QtCore.Qt.ItemDataRole.UserRole) or item.text()))
         return output
 
     def selected_tooltip_fields(self) -> list[str]:
@@ -975,7 +982,7 @@ class LayersSettingPanelController(UiPanelController):
         for row in range(selected.count()):
             item = selected.item(row)
             if item.checkState() == QtCore.Qt.CheckState.Checked:
-                output.append(item.text())
+                output.append(str(item.data(QtCore.Qt.ItemDataRole.UserRole) or item.text()))
         return output
 
     def _wire_field_move_button(self, root: QtWidgets.QWidget, mode: str, action: str, offset: int) -> None:
@@ -1012,7 +1019,7 @@ class LayersSettingPanelController(UiPanelController):
         if source is None or target is None:
             return
         checked = [
-            source.item(row).text()
+            str(source.item(row).data(QtCore.Qt.ItemDataRole.UserRole) or source.item(row).text())
             for row in range(source.count())
             if source.item(row).checkState() == QtCore.Qt.CheckState.Checked
         ]
@@ -1039,7 +1046,8 @@ class LayersSettingPanelController(UiPanelController):
         allow_empty: bool = False,
     ) -> list[str]:
         available = set(self._available_metadata_fields)
-        selected = [str(field).strip() for field in fields if str(field).strip() in available]
+        canonical = [self._metadata_field_aliases.get(str(field).strip(), str(field).strip()) for field in fields]
+        selected = list(dict.fromkeys(field for field in canonical if field in available))
         if allow_empty:
             return selected
         return selected or ["id"]

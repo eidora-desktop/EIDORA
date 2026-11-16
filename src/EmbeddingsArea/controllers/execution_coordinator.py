@@ -9,6 +9,10 @@ from PySide6 import QtCore
 
 from EmbeddingsArea.controllers.embedding_job_workers import _EmbeddingRunThread
 from EmbeddingsArea.domain import EmbeddingRunState
+from shared.diagnostics.service import LOGGER, record_failure
+
+
+REPORT_HISTORY_LIMIT = 500
 
 
 @dataclass
@@ -26,6 +30,8 @@ class ExecutionState:
     pending_state: str = ""
     pending_error: str = ""
     report: list[str] = field(default_factory=list)
+    report_offset: int = 0
+    create_thumbnails: bool = False
 
 
 class _ClusteringThread(QtCore.QThread):
@@ -99,6 +105,7 @@ class ExecutionCoordinator(QtCore.QObject):
     progress = QtCore.Signal(str, str, int, str)
     output_ready = QtCore.Signal(str, str)
     groups_changed = QtCore.Signal()
+    thumbnails_requested = QtCore.Signal(str)
 
     def __init__(self, activity_manager=None, parent=None) -> None:
         super().__init__(parent)
@@ -156,7 +163,8 @@ class ExecutionCoordinator(QtCore.QObject):
             self._session.service.runs_repository.upsert_run(
                 replace(run, state=EmbeddingRunState.QUEUED)
             )
-        state = ExecutionState("embedding", run_id, run.label, generation=self._generation)
+        state = ExecutionState("embedding", run_id, run.label, generation=self._generation,
+                               create_thumbnails=create_thumbnails)
         state.report.append("Queued · Waiting for background capacity…")
         self._jobs[key] = state
         generation = self._generation
@@ -164,7 +172,7 @@ class ExecutionCoordinator(QtCore.QObject):
         def start() -> None:
             if generation != self._generation or self._shutting_down:
                 return
-            self._start_embedding(state, create_thumbnails)
+            self._start_embedding(state)
 
         state.admission = self._submit(state.title, start, lambda: self._cancel_worker(state))
         self.changed.emit()
@@ -308,14 +316,16 @@ class ExecutionCoordinator(QtCore.QObject):
         manager.dispatch()
         return admission
 
-    def _start_embedding(self, state: ExecutionState, create_thumbnails: bool) -> None:
+    def _start_embedding(self, state: ExecutionState) -> None:
+        LOGGER.info("Embedding job started")
         thread = _EmbeddingRunThread(
-            self._project, state.id, create_thumbnails=create_thumbnails, parent=self,
+            self._project, state.id, parent=self,
         )
         state.thread = state.worker = thread
         self._thread_keys[thread] = ("embedding", state.id)
-        state.state, state.detail = "running", "Preparing embedding model…"
-        self._append_report(state, "Started · Preparing embedding model…")
+        state.state, state.detail = "running", "Preparing embedding inputs…"
+        state.progress = -1
+        self._append_report(state, "Started · Preparing embedding inputs…")
         thread.progress.connect(self._embedding_progress)
         thread.message.connect(self._embedding_message)
         thread.result_ready.connect(self._embedding_finished)
@@ -326,6 +336,7 @@ class ExecutionCoordinator(QtCore.QObject):
         self.changed.emit()
 
     def _start_clustering(self, state: ExecutionState) -> None:
+        LOGGER.info("Clustering job started")
         cancellation = threading.Event()
         self._cluster_cancellations[state.id] = cancellation
         thread = _ClusteringThread(self.service, state.id, cancellation, parent=self)
@@ -344,10 +355,10 @@ class ExecutionCoordinator(QtCore.QObject):
         state = self.state(kind, identity)
         if state is None or state.generation != self._generation:
             return
+        if int(value) // 10 != state.progress // 10:
+            LOGGER.info("%s job progress: %s%%", kind, value)
         state.progress = -1 if int(value) < 0 else max(max(0, state.progress), min(99, int(value)))
         state.detail = str(detail or state.detail)
-        progress = "Working" if state.progress < 0 else f"{state.progress}%"
-        self._append_report(state, f"{progress} · {state.detail}")
         self.progress.emit(kind, identity, state.progress, state.detail)
 
     @QtCore.Slot(str, int, str)
@@ -357,6 +368,9 @@ class ExecutionCoordinator(QtCore.QObject):
     @QtCore.Slot(str, str)
     def _embedding_message(self, identity: str, detail: str) -> None:
         state = self.state("embedding", identity)
+        if state is None or state.generation != self._generation:
+            return
+        self._append_report(state, detail)
         self._on_progress("embedding", identity, state.progress if state else 0, detail)
 
     @QtCore.Slot(str, str, str, str)
@@ -392,9 +406,13 @@ class ExecutionCoordinator(QtCore.QObject):
         if state is None:
             return
         state.pending_state = str(result_state)
+        LOGGER.info("%s job result: %s", kind, result_state)
         state.pending_error = error or ""
         if error:
-            self._append_report(state, f"ERROR · {error}")
+            guidance = record_failure(f"{kind} job failed", error)
+            if guidance:
+                state.pending_error += "\n\n" + guidance
+            self._append_report(state, "Execution failed. See error details below.")
 
     def _thread_finished(self, kind: str, identity: str) -> None:
         state = self.state(kind, identity)
@@ -418,12 +436,21 @@ class ExecutionCoordinator(QtCore.QObject):
         if state.generation == self._generation:
             self.output_ready.emit(kind, identity)
             self.changed.emit()
+            if (kind == "embedding" and result_state == "completed"
+                    and state.create_thumbnails and not self._shutting_down
+                    and state.generation == self._generation):
+                state.create_thumbnails = False
+                self.thumbnails_requested.emit(identity)
 
     @staticmethod
     def _append_report(state: ExecutionState, message: str) -> None:
         message = str(message or "").strip()
         if message and (not state.report or state.report[-1] != message):
             state.report.append(message)
+            excess = max(0, len(state.report) - REPORT_HISTORY_LIMIT)
+            if excess:
+                del state.report[:excess]
+                state.report_offset += excess
 
     @QtCore.Slot()
     def _job_thread_finished(self) -> None:

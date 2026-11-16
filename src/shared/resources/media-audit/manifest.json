@@ -1,0 +1,406 @@
+{
+  "schema_version": 1,
+  "provenance": "Synthetic EIDORA fixtures; no third-party media.",
+  "cases": [
+    {
+      "id": "image-jpg",
+      "file": "image-jpg.jpg",
+      "kind": "image",
+      "sha256": "190cc54726e11c15e24c769f99c4997c422a241138054b388b648de1783b6e44",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "image-jpeg",
+      "file": "image-jpeg.jpeg",
+      "kind": "image",
+      "sha256": "190cc54726e11c15e24c769f99c4997c422a241138054b388b648de1783b6e44",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "image-png",
+      "file": "image-png.png",
+      "kind": "image",
+      "sha256": "376216f66e1270ce1c382418d533c2d6e511e63fd61c38f1a0ad49f13bf84867",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "image-bmp",
+      "file": "image-bmp.bmp",
+      "kind": "image",
+      "sha256": "978d34e170d51ebc2d8b747cd44b3fb8c5e1b8644dc657d45fc9cfcdb1f031df",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "image-gif",
+      "file": "image-gif.gif",
+      "kind": "image",
+      "sha256": "4b164abe183c5768a592551ad12b7495255d58af7d2a4e91712c35af8debcef5",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "image-tif",
+      "file": "image-tif.tif",
+      "kind": "image",
+      "sha256": "f7e70e8bc858cc55de0d804c5a759c8df01ac8c223d00b13429398468cde59fa",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "image-tiff",
+      "file": "image-tiff.tiff",
+      "kind": "image",
+      "sha256": "f7e70e8bc858cc55de0d804c5a759c8df01ac8c223d00b13429398468cde59fa",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "image-webp",
+      "file": "image-webp.webp",
+      "kind": "image",
+      "sha256": "950fbfe6813868fb3bf7e686bb73e268841d6cbfd2478e2285eaf7976e1ecf05",
+      "width": 96,
+      "height": 64
+    },
+    {
+      "id": "audio-wav",
+      "file": "audio-wav.wav",
+      "kind": "audio",
+      "sha256": "3119ff5a68ff6aaeb2e2a435b71859ad4805468c3582255f546373f437e682d1",
+      "codec": "pcm_s16le",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-wave",
+      "file": "audio-wave.wave",
+      "kind": "audio",
+      "sha256": "3119ff5a68ff6aaeb2e2a435b71859ad4805468c3582255f546373f437e682d1",
+      "codec": "pcm_s16le",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-flac",
+      "file": "audio-flac.flac",
+      "kind": "audio",
+      "sha256": "e427a28876006af2bcef947369ff62c1cb38f6b5bb2c508ab81f33ab1925f310",
+      "codec": "flac",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-mp3",
+      "file": "audio-mp3.mp3",
+      "kind": "audio",
+      "sha256": "691f8dc4968646cfdc58a095f4b61eb4945896fe05bbe7f53b9891b41ad6a477",
+      "codec": "libmp3lame",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-m4a",
+      "file": "audio-m4a.m4a",
+      "kind": "audio",
+      "sha256": "37c3b75cad4ca3db02535d8d529cb999bcf8c54e87c13995784a2fef497f36c1",
+      "codec": "aac",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-aac",
+      "file": "audio-aac.aac",
+      "kind": "audio",
+      "sha256": "a977d013d952c61f917a29eeb1c372768251593f8112935613c1806a4479bdaf",
+      "codec": "aac",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-ogg",
+      "file": "audio-ogg.ogg",
+      "kind": "audio",
+      "sha256": "079e182c84279399481457c84fddc5c6fc33d3729afc9a93e190da9e137c3148",
+      "codec": "libvorbis",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-oga",
+      "file": "audio-oga.oga",
+      "kind": "audio",
+      "sha256": "526fc4deddce97491087cea5225df3bd0006074878705b26cc9874996ce31b4e",
+      "codec": "libvorbis",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-opus",
+      "file": "audio-opus.opus",
+      "kind": "audio",
+      "sha256": "e26f5995db30a4a016664f521e96f95757d4c972cb16c3637ead9b00e43f4f71",
+      "codec": "libopus",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-aiff",
+      "file": "audio-aiff.aiff",
+      "kind": "audio",
+      "sha256": "ca319fd1bdfdd56e3d4577ad79a9850c95e8116a61e582f70ce71b8bbee451ff",
+      "codec": "pcm_s16be",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-aif",
+      "file": "audio-aif.aif",
+      "kind": "audio",
+      "sha256": "ca319fd1bdfdd56e3d4577ad79a9850c95e8116a61e582f70ce71b8bbee451ff",
+      "codec": "pcm_s16be",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 1
+    },
+    {
+      "id": "audio-wav-pcm24-stereo-44100",
+      "file": "audio-wav-pcm24-stereo-44100.wav",
+      "kind": "audio",
+      "sha256": "ff9f67160e848407a683916b56e4cc086d298e255a4ac320036e4b466ccfdd20",
+      "codec": "pcm_s24le",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 44100,
+      "channels": 2
+    },
+    {
+      "id": "audio-wav-pcm32-stereo-48000",
+      "file": "audio-wav-pcm32-stereo-48000.wav",
+      "kind": "audio",
+      "sha256": "2dfde3ab6674fd0f5e44d0ff28d32e00b520ab7fb046654c08a07a436ada4a52",
+      "codec": "pcm_s32le",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 48000,
+      "channels": 2
+    },
+    {
+      "id": "audio-wav-float32-mono-44100",
+      "file": "audio-wav-float32-mono-44100.wav",
+      "kind": "audio",
+      "sha256": "918d23c458321f6e3826c16f93276e750c1cdece01ea212d7d15e010c08855d4",
+      "codec": "pcm_f32le",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 44100,
+      "channels": 1
+    },
+    {
+      "id": "audio-wav-pcm16-stereo-44100",
+      "file": "audio-wav-pcm16-stereo-44100.wav",
+      "kind": "audio",
+      "sha256": "721318f19758363e63a299d1c04998c1b2eca74ac6d062fa5c67dadd3df77aa6",
+      "codec": "pcm_s16le",
+      "duration_ms": 3000,
+      "audio": true,
+      "sample_rate": 44100,
+      "channels": 2
+    },
+    {
+      "id": "video-mp4",
+      "file": "video-mp4.mp4",
+      "kind": "video",
+      "sha256": "b6b93926aeff09a29dab30ad564ce2c9a4f4efd040afdfa53503a218f0789383",
+      "codec": "libx264",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": true
+    },
+    {
+      "id": "video-m4v",
+      "file": "video-m4v.m4v",
+      "kind": "video",
+      "sha256": "32e3473b641fe3830fe86bfdedcf483ae21010753a41dcd56e484e584573fbd1",
+      "codec": "libx264",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": false
+    },
+    {
+      "id": "video-mov",
+      "file": "video-mov.mov",
+      "kind": "video",
+      "sha256": "1c695f4d76215526a20c6978e530a02a89dca94277cfd7934e48f027511d8058",
+      "codec": "libx264",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": false
+    },
+    {
+      "id": "video-mkv",
+      "file": "video-mkv.mkv",
+      "kind": "video",
+      "sha256": "4da11c396f8a85cc80308cc06dd8c84e6f53fa78450a45d25c03b57400f906e1",
+      "codec": "libx264",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": false
+    },
+    {
+      "id": "video-webm",
+      "file": "video-webm.webm",
+      "kind": "video",
+      "sha256": "8afb4912180b82effd8f4781b1fbeb7999af9c3532e94100305dc338e1e1095f",
+      "codec": "libvpx-vp9",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": false
+    },
+    {
+      "id": "video-avi",
+      "file": "video-avi.avi",
+      "kind": "video",
+      "sha256": "414581d9fe584c5b7645222975c6a0d5dc8dfa41767901e6245d61db3165a76c",
+      "codec": "mpeg4",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": false
+    },
+    {
+      "id": "video-mpg",
+      "file": "video-mpg.mpg",
+      "kind": "video",
+      "sha256": "5ee25ebbbc8321b88f06f35c390402a2f887faf8aa81dede1c984df4fd132dd6",
+      "codec": "mpeg2video",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": false
+    },
+    {
+      "id": "video-mpeg",
+      "file": "video-mpeg.mpeg",
+      "kind": "video",
+      "sha256": "5ee25ebbbc8321b88f06f35c390402a2f887faf8aa81dede1c984df4fd132dd6",
+      "codec": "mpeg2video",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": false
+    },
+    {
+      "id": "video-libx265",
+      "file": "video-libx265.mkv",
+      "kind": "video",
+      "sha256": "64ab08488ca16518f7f6278c4e4cc93098d8c0149f69b06c698ad601bd559096",
+      "codec": "libx265",
+      "duration_ms": 3000,
+      "width": 96,
+      "height": 64,
+      "audio": false
+    },
+    {
+      "id": "text-csv",
+      "file": "text-csv.csv",
+      "kind": "text",
+      "sha256": "d73f08230ec6a8be25a56e5843a2925d3e0a49737f966a76c550653e71ff1d58",
+      "text": "EIDORA media audit: café 日本語\nSecond line.",
+      "record_key": ""
+    },
+    {
+      "id": "text-json",
+      "file": "text-json.json",
+      "kind": "text",
+      "sha256": "2028a0c7be5d7c305076af0e908eb2fa6f5fb78092e22d64fe7726c054ca7382",
+      "text": "{\"text\": \"EIDORA media audit: café 日本語\\nSecond line.\"}",
+      "record_key": ""
+    },
+    {
+      "id": "text-jsonl",
+      "file": "text-jsonl.jsonl",
+      "kind": "text",
+      "sha256": "dd15035186f1d6872ad85ecc13ebf8e9e489c793725d207a2b47adbbb14e0f61",
+      "text": "EIDORA media audit: café 日本語\nSecond line.",
+      "record_key": "audit-item"
+    },
+    {
+      "id": "text-markdown",
+      "file": "text-markdown.markdown",
+      "kind": "text",
+      "sha256": "d73f08230ec6a8be25a56e5843a2925d3e0a49737f966a76c550653e71ff1d58",
+      "text": "EIDORA media audit: café 日本語\nSecond line.",
+      "record_key": ""
+    },
+    {
+      "id": "text-md",
+      "file": "text-md.md",
+      "kind": "text",
+      "sha256": "d73f08230ec6a8be25a56e5843a2925d3e0a49737f966a76c550653e71ff1d58",
+      "text": "EIDORA media audit: café 日本語\nSecond line.",
+      "record_key": ""
+    },
+    {
+      "id": "text-ndjson",
+      "file": "text-ndjson.ndjson",
+      "kind": "text",
+      "sha256": "dd15035186f1d6872ad85ecc13ebf8e9e489c793725d207a2b47adbbb14e0f61",
+      "text": "EIDORA media audit: café 日本語\nSecond line.",
+      "record_key": "audit-item"
+    },
+    {
+      "id": "text-text",
+      "file": "text-text.text",
+      "kind": "text",
+      "sha256": "d73f08230ec6a8be25a56e5843a2925d3e0a49737f966a76c550653e71ff1d58",
+      "text": "EIDORA media audit: café 日本語\nSecond line.",
+      "record_key": ""
+    },
+    {
+      "id": "text-tsv",
+      "file": "text-tsv.tsv",
+      "kind": "text",
+      "sha256": "d73f08230ec6a8be25a56e5843a2925d3e0a49737f966a76c550653e71ff1d58",
+      "text": "EIDORA media audit: café 日本語\nSecond line.",
+      "record_key": ""
+    },
+    {
+      "id": "text-txt",
+      "file": "text-txt.txt",
+      "kind": "text",
+      "sha256": "d73f08230ec6a8be25a56e5843a2925d3e0a49737f966a76c550653e71ff1d58",
+      "text": "EIDORA media audit: café 日本語\nSecond line.",
+      "record_key": ""
+    }
+  ]
+}

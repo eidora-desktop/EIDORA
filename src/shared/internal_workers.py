@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 
 INTERNAL_WORKER_FLAG = "--internal-worker"
-_WORKER_NAMES = frozenset({"discovery", "gif", "native-probe", "video-thumbnail", "onnx-audit", "cuda-device"})
+_WORKER_NAMES = frozenset({"discovery", "gif", "native-probe", "video-thumbnail", "onnx-audit", "cuda-device", "diagnostic-trace", "media-playback-audit"})
 
 
 def internal_worker_arguments(name: str, *arguments: object) -> list[str]:
@@ -45,6 +45,14 @@ def dispatch_internal_worker(argv: Sequence[str]) -> int:
         return 2
 
     name, worker_args = args[0], args[1:]
+    if name == "media-playback-audit":
+        from shared.media_playback_probe import main
+
+        return main(worker_args)
+    if name == "diagnostic-trace":
+        from shared.diagnostics.trace import main
+
+        return main(worker_args)
     if name == "cuda-device":
         from EmbeddingsArea.runtime.cuda_device import main
 
@@ -62,7 +70,7 @@ def dispatch_internal_worker(argv: Sequence[str]) -> int:
 
         return main(worker_args)
     if name == "video-thumbnail":
-        from ProjectArea.video_thumbnail_worker import main
+        from AssetsArea.video_thumbnail_worker import main
 
         return main(worker_args)
     return _run_native_probe(worker_args)

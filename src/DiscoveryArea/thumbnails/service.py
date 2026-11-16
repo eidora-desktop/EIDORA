@@ -18,6 +18,7 @@ class DecodeRequest:
     target_px: int
     variant_id: str | None = None
     prefer_original: bool = False
+    source_asset_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class DecodedThumbnail:
     height: int
     rgba: bytes
     variant_id: str | None
+    source_asset_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class ThumbnailDecodeFailure:
     variant_id: str | None
     reason: str
     permanent: bool = True
+    source_asset_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,7 @@ class ThumbnailService:
                 ref = self._resolver.resolve_original(
                     request.metadata_id,
                     variant_id=request.variant_id,
+                    source_asset_id=request.source_asset_id,
                 )
         except Exception:
             ref = None
@@ -126,6 +130,7 @@ class ThumbnailService:
                     target_px=max(1, int(request.target_px)),
                     variant_id=request.variant_id,
                     reason="source_missing",
+                    source_asset_id=request.source_asset_id,
                 )
             )
             return None
@@ -138,8 +143,17 @@ class ThumbnailService:
                 target_px=target_px,
                 variant_id=request.variant_id,
                 raw=cached,
+                source_asset_id=request.source_asset_id,
             )
-            self._emit_thumbnail_ready(payload)
+            self._emit_thumbnail_ready(
+                payload if payload is not None else ThumbnailDecodeFailure(
+                    metadata_id=int(request.metadata_id),
+                    target_px=target_px,
+                    variant_id=request.variant_id,
+                    reason="decode_failed",
+                    source_asset_id=request.source_asset_id,
+                )
+            )
             return ref
         flight_key = (str(ref.path), ref.mtime_ns, target_px)
         with self._in_flight_lock:
@@ -218,6 +232,7 @@ class ThumbnailService:
                     target_px=target_px,
                     variant_id=request.variant_id,
                     raw=payload,
+                    source_asset_id=request.source_asset_id,
                 )
                 if decoded is None:
                     self._emit_thumbnail_ready(
@@ -226,6 +241,7 @@ class ThumbnailService:
                             target_px=int(target_px),
                             variant_id=request.variant_id,
                             reason="decode_failed",
+                            source_asset_id=request.source_asset_id,
                         )
                     )
                 else:
@@ -324,6 +340,7 @@ class ThumbnailService:
         target_px: int,
         variant_id: str | None,
         raw: bytes | None,
+        source_asset_id: str = "",
     ) -> DecodedThumbnail | None:
         if not raw or len(raw) < 4:
             return None
@@ -341,6 +358,7 @@ class ThumbnailService:
             height=height,
             rgba=rgba,
             variant_id=variant_id,
+            source_asset_id=source_asset_id,
         )
 
     def _emit_thumbnail_ready(

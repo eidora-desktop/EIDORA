@@ -55,6 +55,46 @@ destination before creating a project. Repeating this action creates a separate
 copy without replacing an edited example. Once extracted, MET is treated as an
 ordinary project and survives application removal.
 
+## Problem reports
+
+Choose **Diagnostics...** in Help or the project chooser to review recent local
+diagnostics. Add a description, remove any personal information, and choose
+**Save Report…** or **Copy Report**.
+
+EIDORA never shares your data or sends diagnostic reports. Reports are stored locally,
+and sharing them is entirely your choice. If you encounter a problem, we would
+appreciate your help improving EIDORA by forwarding the diagnostics report with a
+short description to [**mail@eidora.org**](mailto:mail@eidora.org).
+
+The `diagnostics` folder in EIDORA's local application-data directory has a strict
+**10 MiB budget for automatic diagnostic files**, independently of project and
+source storage. At startup, EIDORA removes the oldest inactive sessions to keep
+five recent sessions where possible and make room within that budget. Space is
+reserved before recording starts, including when several EIDORA instances are
+running. Active captures are protected; if they occupy the available budget,
+EIDORA continues without starting another disk capture.
+
+Event logs rotate at 256 KiB with one backup per session. Crash/freeze traces stop
+at 256 KiB, even if EIDORA stays frozen or exits unexpectedly. A small helper
+receives crash output and sleeps when there is none; it does not scan project or
+source folders. Old oversized reports are included in cleanup. The limit covers
+file contents, not filesystem bookkeeping, manually exported reports, or crash
+reports created separately by the operating system. Your exported reports are
+never automatically deleted.
+
+Diagnostics contain technical logs and best-effort crash/freeze stack traces,
+not project or media files. These files may contain original paths;
+the editable report masks paths where possible. A freeze lasting about 30 seconds
+can produce a stack snapshot; force quit before capture, power loss, full storage,
+or a native failure can leave incomplete diagnostics. A snapshot is evidence of
+where work stopped, not proof of the cause. After restarting, the chooser flags
+unreviewed crash/freeze diagnostics and sessions that ended without a normal
+shutdown. Reports show these sessions before fresh startup output and label
+running and normally closed sessions separately. A missing shutdown marker
+does not establish the cause; older sessions without lifecycle markers have an
+unknown shutdown status. Restarting creates a separate session, with previous
+sessions retained until the oldest-session cleanup is necessary.
+
 ## Uninstalling
 
 Projects are always preserved. Before removing EIDORA, use Storage to remove

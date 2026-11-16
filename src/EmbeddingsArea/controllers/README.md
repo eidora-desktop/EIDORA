@@ -26,4 +26,19 @@ admission and permits deletion on the GUI thread. Release the job's signal
 callbacks before that signal. Do not move a callback-owning embedding worker
 QObject into the background thread and delete it concurrently with UI refresh.
 
+The embedding runner keeps one latest progress value behind a lock. Its GUI-owned
+timer publishes at most four updates per second and flushes/stops on thread finish.
+Stage messages are delivered immediately and retained in a 500-event history;
+ordinary counts/rates do not enter the log. Cards update live labels separately
+from the incremental plain-text log, skip hidden reports, and avoid row resizing
+for progress-only updates. Full failure details remain copyable beyond the live
+log's 1,000-line display limit.
+
 See [Embeddings](../README.md) for persistence and identity contracts.
+
+The model dialog only saves the run configuration. The embedding worker owns input
+preparation, progress, pause and cancellation. After successful worker completion,
+the coordinator requests optional thumbnails through the main window. Assets owns
+that separate job and its errors; the current workspace stays open and the footer
+tracks the background job. Project changes and shutdown suppress
+the handoff. Existing or pending thumbnails suppress duplicate default jobs.

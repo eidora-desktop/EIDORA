@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, field, replace
 from threading import RLock
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,8 @@ class MetadataColumnData:
 
     metadata_ids: np.ndarray
     values: np.ndarray
+    multiple_values: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    numeric_values: np.ndarray | None = None
 
 
 class DiscoveryMetadataAccess:
@@ -29,6 +32,9 @@ class DiscoveryMetadataAccess:
     The cache intentionally stores only columns that an active visual mapping,
     filter, slicer, tooltip, or import workflow requests.
     """
+
+    MAX_CACHED_COLUMNS = 8
+    MAX_CACHE_BYTES = 64 * 1024 * 1024
 
     def __init__(self, project: "Project") -> None:
         self._repository = MetadataRepository(
@@ -40,19 +46,38 @@ class DiscoveryMetadataAccess:
         self._lock = RLock()
         self._columns: tuple[MetadataColumn, ...] | None = None
         self._metadata_ids: np.ndarray | None = None
-        self._column_data: dict[str, MetadataColumnData] = {}
+        self._revision = self._repository.revision()
+        self._column_data: OrderedDict[str, MetadataColumnData] = OrderedDict()
         self._distinct_values: dict[str, tuple[str, ...]] = {}
         self._value_counts: dict[str, tuple[tuple[str, int], ...]] = {}
         self._group_fields: dict[str, tuple[str, str]] = {}
         self._group_field_aliases: dict[str, str] = {}
+        self._related_field_aliases: dict[str, str] = {}
+
+    def _check_revision(self):
+        revision = self._repository.revision()
+        with self._lock:
+            if revision != self._revision:
+                self._revision = revision
+                self._columns = None
+                self._metadata_ids = None
+                self._column_data.clear()
+                self._distinct_values.clear()
+                self._value_counts.clear()
+                self._group_fields.clear()
+                self._group_field_aliases.clear()
+                self._related_field_aliases.clear()
+        return revision
 
     def columns(self) -> tuple[MetadataColumn, ...]:
+        revision = self._check_revision()
         with self._lock:
             cached = self._columns
         if cached is not None:
             return cached
-        physical = list(self._repository.list_columns())
-        used_labels = {column.name.casefold() for column in physical}
+        from MetadataArea.related_fields import discovery_columns
+        physical, related_aliases = discovery_columns(self._repository.database_path)
+        used_labels = {column.label.casefold() for column in physical}
         virtual: list[MetadataColumn] = []
         fields: dict[str, tuple[str, str]] = {}
         aliases: dict[str, str] = {}
@@ -84,17 +109,40 @@ class DiscoveryMetadataAccess:
                         unique_values=2,
                     ))
         loaded = tuple([*physical, *virtual])
+        if self._check_revision() != revision:
+            return self.columns()
         with self._lock:
             if self._columns is None:
                 self._columns = loaded
                 self._group_fields = fields
                 self._group_field_aliases = aliases
+                self._related_field_aliases = related_aliases
             return self._columns
 
+    def field_aliases(self) -> dict[str, str]:
+        self.columns()
+        return dict(self._related_field_aliases)
+
+    def canonical_column_name(self, name: str) -> str:
+        self.columns()
+        name = str(name).strip()
+        return self._related_field_aliases.get(name, self._group_field_aliases.get(name, name))
+
+    def canonical_field_payload(self, payload):
+        """Migrate saved field references without changing category values or labels."""
+        if isinstance(payload, dict):
+            return {key: (self.canonical_column_name(value)
+                          if key in {'column', 'field', 'size_column', 'width_column'} and isinstance(value, str)
+                          else self.canonical_field_payload(value)) for key, value in payload.items()}
+        if isinstance(payload, list):
+            return [self.canonical_field_payload(value) for value in payload]
+        return payload
+
     def column_names(self) -> tuple[str, ...]:
-        return tuple(column.name for column in self._repository.list_columns())
+        return tuple(column.name for column in self.columns())
 
     def metadata_ids(self) -> np.ndarray:
+        revision = self._check_revision()
         with self._lock:
             cached = self._metadata_ids
         if cached is not None:
@@ -103,44 +151,83 @@ class DiscoveryMetadataAccess:
             np.asarray(self._items.active_ids(), dtype=np.int64)
         )
         loaded.setflags(write=False)
+        if self._check_revision() != revision:
+            return self.metadata_ids()
         with self._lock:
             if self._metadata_ids is None:
                 self._metadata_ids = loaded
             return self._metadata_ids
 
     def column_data(self, column_name: str) -> MetadataColumnData:
-        name = str(column_name).strip()
-        self.columns()
-        name = self._group_field_aliases.get(name, name)
+        name = self.canonical_column_name(column_name)
+        revision = self._revision
         with self._lock:
             cached = self._column_data.get(name)
-        if cached is not None:
-            return cached
+            if cached is not None:
+                self._column_data.move_to_end(name)
+                return cached
         group_field = self._group_fields.get(name)
         if group_field is not None:
             loaded = self._group_column_data(*group_field)
-            with self._lock:
-                return self._column_data.setdefault(name, loaded)
-        if name.startswith(("group:", "group-set:")):
+        elif name == 'id' or name.startswith(('group:', 'group-set:')):
             metadata_ids = self.metadata_ids()
-            values = np.full(metadata_ids.shape, "", dtype=np.str_)
+            values = metadata_ids.astype(str) if name == 'id' else np.full(metadata_ids.shape, '', dtype=np.str_)
             values.setflags(write=False)
-            loaded = MetadataColumnData(metadata_ids=metadata_ids, values=values)
-            with self._lock:
-                return self._column_data.setdefault(name, loaded)
-        items = ([(int(value), str(value)) for value in self.metadata_ids()]
-                 if name == "id" else self._repository.column_items(name))
-        metadata_ids = np.ascontiguousarray(
-            np.fromiter((item[0] for item in items), dtype=np.int64, count=len(items))
-        )
-        values = np.ascontiguousarray(
-            np.asarray([item[1] for item in items], dtype=np.str_)
-        )
-        metadata_ids.setflags(write=False)
-        values.setflags(write=False)
-        loaded = MetadataColumnData(metadata_ids=metadata_ids, values=values)
+            loaded = MetadataColumnData(metadata_ids, values)
+        else:
+            from MetadataArea.resolution import scalar_column_values
+            items, multiple = scalar_column_values(self._repository.database_path, name, self._related_field_aliases)
+            metadata_ids = np.fromiter((item[0] for item in items), dtype=np.int64, count=len(items))
+            values = np.asarray([item[1] for item in items], dtype=np.str_)
+            metadata_ids.setflags(write=False)
+            values.setflags(write=False)
+            loaded = MetadataColumnData(metadata_ids, values, multiple)
+        # A worker finishing after publication must not repopulate the new cache
+        # with old values. Its database read itself uses a consistent snapshot.
+        if self._check_revision() != revision:
+            return self.column_data(column_name)
         with self._lock:
-            return self._column_data.setdefault(name, loaded)
+            self._column_data[name] = loaded
+            self._trim_column_cache()
+        return loaded
+
+    def _trim_column_cache(self):
+        while (len(self._column_data) > self.MAX_CACHED_COLUMNS
+               or sum(self._column_bytes(data) for data in self._column_data.values()) > self.MAX_CACHE_BYTES):
+            evicted, _ = self._column_data.popitem(last=False)
+            self._distinct_values.pop(evicted, None)
+            self._value_counts.pop(evicted, None)
+
+    @staticmethod
+    def _column_bytes(data):
+        import sys
+        numeric_bytes = 0 if data.numeric_values is None else data.numeric_values.nbytes
+        return data.metadata_ids.nbytes + data.values.nbytes + numeric_bytes + sys.getsizeof(data.multiple_values) + sum(
+            sys.getsizeof(item) + sys.getsizeof(values) + sum(sys.getsizeof(value) for value in values)
+            for item, values in data.multiple_values.items())
+
+    def resolved_cells(self, column_name, ids=None):
+        """Uncached provenance for a requested page or explicit full-column read."""
+        name = self.canonical_column_name(column_name)
+        from MetadataArea.resolution import resolve_overview_field
+        return resolve_overview_field(self._repository.database_path, name, self._related_field_aliases, ids)
+
+    def multiple_values_for_ids(self, metadata_ids, *, columns):
+        result = {}
+        for column in columns:
+            if column == 'id' or self.is_group_field(column):
+                continue
+            data = self.column_data(column)
+            if data.multiple_values:
+                targets = np.asarray(metadata_ids, dtype=np.int64)
+                aligned = _align_column(data, targets)
+                positions = np.searchsorted(data.metadata_ids, targets)
+                matched = positions < data.metadata_ids.size
+                if data.metadata_ids.size:
+                    matched &= data.metadata_ids[np.minimum(positions, data.metadata_ids.size - 1)] == targets
+                result[column] = tuple(data.multiple_values.get(int(item), (str(value),) if found else ())
+                                       for item, value, found in zip(targets, aligned, matched, strict=True))
+        return result
 
     def values_for_ids(
         self,
@@ -148,7 +235,9 @@ class DiscoveryMetadataAccess:
         *,
         columns: set[str],
         numeric_columns: set[str] | None = None,
+        display: bool = False,
     ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+        revision = self._check_revision()
         target_ids = np.asarray(metadata_ids, dtype=np.int64).reshape(-1)
         requested = {str(column).strip() for column in columns if str(column).strip()}
         requested.discard("id")
@@ -161,11 +250,30 @@ class DiscoveryMetadataAccess:
         text_values: dict[str, np.ndarray] = {}
         numeric_values: dict[str, np.ndarray] = {}
         for column in sorted(requested):
-            data = self.column_data(column)
-            aligned = _align_column(data, target_ids)
+            data = None
+            if display and not self.is_group_field(column):
+                cells = self.resolved_cells(column, target_ids.tolist())
+                aligned = np.asarray([cells[int(item)].display if int(item) in cells else '' for item in target_ids], dtype=np.str_)
+                aligned.setflags(write=False)
+            else:
+                data = self.column_data(column)
+                aligned = _align_column(data, target_ids)
             text_values[column] = aligned
             if column in numeric:
-                numeric_values[column] = _numeric_values(aligned)
+                if data is None:
+                    numeric_values[column] = _numeric_values(aligned)
+                else:
+                    if data.numeric_values is None:
+                        loaded = replace(data, numeric_values=_numeric_values(data.values))
+                        name = self.canonical_column_name(column)
+                        with self._lock:
+                            if self._column_data.get(name) is data:
+                                self._column_data[name] = loaded
+                                self._trim_column_cache()
+                        data = loaded
+                    numeric_values[column] = _align_values(data.metadata_ids, data.numeric_values, target_ids, np.nan)
+        if self._check_revision() != revision:
+            return self.values_for_ids(target_ids, columns=columns, numeric_columns=numeric_columns, display=display)
         return text_values, numeric_values
 
     def values_by_id(self, column_name: str) -> dict[int, str]:
@@ -182,38 +290,46 @@ class DiscoveryMetadataAccess:
     def distinct_values(self, column_name: str) -> tuple[str, ...]:
         name = str(column_name).strip()
         self.columns()
-        name = self._group_field_aliases.get(name, name)
+        name = self.canonical_column_name(name)
         with self._lock:
             cached = self._distinct_values.get(name)
         if cached is not None:
             return cached
-        if name in self._group_fields:
-            loaded = tuple(sorted({str(value) for value in self.column_data(name).values.tolist()}))
-        else:
-            loaded = tuple(self._repository.distinct_column_values(name))
+        values = self._all_values(name)
+        loaded = (tuple(sorted({str(value) for value in values})) if name in self._group_fields
+                  else tuple(sorted({str(value).strip() for value in values if str(value).strip()})))
         with self._lock:
-            return self._distinct_values.setdefault(name, loaded)
+            if name in self._column_data:
+                self._distinct_values[name] = loaded
+            return loaded
 
     def value_counts(self, column_name: str) -> tuple[tuple[str, int], ...]:
         name = str(column_name).strip()
         self.columns()
-        name = self._group_field_aliases.get(name, name)
+        name = self.canonical_column_name(name)
         with self._lock:
             cached = self._value_counts.get(name)
         if cached is not None:
             return cached
-        if name in self._group_fields:
-            values, counts = np.unique(self.column_data(name).values, return_counts=True)
-            loaded = tuple(
-                sorted(
-                    ((str(value), int(count)) for value, count in zip(values.tolist(), counts.tolist(), strict=True)),
-                    key=lambda item: (-item[1], item[0]),
-                )
+        all_values = self._all_values(name)
+        values, counts = np.unique(all_values, return_counts=True)
+        loaded = tuple(
+            sorted(
+                ((str(value), int(count)) for value, count in zip(values.tolist(), counts.tolist(), strict=True)),
+                key=lambda item: (-item[1], item[0]),
             )
-        else:
-            loaded = tuple(self._repository.column_value_counts(name))
+        )
         with self._lock:
-            return self._value_counts.setdefault(name, loaded)
+            if name in self._column_data:
+                self._value_counts[name] = loaded
+            return loaded
+
+    def _all_values(self, name):
+        data = self.column_data(name)
+        if not data.multiple_values:
+            return data.values
+        return [value for item, scalar in zip(data.metadata_ids, data.values, strict=True)
+                for value in data.multiple_values.get(int(item), (str(scalar),))]
 
     def is_group_field(self, column_name: str) -> bool:
         self.columns()
@@ -252,20 +368,25 @@ class DiscoveryMetadataAccess:
 
 
 def _align_column(data: MetadataColumnData, target_ids: np.ndarray) -> np.ndarray:
+    return _align_values(data.metadata_ids, data.values, target_ids, '')
+
+
+def _align_values(source_ids, values, target_ids, missing):
+    if np.array_equal(source_ids, target_ids):
+        return values
     if target_ids.size == 0:
-        empty = np.empty((0,), dtype=data.values.dtype)
+        empty = np.empty((0,), dtype=values.dtype)
         empty.setflags(write=False)
         return empty
-    source_ids = data.metadata_ids
     if source_ids.size == 0:
-        output = np.full(target_ids.shape, "", dtype=np.str_)
+        output = np.full(target_ids.shape, missing, dtype=values.dtype)
         output.setflags(write=False)
         return output
     positions = np.searchsorted(source_ids, target_ids)
     clipped = np.minimum(positions, source_ids.size - 1)
     matched = (positions < source_ids.size) & (source_ids[clipped] == target_ids)
-    output = np.full(target_ids.shape, "", dtype=data.values.dtype)
-    output[matched] = data.values[clipped[matched]]
+    output = np.full(target_ids.shape, missing, dtype=values.dtype)
+    output[matched] = values[clipped[matched]]
     output = np.ascontiguousarray(output)
     output.setflags(write=False)
     return output

@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1600</width>
-    <height>900</height>
+    <width>1090</width>
+    <height>732</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -46,10 +46,10 @@
         <number>0</number>
        </property>
        <property name="leftMargin">
-        <number>0</number>
+        <number>6</number>
        </property>
        <property name="topMargin">
-        <number>0</number>
+        <number>6</number>
        </property>
        <property name="rightMargin">
         <number>6</number>
@@ -58,13 +58,13 @@
         <number>0</number>
        </property>
        <item>
-        <widget class="QPushButton" name="button_project_area">
+        <widget class="QPushButton" name="button_assets_area">
          <property name="text">
-          <string>Project</string>
+          <string>Assets</string>
          </property>
          <property name="icon">
           <iconset>
-           <normaloff>../../shared/icons/material/folder.svg</normaloff>../../shared/icons/material/folder.svg</iconset>
+           <normaloff>../../shared/icons/material/assets.svg</normaloff>../../shared/icons/material/assets.svg</iconset>
          </property>
          <property name="iconSize">
           <size>
@@ -82,7 +82,7 @@
           <bool>true</bool>
          </property>
          <property name="iconName" stdset="0">
-          <string>folder</string>
+          <string>assets</string>
          </property>
          <attribute name="buttonGroup">
           <string notr="true">btngroup_components</string>
@@ -222,17 +222,98 @@
         </spacer>
        </item>
        <item>
-        <widget class="QPushButton" name="button_help">
+        <widget class="QWidget" name="widget" native="true">
+         <layout class="QHBoxLayout" name="horizontalLayout">
+          <property name="spacing">
+           <number>0</number>
+          </property>
+          <property name="leftMargin">
+           <number>6</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>6</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="project_label">
+            <property name="styleSheet">
+             <string notr="true">font-style: italic</string>
+            </property>
+            <property name="text">
+             <string>no project selected</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="button_project">
          <property name="sizePolicy">
-          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+          <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
            <horstretch>0</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
          </property>
          <property name="minimumSize">
           <size>
+           <width>0</width>
+           <height>0</height>
+          </size>
+         </property>
+         <property name="maximumSize">
+          <size>
            <width>32</width>
            <height>32</height>
+          </size>
+         </property>
+         <property name="toolTip">
+          <string>Project actions</string>
+         </property>
+         <property name="accessibleName">
+          <string>Project actions</string>
+         </property>
+         <property name="styleSheet">
+          <string notr="true">QPushButton#button_project::menu-indicator { image: none; width: 0px; height: 0px; }</string>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="icon">
+          <iconset>
+           <normaloff>../../shared/icons/material/project_open.svg</normaloff>../../shared/icons/material/project_open.svg</iconset>
+         </property>
+         <property name="iconSize">
+          <size>
+           <width>22</width>
+           <height>22</height>
+          </size>
+         </property>
+         <property name="flat">
+          <bool>true</bool>
+         </property>
+         <property name="iconName" stdset="0">
+          <string>project_open</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="button_help">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>0</height>
           </size>
          </property>
          <property name="maximumSize">

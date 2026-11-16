@@ -8,9 +8,8 @@ compact, revision-checked plans from one selected metadata column.
 discovers and installs models.
 
 Finish planning reads before publication. Prepared associations are written in
-2,000-row batches through one connection; creating metadata attaches the media
-database to a metadata-owned transaction so allocated IDs and links commit
-together. Folder discovery streams into disposable SQLite storage before the
+2,000-row batches through one connection; matching attaches the media database to a metadata-owned transaction so
+approved associations commit together. Folder discovery streams into disposable SQLite storage before the
 catalog transaction starts. Never feed a live second-connection reader into a
 write transaction: rollback-journal cache spilling can stall the second batch.
 
@@ -63,17 +62,34 @@ before using canonical metadata IDs for groups, Discovery, or thumbnails.
 Keep model/backend imports lazy and heavy work off the GUI thread.
 Preserve explicit accelerator choices; unavailable explicit devices must fail clearly.
 
-Model inputs may be linked indexed assets or metadata text columns.
-Listing input choices does not materialize text or allocate items. Preparation
-runs in the existing background workflow: metadata text is materialized then and
-uses its existing row IDs; linked assets retain their linked IDs; and unlinked
-assets are excluded. No metadata rows or media links are manufactured by
-embedding execution. Scanning alone still only indexes assets. Prepared-run
-ordinals continue to map to permanent IDs through run inputs; the persisted
-`metadata_row_id` name is retained for compatibility. An explicit later media
-link affects future run preparation, never rewrites IDs inside existing saved
-results. Whole assets are the current analysis unit; future segment-producing
-workflows must allocate separate identities for their units.
+The local-model dialog offers only registered file-based Media Sources, filtered
+by the model's input modalities. It processes available assets without a scope
+selector or metadata-key pairing. Metadata columns are not offered, even if an
+older run registered one as a text source. Existing saved runs retain their input
+snapshots and service-level compatibility.
+
+**Run Model** saves the configuration and closes the dialog immediately. The
+embedding card opens with input preparation running in its background job, followed
+by inference. Preparation supports pause/cancel and reports failures on the card
+for retry. Optional default thumbnails start as a separate Assets job only after
+the embedding completes and releases its worker. The current workspace stays open;
+the footer tracks the thumbnail job. They use the same visual source,
+original aspect ratio, and the middle frame for video; model tensor resizing does
+not affect previews. The Designer-owned
+focused form presents the model heading, Media Source, output name, and execution
+device in that order. Selected-source counts and paths appear below the inputs.
+Batch size and model preparation settings are under collapsed
+**Advanced settings & parameters**. A single modality needs no existing item links.
+Multiple selected modalities require established associations to the same items;
+only complete combinations are processed. Ambiguous item assignments are rejected.
+Preparation creates no items. Only successful vectors
+publish item bindings and media associations in the same transaction as the run.
+Repeated observations reuse unambiguous identities; failed publication rolls back.
+Source, metadata, and file revisions guard against stale prepared input.
+
+Artifact ordinals remain the mapping into run inputs. Relocating media updates
+future preparation and preview lookup without rewriting saved run provenance.
+Deleting a source or vector set does not implicitly delete its items.
 
 Completed vector-data and clustering card menus expose **Citations…**.
 `provenance.py` formats saved model metadata, execution/preprocessing settings,

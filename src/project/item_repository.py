@@ -1,8 +1,4 @@
-"""Permanent project item IDs, independent of optional metadata and media links.
-
-The registry shares the metadata database so allocation and metadata publication
-use one SQLite transaction. Existing metadata IDs are retained verbatim.
-"""
+"""Explicit item membership and permanent internal index allocation."""
 from contextlib import closing
 from pathlib import Path
 import sqlite3
@@ -15,15 +11,35 @@ def ensure_item_registry(connection: sqlite3.Connection) -> None:
         "CREATE TABLE IF NOT EXISTS project_items ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT UNIQUE)"
     )
-    if not connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata'").fetchone():
+    connection.execute("CREATE TABLE IF NOT EXISTS item_membership (id INTEGER PRIMARY KEY)")
+    from project.record_identity import redirect_legacy_source_allocators
+    redirect_legacy_source_allocators(connection)
+    has_metadata = connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata'").fetchone()
+    # The root table is the explicit Items storage anchor. Source tables use their own
+    # registry and never reserve item numbers.
+    if has_metadata:
+        from project.record_identity import SOURCE_INDEX_BASE
+        connection.execute(f'''CREATE TRIGGER IF NOT EXISTS metadata_item_number_namespace
+            AFTER INSERT ON metadata WHEN NEW.id >= {SOURCE_INDEX_BASE} BEGIN
+            SELECT RAISE(ABORT, 'Item IDs cannot use the source-record index range'); END''')
+        trigger = connection.execute("SELECT sql FROM sqlite_master WHERE name='metadata_item_identity'").fetchone()
+        if trigger and 'item_membership' in trigger[0]:
+            return
+        connection.execute("DELETE FROM item_membership WHERE id NOT IN (SELECT id FROM metadata) AND id NOT IN (SELECT id FROM project_items WHERE asset_id IS NOT NULL)")
+        connection.execute("INSERT OR IGNORE INTO project_items(id) SELECT id FROM metadata")
+        connection.execute("INSERT OR IGNORE INTO item_membership SELECT id FROM metadata")
+        connection.execute("DROP TRIGGER IF EXISTS metadata_item_identity")
+        connection.execute(
+            "CREATE TRIGGER metadata_item_identity AFTER INSERT ON metadata BEGIN "
+            "INSERT OR IGNORE INTO project_items(id) VALUES (NEW.id); "
+            "INSERT OR IGNORE INTO item_membership VALUES (NEW.id); END"
+        )
+        connection.execute(
+            "CREATE TRIGGER IF NOT EXISTS metadata_item_removed AFTER DELETE ON metadata BEGIN "
+            "DELETE FROM item_membership WHERE id=OLD.id; END"
+        )
+    else:
         return
-    if connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata_item_identity'").fetchone():
-        return
-    connection.execute("INSERT OR IGNORE INTO project_items(id) SELECT id FROM metadata")
-    connection.execute(
-        "CREATE TRIGGER metadata_item_identity AFTER INSERT ON metadata BEGIN "
-        "INSERT OR IGNORE INTO project_items(id) VALUES (NEW.id); END"
-    )
     high_water = item_high_water(connection)
     if connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata_state'").fetchone():
         row = connection.execute("SELECT value FROM metadata_state WHERE key='id_high_water'").fetchone()
@@ -54,21 +70,14 @@ class ItemRepository:
         if not database_path.is_file():
             return False
         with closing(connect_read_only(database_path)) as connection:
-            if connection.execute("SELECT 1 FROM sqlite_master WHERE name='project_items'").fetchone():
-                if connection.execute("SELECT 1 FROM project_items WHERE asset_id IS NOT NULL LIMIT 1").fetchone():
-                    return True
-            if not connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata'").fetchone():
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE name='item_membership'").fetchone():
                 return False
-            return connection.execute("SELECT 1 FROM metadata LIMIT 1").fetchone() is not None
+            return connection.execute("SELECT 1 FROM item_membership LIMIT 1").fetchone() is not None
 
     def active_ids(self) -> list[int]:
-        """Current metadata plus asset-backed items explicitly prepared for analysis."""
+        """Only explicitly published items participate in analysis."""
         with closing(sqlite3.connect(self.database_path)) as connection:
-            has_metadata = connection.execute("SELECT 1 FROM sqlite_master WHERE name='metadata'").fetchone()
-            query = "SELECT id FROM project_items WHERE asset_id IS NOT NULL"
-            if has_metadata:
-                query += " UNION SELECT id FROM metadata"
-            return [int(row[0]) for row in connection.execute(query + " ORDER BY id")]
+            return [int(row[0]) for row in connection.execute("SELECT id FROM item_membership ORDER BY id")]
 
     def allocate_assets(self, asset_ids: list[str]) -> dict[str, int]:
         """Reuse asset analysis identities across runs without creating metadata links."""
@@ -83,6 +92,10 @@ class ItemRepository:
                     result[asset_id] = int(cursor.lastrowid)
                 else:
                     result[asset_id] = int(row[0])
+            connection.executemany("INSERT OR IGNORE INTO metadata(id) VALUES (?)",
+                                   ((identity,) for identity in result.values()))
+            connection.executemany("INSERT OR IGNORE INTO item_membership VALUES (?)",
+                                   ((identity,) for identity in result.values()))
             # Reserve the same ID range for legacy metadata INSERT callers too.
             high_water = item_high_water(connection)
             connection.execute("UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name='metadata'", (high_water,))

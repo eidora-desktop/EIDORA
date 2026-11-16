@@ -20,6 +20,9 @@ class ProcessRecord:
     state: str = "queued"
     cancelled: bool = False
     start_invoked: bool = False
+    message: str = ""
+    progress: int = -1
+    footer_label: str = ""
 
 
 class ProcessAdmission:
@@ -48,9 +51,10 @@ class ProcessAdmission:
         if manager is not None:
             manager.finish(self._record_id)
 
-    def update(self, **_kwargs: object) -> None:
-        # Stale worker updates are intentionally ignored after finish.
-        return
+    def update(self, *, message: str = "", value: int = -1) -> None:
+        manager = self._manager()
+        if manager is not None:
+            manager.update(self._record_id, message=message, value=value)
 
 
 class BackgroundProcessManager:
@@ -82,10 +86,12 @@ class BackgroundProcessManager:
         cancel: Callable[[], None] | None = None,
         failed: Callable[[str], None] | None = None,
         projection: bool = False,
+        footer_label: str = "",
     ) -> ProcessAdmission:
         record_id = next(self._ids)
         self.records[record_id] = ProcessRecord(
-            record_id, str(panel), str(title), bool(projection), start, cancel, failed
+            record_id, str(panel), str(title), bool(projection), start, cancel, failed,
+            footer_label=str(footer_label),
         )
         self.scheduler.submit(Job(str(record_id), str(panel), bool(projection)))
         self._notify()
@@ -134,6 +140,14 @@ class BackgroundProcessManager:
             self.scheduler.cancel(str(record_id))
             self.scheduler.finish(str(record_id))
             self.records.pop(record_id, None)
+        self._notify()
+
+    def update(self, record_id: int, *, message: str, value: int) -> None:
+        record = self.records.get(record_id)
+        if record is None:
+            return
+        record.message = str(message)
+        record.progress = int(value)
         self._notify()
 
     def pause(self, record_id: int) -> None:

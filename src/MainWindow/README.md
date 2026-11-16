@@ -5,6 +5,9 @@ and connects project changes between them. Project operations use `ProjectServic
 `project_chooser_controller.py` owns the standalone startup project list; `help_panel_controller.py`
 owns About, and `update_panel_controller.py` binds explicit website update checks
 on macOS/Linux and opens Microsoft Store's updates page on Windows.
+`project_panel_controller.py` binds the shell project name and actions menu, with
+Switching Projects first. Project changes update both the label and action availability;
+Assets owns only media sources and thumbnails.
 `navigation.py` is Qt-facing navigation data.
 
 Normal startup constructs all workspaces before showing the main window.
@@ -19,7 +22,7 @@ Discovery navigation requires at least one canonical metadata item. Indexed
 media alone does not enable it. Recheck eligibility after metadata changes and
 project switches; defer the check while media publication is active.
 Figures navigation requires at least one saved snapshot. Refresh availability
-after snapshot creation/deletion and project switches, returning to Project if
+after snapshot creation/deletion and project switches, returning to Assets if
 the last snapshot is removed while Figures is open.
 
 The `ui/` forms own the shell, project chooser, and About dialog. Match widget
@@ -45,7 +48,7 @@ and spotlight areas have thick red outlines in either theme. Discovery starts
 with Canvas, then Projections, Transform, Filters, Slicer, Snapshots, and Appearance.
 
 During the tour, the shell temporarily permits navigation into empty workspaces.
-Closing it restores the normal availability checks and returns to Project if
+Closing it restores the normal availability checks and returns to Assets if
 the displayed workspace is unavailable. Opening the MET example automatically
 starts the tour after the window and all controllers are ready. On first packaged
 startup, the cancellable starter setup creates and opens this example directly;

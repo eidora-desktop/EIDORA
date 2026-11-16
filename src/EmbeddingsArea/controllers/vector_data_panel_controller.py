@@ -165,9 +165,14 @@ class VectorDataPanelController(UiPanelController):
         clustering_active = self._run_has_active_clustering(run_id)
         checkpoint = self._session.runs.inspect_run_checkpoint(run_id)
         menu = QtWidgets.QMenu(anchor)
-        resume = menu.addAction("Resume") if run.state in _RECOVERABLE and checkpoint.get("resumable") else None
-        retry = menu.addAction("Retry…") if dataset is None and not active and resume is None else None
-        again = menu.addAction("Run Again…") if dataset and run.selected_model_id else None
+        model_run = bool(run.selected_model_id)
+        resume = menu.addAction("Resume") if model_run and run.state in _RECOVERABLE and checkpoint.get("resumable") else None
+        retry = menu.addAction("Retry…") if model_run and dataset is None and not active and resume is None else None
+        again = menu.addAction("Run Again…") if dataset else None
+        if again is not None:
+            again.setEnabled(model_run and run.state == EmbeddingRunState.COMPLETED and not active)
+            if not again.isEnabled():
+                again.setToolTip("Run Again is available only for successful model runs.")
         if dataset: menu.addSeparator()
         rename = menu.addAction("Rename…"); export = menu.addAction("Export Data…") if dataset else None
         cite = menu.addAction("Citations…") if dataset else None
@@ -184,6 +189,8 @@ class VectorDataPanelController(UiPanelController):
         if clustering_active:
             remove.setToolTip("This vector data is used by an active clustering run.")
         selected = menu.exec(anchor.mapToGlobal(QtCore.QPoint(0, anchor.height())))
+        if selected is None or not selected.isEnabled():
+            return
         if selected == resume: self._submit_embedding(run_id)
         elif selected in {retry, again} and self._run_again_callback: self._run_again_callback(run_id)
         elif selected == rename: self._rename_dataset(run_id)
@@ -344,10 +351,27 @@ class VectorDataPanelController(UiPanelController):
         if self._session is None: return
         from EmbeddingsArea.controllers.embedding_import_dialog_controller import EmbeddingImportDialogController
         from EmbeddingsArea.exchange.importer import IMPORT_FILE_FILTER
-        source, _selected = QtWidgets.QFileDialog.getOpenFileName(self._widget, "Import Embeddings", "", IMPORT_FILE_FILTER)
-        if source and EmbeddingImportDialogController(self._session.service, Path(source)).exec():
+        sources, _selected = QtWidgets.QFileDialog.getOpenFileNames(self._widget, "Import Embeddings", "", IMPORT_FILE_FILTER)
+        if not sources:
+            return
+        groups = [sources]
+        if len(sources) > 1:
+            choice, accepted = QtWidgets.QInputDialog.getItem(
+                self._widget, "Import embedding files", "These files contain",
+                ["Parts of one embedding set", "Separate embedding sets"], 0, False,
+            )
+            if not accepted:
+                return
+            if choice == "Separate embedding sets":
+                groups = [[source] for source in sources]
+        for group in groups:
+            controller = EmbeddingImportDialogController(self._session.service, [Path(source) for source in group], process_manager=getattr(self._activity_manager,"processes",None))
+            if not controller.exec():
+                break
             self.refresh()
-            if self._metadata_changed: self._metadata_changed()
+            self.select_output("embedding", controller.imported_run_id)
+            if self._metadata_changed:
+                self._metadata_changed()
 
     @QtCore.Slot(str, str, int, str)
     def _progress(self, kind, identity, value, detail):
