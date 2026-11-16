@@ -153,8 +153,9 @@ explicitly: all values for display, any/no matching value for positive/negative
 filters, and only unambiguous values for scalar mappings.
 
 Nested source records flatten into dotted fields and structured list cells, never
-extra Items. Repeated objects retain aligned list positions. The metadata cell
-codec stores arrays as UTF-8 JSON blobs alongside existing scalar text, so literal
+extra Items. Imports reject nested arrays containing objects; nested properties
+and value lists remain supported, as do existing saved list columns. The metadata
+cell codec stores arrays as UTF-8 JSON blobs alongside existing scalar text, so literal
 text cannot be mistaken for a list. The resolver exposes individual list entries
 for filtering and a single distinct value for scalar mappings. Table and export
 formatting preserve arrays; Discovery's renderer continues to receive aligned

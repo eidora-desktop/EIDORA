@@ -109,7 +109,9 @@ def probe_source(path: Path) -> MetadataImportProbe:
         label = "JSON Lines" if format_key == "jsonl" else "JSON"
         first, record_path = _probe_json(path, lines=format_key == "jsonl")
         if first is not None:
-            columns = tuple(_flatten_record(first, "; ").keys())
+            # Validate/flatten during inspection, after a wrapper's record path
+            # can be selected in the dialog.
+            columns = tuple(first)
     elif suffix in {".xml", ".tei"}:
         root = _safe_xml_root(path.read_bytes(), path.name)
         root_name = _local_name(root.tag)
@@ -386,14 +388,18 @@ def _has_ancestor_path(root: ElementTree.Element, target: ElementTree.Element, p
 
 
 def _flatten_xml_record(element: ElementTree.Element, separator: str) -> dict[str, MetadataValue]:
-    def fields(node):
+    def fields(node, field_path=""):
         result = {f"@{_local_name(key)}": str(value).strip() for key, value in node.attrib.items()}
         groups = {}
         for child in node:
-            groups.setdefault(_local_name(child.tag), []).append(fields(child))
+            groups.setdefault(_local_name(child.tag), []).append(child)
         if not groups:
             result[""] = _element_text(node)
         for name, children in groups.items():
+            child_path = f"{field_path}.{name}" if field_path else name
+            if len(children) > 1 and any(len(child) or child.attrib for child in children):
+                raise _object_array_error(child_path)
+            children = [fields(child, child_path) for child in children]
             paths = dict.fromkeys(path for child in children for path in child)
             for path in paths:
                 values = [child.get(path) for child in children]
@@ -542,26 +548,34 @@ def _json_record_collection(payload: object, record_path: str) -> list[dict[str,
     raise ValueError("JSON metadata must contain an object or an array of objects.")
 
 
+def _object_array_error(field_path: str) -> ValueError:
+    return ValueError(
+        f"Field {field_path!r} contains an unsupported array of objects. "
+        "Select a Record path, put each object in a separate record, or remove this field."
+    )
+
+
 def _flatten_record(record: object, separator: str = "; ", prefix: str = "") -> dict:
-    """Keep one record; repeated objects produce aligned list-valued columns."""
+    """Flatten nested properties and retain lists of values; reject object arrays."""
     if not isinstance(record, dict):
         raise ValueError("Metadata records must be objects.")
 
-    def fields(value):
+    def fields(value, field_path):
         if isinstance(value, dict):
             result = {}
             for key, child in value.items():
                 key = str(key).strip()
-                for path, leaf in fields(child).items():
+                child_path = f"{field_path}.{key}" if field_path else key
+                for path, leaf in fields(child, child_path).items():
                     name = f"{key}.{path}" if path else key
                     if name in result:
                         raise ValueError(f"Ambiguous nested field path {name!r}; rename the conflicting source field.")
                     result[name] = leaf
             return result
         if isinstance(value, list):
-            children = [fields(child) for child in value]
-            paths = dict.fromkeys(path for child in children for path in child)
-            return {path: [child.get(path) for child in children] for path in paths} if paths else {"": [None] * len(children)}
+            if any(isinstance(child, dict) for child in value):
+                raise _object_array_error(field_path)
+            return {"": [fields(child, field_path)[""] for child in value]}
         if isinstance(value, (bytes, bytearray, memoryview)):
             raise ValueError("Unsupported binary metadata field.")
         if isinstance(value, Decimal):
@@ -571,7 +585,7 @@ def _flatten_record(record: object, separator: str = "; ", prefix: str = "") -> 
         return {"": value}
 
     output = {}
-    for path, value in fields(record).items():
+    for path, value in fields(record, prefix).items():
         output[f"{prefix}.{path}" if prefix else path] = value if isinstance(value, list) else _scalar_text(value)
     return output
 

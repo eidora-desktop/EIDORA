@@ -71,8 +71,10 @@ These are active dependencies, not retired toolbar actions.
 ## Links and overview fields
 
 Nested metadata uses the same source and Item columns. Objects become dotted
-field paths; repeated objects become aligned list columns, with null entries for
-missing child values. Nested collections never create extra records or Items.
+field paths; simple value lists retain their order and null entries. Imports
+reject nested arrays of objects with a field-specific explanation instead of
+flattening repeated records into parallel lists. Existing saved list columns
+remain readable. Nested collections never create extra records or Items.
 The existing approved source links expose these columns in Items and Discovery.
 List cells display JSON arrays and retain order, duplicates, nulls, and element
 types. JSON exports retain arrays; CSV/TSV cells use JSON list notation.

@@ -108,6 +108,14 @@
     </widget>
    </item>
    <item>
+    <widget class="QStackedWidget" name="stack_preview">
+     <widget class="QWidget" name="panel_preview_table">
+      <layout class="QVBoxLayout" name="layout_preview_table">
+       <property name="leftMargin"><number>0</number></property>
+       <property name="topMargin"><number>0</number></property>
+       <property name="rightMargin"><number>0</number></property>
+       <property name="bottomMargin"><number>0</number></property>
+       <item>
     <widget class="QTableWidget" name="table_data_preview">
      <property name="minimumSize">
       <size>
@@ -124,6 +132,24 @@
      <property name="alternatingRowColors">
       <bool>true</bool>
      </property>
+    </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="panel_preview_error">
+      <layout class="QVBoxLayout" name="layout_preview_error">
+       <item>
+        <widget class="QLabel" name="label_preview_error">
+         <property name="minimumSize"><size><width>0</width><height>200</height></size></property>
+         <property name="text"><string /></property>
+         <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+         <property name="wordWrap"><bool>true</bool></property>
+         <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
+         <property name="textRole" stdset="0"><string>error</string></property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
     </widget>
    </item>
    <item>

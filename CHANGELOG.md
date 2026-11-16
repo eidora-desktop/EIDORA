@@ -25,7 +25,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Show source-tab link status with a chain icon for linked tables and a red broken chain for unlinked tables; retain source paths in status tooltips.
 
-- Flatten nested metadata into ordinary Item fields while retaining structured lists, aligned repeated-object values, and empty entries. Discovery filters match list entries; coloring uses unambiguous values and leaves conflicting values unmapped. JSON exports preserve arrays.
+- Flatten nested metadata properties into fields and retain value lists and empty entries. Reject nested arrays of objects with a short, field-specific error inside the import dialog and restructuring guidance; existing saved lists remain readable. Discovery filters match list entries; coloring uses unambiguous values and leaves conflicting values unmapped. JSON exports preserve arrays.
 
 - Fix metadata import Include checkboxes painting at the top of the table on macOS; give each column its own checkbox that scrolls with its row.
 

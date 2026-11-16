@@ -17,7 +17,6 @@ from MetadataArea.importing import (
     MetadataImportResult,
     MetadataImportService,
 )
-from shared.qt.message_dialogs import show_error
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
 from MetadataArea.values import display_value
@@ -88,6 +87,8 @@ class MetadataImportDialogController:
         for label,key in [("Resolve different metadata values…", "ask"), ("Keep existing values", "keep"), ("Use incoming nonempty values", "incoming")]:
             self.conflict_combo.addItem(label,key)
         self.conflict_combo.currentIndexChanged.connect(self._configuration_changed)
+        self.preview_stack = self._widget(QtWidgets.QStackedWidget, "stack_preview")
+        self.preview_error = self._widget(QtWidgets.QLabel, "label_preview_error")
         self.data_preview = self._widget(QtWidgets.QTableWidget, "table_data_preview")
         self.data_preview.horizontalHeader().setDefaultAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
         self.file_label = self._widget(QtWidgets.QLabel, "label_import_file_value")
@@ -561,10 +562,14 @@ class MetadataImportDialogController:
             return
         self.conflict_combo.setVisible(bool(self.plan.conflicts))
         messages = list(self.plan.warnings)
-        if not self.plan.can_import:
-            messages.extend(self.plan.messages or ("Review the import settings.",))
         self.status_label.setText("\n".join(messages))
         self.status_label.setVisible(bool(messages))
+        if not self.plan.can_import:
+            self._show_import_error("\n".join(self.plan.messages or ("Review the import settings.",)))
+        else:
+            self.preview_stack.setCurrentIndex(0)
+            self.preview_error.clear()
+            self.preview_count.show()
         if self.matching_required:
             source = str(self.source_identifier.currentData() or "Not selected")
             target = str(self.project_identifier.currentData() or "Not selected")
@@ -585,7 +590,7 @@ class MetadataImportDialogController:
             try:
                 self._process_manager.begin_metadata_publication()
             except ValueError as exc:
-                self.status_label.setText(str(exc))
+                self._show_import_error(str(exc))
                 return
             self._publication_reserved = True
         plan = self.plan
@@ -605,7 +610,16 @@ class MetadataImportDialogController:
             }[self.preset],
         )
 
+    def _show_import_error(self, message: str) -> None:
+        self.preview_error.setText(f"Import failed: {message}")
+        self.preview_stack.setCurrentIndex(1)
+        self.preview_count.hide()
+        self.status_label.hide()
+
     def _start(self, kind: str, callback, message: str) -> None:
+        self.preview_stack.setCurrentIndex(0)
+        self.preview_error.clear()
+        self.preview_count.show()
         self.future_kind = kind
         self.future = self.executor.submit(callback)
         self.progress.show()
@@ -652,10 +666,9 @@ class MetadataImportDialogController:
                 self.dialog.reject()
             return
         except Exception as exc:
-            self.status_label.setText(str(exc))
+            self._show_import_error(str(exc))
             if kind == "probe":
                 self.format_label.setText("Unsupported or unreadable")
-            show_error(self.dialog, "Metadata Import Failed", str(exc))
             if self._close_after_cancel:
                 self.dialog.reject()
             return

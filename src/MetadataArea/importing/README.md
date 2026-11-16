@@ -74,13 +74,21 @@ and embedding interchange retain their behavior.
 JSON arrays contain records; a JSON object is one record by default. Select an
 explicit record path for a wrapper collection such as `records`. Nested arrays
 are never automatically promoted to record collections. JSON/JSONL and columnar
-objects flatten to dotted field paths; object arrays produce aligned list cells.
-Generic XML repeated siblings and repeated TEI header values retain lists too.
-Conflicting flattened paths are rejected instead of overwriting data.
+objects flatten to dotted field paths; lists of simple values retain their types
+and positions. Nested arrays containing objects (including empty objects and
+mixed scalar/object arrays) are rejected during inspection, with the field path
+and guidance to select a record collection, restructure the file, or remove the
+field. Generic XML also rejects repeated elements with child properties or
+attributes; repeated scalar elements and extracted TEI header values remain
+supported. Conflicting flattened paths are rejected instead of overwriting data.
+Import failures, blocking validation messages, and publication-start errors appear
+in the preview area without a separate popup. Correcting the settings restores
+the table preview; ordinary warnings remain in the status area.
+Existing saved list columns remain readable; this restriction applies to imports.
 
 Staged row payloads retain JSON lists, including their element types and null
 positions. Scalar/list mixtures promote the scalar to one entry without parsing
-literal text as JSON. Empty object collections use the leaf columns discovered
-elsewhere in the source. Delimited list interpretation remains available through
-the column type/format controls. Publication uses the repository's shared cell
-codec; previews and table display format arrays only at the UI boundary.
+literal text as JSON. Empty lists remain supported. Delimited list interpretation
+remains available through the column type/format controls. Publication uses the
+repository's shared cell codec; previews and table display format arrays only at
+the UI boundary.
