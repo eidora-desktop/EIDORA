@@ -9,6 +9,7 @@ from PySide6 import QtCore
 
 from EmbeddingsArea.controllers.embedding_job_workers import _EmbeddingRunThread
 from EmbeddingsArea.domain import EmbeddingRunState
+from shared.diagnostics.service import LOGGER, record_failure
 
 
 @dataclass
@@ -309,6 +310,7 @@ class ExecutionCoordinator(QtCore.QObject):
         return admission
 
     def _start_embedding(self, state: ExecutionState, create_thumbnails: bool) -> None:
+        LOGGER.info("Embedding job started")
         thread = _EmbeddingRunThread(
             self._project, state.id, create_thumbnails=create_thumbnails, parent=self,
         )
@@ -326,6 +328,7 @@ class ExecutionCoordinator(QtCore.QObject):
         self.changed.emit()
 
     def _start_clustering(self, state: ExecutionState) -> None:
+        LOGGER.info("Clustering job started")
         cancellation = threading.Event()
         self._cluster_cancellations[state.id] = cancellation
         thread = _ClusteringThread(self.service, state.id, cancellation, parent=self)
@@ -344,6 +347,8 @@ class ExecutionCoordinator(QtCore.QObject):
         state = self.state(kind, identity)
         if state is None or state.generation != self._generation:
             return
+        if int(value) // 10 != state.progress // 10:
+            LOGGER.info("%s job progress: %s%%", kind, value)
         state.progress = -1 if int(value) < 0 else max(max(0, state.progress), min(99, int(value)))
         state.detail = str(detail or state.detail)
         progress = "Working" if state.progress < 0 else f"{state.progress}%"
@@ -392,8 +397,12 @@ class ExecutionCoordinator(QtCore.QObject):
         if state is None:
             return
         state.pending_state = str(result_state)
+        LOGGER.info("%s job result: %s", kind, result_state)
         state.pending_error = error or ""
         if error:
+            guidance = record_failure(f"{kind} job failed", error)
+            if guidance:
+                state.pending_error += "\n\n" + guidance
             self._append_report(state, f"ERROR · {error}")
 
     def _thread_finished(self, kind: str, identity: str) -> None:

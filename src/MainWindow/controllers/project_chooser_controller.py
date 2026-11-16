@@ -14,6 +14,9 @@ from shared.qt.branding import branding_pixmap, branding_svg_pixmap
 from shared.qt.message_dialogs import show_error
 from shared.qt.ui_loader import load_ui
 from shared.qt.theme import THEMES
+from MainWindow.controllers.diagnostics_dialog_controller import show_diagnostics
+from shared.qt.diagnostics import report_repository
+from shared.diagnostics.service import LOGGER
 
 if TYPE_CHECKING:
     from project.domain import Project
@@ -190,6 +193,9 @@ class ProjectChooserController:
             QtWidgets.QPushButton, "button_import_project"
         )
         self._button_storage = self._find_required(QtWidgets.QPushButton, "button_storage")
+        self._button_report = self._find_required(QtWidgets.QPushButton, "button_report")
+        self._diagnostics_notice = self._find_required(QtWidgets.QLabel, "label_diagnostics_notice")
+        self._diagnostics_notice.setVisible(report_repository().has_unreviewed_trace())
         self._button_starter = self._find_required(QtWidgets.QPushButton, "button_starter")
         from project.starter_collection import bundled_resources, read_manifest
 
@@ -298,6 +304,7 @@ class ProjectChooserController:
             (self._list_projects.itemSelectionChanged, self._update_open_button),
             (self._list_projects.itemDoubleClicked, lambda _item: self._open_selected_project()),
             (self._button_storage.clicked, self._open_storage),
+            (self._button_report.clicked, self._show_report),
             (self._button_starter.clicked, self._create_starter),
         ]
         for signal, slot in self._connections:
@@ -316,6 +323,10 @@ class ProjectChooserController:
             "New Project Failed",
             "Created project",
         )
+
+    def _show_report(self) -> None:
+        show_diagnostics()
+        self._diagnostics_notice.setVisible(report_repository().has_unreviewed_trace())
 
     def _open_storage(self) -> None:
         from MainWindow.controllers.storage_dialog_controller import StorageDialogController
@@ -377,6 +388,7 @@ class ProjectChooserController:
         if self._opening_project:
             return
         self._opening_project = True
+        LOGGER.info("Opening project")
         self._set_opening_state(True, name)
         try:
             # Let the chooser paint before project I/O or Qt workspace construction.
@@ -392,6 +404,7 @@ class ProjectChooserController:
             show_error(self.dialog, error_title, str(exc))
             self.refresh()
         else:
+            LOGGER.info("Project opened")
             self._progress_opening_project.setValue(100)
             self._accept_project(project, f"{status_prefix} {project.name}")
             self._set_opening_state(False)

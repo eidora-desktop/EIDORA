@@ -340,6 +340,9 @@ class ThumbnailsPanelController(UiPanelController):
     def _start_process(self, active: _ActiveProcess, generation: int) -> None:
         if self._repo is None or self._session is None:
             return
+        from shared.diagnostics.service import LOGGER
+
+        LOGGER.info("Thumbnail creation started")
         record = replace(
             active.record,
             state=ProcessState.RUNNING,
@@ -479,6 +482,11 @@ class ThumbnailsPanelController(UiPanelController):
             self._show_status(f"Created thumbnail set '{record.output_name}'.")
 
     def _finish_failed(self, active: _ActiveProcess, message: str) -> None:
+        from shared.diagnostics.service import record_failure
+
+        guidance = record_failure("Thumbnail creation failed", message)
+        if guidance:
+            message = f"{message}\n\n{guidance}"
         current_project = active.generation == self._project_generation
         bounded_message = str(message)[:2000]
         record = replace(

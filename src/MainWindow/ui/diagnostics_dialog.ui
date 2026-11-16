@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>diagnostics_dialog</class>
+ <widget class="QDialog" name="diagnostics_dialog">
+  <property name="windowTitle"><string>Diagnostics</string></property>
+  <property name="geometry"><rect><x>0</x><y>0</y><width>760</width><height>560</height></rect></property>
+  <layout class="QVBoxLayout" name="layout_report">
+   <item><widget class="QLabel" name="label_instructions">
+    <property name="text"><string>EIDORA never shares your data or sends diagnostic reports. Reports are stored locally, and sharing them is entirely your choice. If you encounter a problem, we would appreciate your help improving EIDORA by forwarding the diagnostics report with a short description to &lt;a href="mailto:mail@eidora.org"&gt;&lt;b&gt;mail@eidora.org&lt;/b&gt;&lt;/a&gt;.</string></property>
+    <property name="textFormat"><enum>Qt::RichText</enum></property>
+    <property name="wordWrap"><bool>true</bool></property>
+    <property name="textInteractionFlags"><set>Qt::TextSelectableByMouse|Qt::LinksAccessibleByMouse|Qt::LinksAccessibleByKeyboard</set></property>
+    <property name="openExternalLinks"><bool>true</bool></property>
+   </widget></item>
+   <item><widget class="QLabel" name="label_privacy">
+    <property name="text"><string>The report contains recent technical diagnostics, not your project files. Paths are masked where possible. Remove any remaining personal information before sharing.</string></property>
+    <property name="wordWrap"><bool>true</bool></property>
+   </widget></item>
+   <item><widget class="QPlainTextEdit" name="edit_report">
+    <property name="accessibleName"><string>Editable diagnostic report</string></property>
+   </widget></item>
+   <item><widget class="QLabel" name="label_status">
+    <property name="text"><string/></property>
+    <property name="wordWrap"><bool>true</bool></property>
+    <property name="textFormat"><enum>Qt::PlainText</enum></property>
+   </widget></item>
+   <item><layout class="QHBoxLayout" name="layout_actions">
+    <item><widget class="QPushButton" name="button_save_report"><property name="text"><string>Save Report…</string></property></widget></item>
+    <item><widget class="QPushButton" name="button_copy_report"><property name="text"><string>Copy Report</string></property></widget></item>
+    <item><spacer name="spacer_actions"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+    <item><widget class="QDialogButtonBox" name="button_box"><property name="standardButtons"><set>QDialogButtonBox::Close</set></property></widget></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections><connection><sender>button_box</sender><signal>rejected()</signal><receiver>diagnostics_dialog</receiver><slot>reject()</slot></connection></connections>
+</ui>

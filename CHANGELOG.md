@@ -4,6 +4,12 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Enforce a 10 MiB budget for automatic diagnostics, with oldest-inactive-session cleanup, byte-exact log rotation, and bounded crash traces that cannot grow after a freeze or crash.
+
+- Simplify the Help pop-up: place About EIDORA first, separate the remaining help options, and keep update checks in About instead of a duplicate pop-up action.
+
+- Add Help → Diagnostics... with editable reports for manual submission to mail@eidora.org, bounded session logs, crash/freeze stack capture, and recovery guidance for common storage and access failures. Keep sharing information above the report and put the user's problem description before technical details.
+
 - Enable Vector Data’s Run Again action only for successful model runs; imported vectors cannot be rerun, retried, or resumed as model jobs.
 
 - Require unique embedding names when adding or importing outputs, ignoring case and surrounding whitespace. Show duplicate or empty import-name errors inline before publication.

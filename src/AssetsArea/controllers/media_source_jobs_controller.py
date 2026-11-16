@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from PySide6 import QtCore
 from EmbeddingsArea.domain import MediaProgress
+from shared.diagnostics.service import LOGGER, record_failure
 
 
 @dataclass
@@ -40,6 +41,7 @@ class MediaSourceJobsController:
         self._timer.timeout.connect(self._poll)
 
     def submit(self, source_id, title, operation, finished, failed, *, cleanup=None):
+        LOGGER.info("Media-source operation queued")
         identity = uuid4().hex
         job = _Job(source_id, operation, finished, failed, self._generation, cleanup=cleanup)
         self._jobs[identity] = job
@@ -121,10 +123,14 @@ class MediaSourceJobsController:
                         result.cleanup()
                     terminal = ("Failed" if getattr(result, "error_message", "") else
                                 "Cancelled" if getattr(result, "cancelled", False) else "Complete")
+                    if terminal == "Failed":
+                        record_failure("Media-source operation failed", result.error_message)
                 else:
                     terminal = "Cancelled"
             except Exception as exc:
                 terminal = "Cancelled" if job.cancel.is_set() else "Failed"
+                if terminal == "Failed":
+                    record_failure("Media-source operation failed", exc)
                 if current:
                     job.failed(str(exc), terminal == "Cancelled")
             finally:

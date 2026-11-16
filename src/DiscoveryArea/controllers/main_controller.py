@@ -4657,6 +4657,9 @@ class DiscoveryAreaController:
     def _begin_discovery_run(self, request: _QueuedDiscoveryRun) -> None:
         if request is not self._active_discovery_run or self._discovery_cancel_requested:
             return
+        from shared.diagnostics.service import LOGGER
+
+        LOGGER.info("Discovery projection started")
         panel = self._panel(DiscoveryPanelController)
         if panel is not None:
             panel.set_run_started(request.run_id)
@@ -4970,6 +4973,11 @@ class DiscoveryAreaController:
         self._complete_pending_discovery_display_if_ready()
 
     def _handle_discovery_run_failed(self, message: str) -> None:
+        from shared.diagnostics.service import record_failure
+
+        guidance = record_failure("Discovery projection failed", message)
+        if guidance:
+            message = f"{message}\n\n{guidance}"
         self._discovery_debug("discovery_worker_failed_signal", message=message)
         self._pending_discovery_error = message
         self._pending_discovery_option_key = None

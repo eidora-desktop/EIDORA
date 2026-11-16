@@ -5,6 +5,7 @@ import sys
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from MainWindow.controllers.update_panel_controller import UpdatePanelController
+from MainWindow.controllers.diagnostics_dialog_controller import show_diagnostics
 from application_info.service import REPOSITORY_URL, WEBSITE_URL
 from eidora_version import __version__
 from shared.paths import application_data_root
@@ -36,7 +37,7 @@ class HelpPanelController:
         self._palette_filter = None
         self._native_menu = None
         self._update_panel = None
-        self.tour_action = QtGui.QAction("Take a Tour…", window)
+        self.tour_action = QtGui.QAction("Take a Tour", window)
         self.tour_action.setMenuRole(QtGui.QAction.MenuRole.NoRole)
         self.tour_action.setEnabled(False)
         self.tour_action.setToolTip("The tour will be available when all workspaces have finished loading.")
@@ -47,14 +48,18 @@ class HelpPanelController:
         self._updates = QtGui.QAction(update_label, window)
         self._updates.setMenuRole(QtGui.QAction.MenuRole.ApplicationSpecificRole)
         self._updates.triggered.connect(self.check_updates)
+        self._reports = QtGui.QAction("Diagnostics...", window)
+        self._reports.setMenuRole(QtGui.QAction.MenuRole.NoRole)
+        self._reports.triggered.connect(show_diagnostics)
         button = window.findChild(QtWidgets.QPushButton, "button_help")
         if button is None:
             raise RuntimeError("main_window.ui is missing button_help")
         menu = QtWidgets.QMenu(button)
         menu.setToolTipsVisible(True)
-        menu.addAction(self.tour_action)
         menu.addAction(self._about)
-        menu.addAction(self._updates)
+        menu.addSeparator()
+        menu.addAction(self.tour_action)
+        menu.addAction(self._reports)
         button.setMenu(menu)
         if sys.platform == "darwin":
             # A parentless native menu supplies application-menu actions without

@@ -200,6 +200,42 @@ Use `shared/` for infrastructure that is genuinely cross-area:
 - `shared/diagnostics`: logging and error helpers.
 - `shared/icons`: icon resources and manifest.
 
+Diagnostics retain five local sessions with rotating logs, unexpected Python-error
+hooks, and best-effort native crash/Python stack capture. The automatic store has
+a 10 MiB file-content budget. An interprocess admission lock reserves 1 MiB per
+session before any capture begins, accounting for larger legacy sessions and
+removing the oldest inactive sessions first. An active session uses at most two
+256 KiB event logs, a 256 KiB trace, 4 KiB context, and small control files. UTF-8
+byte accounting and LF-only output keep rotation exact on every platform. New
+disk capture is declined if protected or undeletable reports occupy the budget;
+logging never rescans the store on each event.
+
+An application-owned Qt
+heartbeat rearms Python's built-in fault-handler timeout; an unresponsive GUI
+produces one stack snapshot after 30 seconds, at most three stalls per session.
+Native fault-handler output goes to a nonblocking pipe, not a growing file. A
+small `diagnostic-trace` worker drains the pipe, writes at most 256 KiB including
+a truncation notice, discards excess bytes, and exits at EOF. Its lock protects
+the report while it finishes after the parent's crash. It imports no Qt or
+compute libraries and supports Windows windowed executables without Python
+standard streams. A stalled/unavailable collector may lose trace bytes but must
+never block EIDORA or fall back to unbounded files. This does not terminate jobs
+or identify the cause of a stall. Existing debugger
+fault handlers are preserved. Worker failures feed the same log through their
+owning controllers; isolated native worker crashes retain the parent-reported
+error, not a guaranteed child stack dump.
+
+MainWindow's Designer-owned **Diagnostics...** dialog reads bounded tails from
+recent sessions, masks paths where possible, and lets users edit, save, or copy a
+plain-text report for manual email to **mail@eidora.org**. There is no upload,
+telemetry, or automatic email. No project files, media, environment variables, or
+local-variable dumps are collected; arbitrary error text still requires review.
+Reports live in local application data independently of project/source storage.
+Disk-full reporting is best effort and never a prerequisite for startup. Saved
+reports replace their destination only after writing succeeds.
+Manually exported reports and operating-system crash reports are outside the
+automatic store's budget and are never deleted by its cleanup.
+
 Do not put feature behavior in `shared/` just because two places might eventually use it. Start inside the owning area, then extract only when duplication is real.
 
 ## Adding New Code
