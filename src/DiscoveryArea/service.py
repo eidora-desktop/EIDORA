@@ -10,7 +10,7 @@ import numpy as np
 
 from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset
 from EmbeddingsArea.runtime.readers import load_embedding_matrix_with_ids
-from EmbeddingsArea.repository import EmbeddingRunRepository, MediaLinkRepository, MediaRepository
+from EmbeddingsArea.repository import EmbeddingRunRepository, MediaRepository
 from MetadataArea.repository import MetadataRepository
 from MetadataArea.group_repository import MetadataGroupRepository
 from MetadataArea.group_service import MetadataGroupService
@@ -571,7 +571,7 @@ class DiscoveryService:
         metadata_ids: np.ndarray,
     ) -> DiscoveryDataset:
         if option.is_random:
-            return self._random_discovery_dataset(project, metadata_ids)
+            return self._random_discovery_dataset(metadata_ids)
         if option.discovery_file is None:
             return DiscoveryRepository.empty()
         return self._repository.load_coordinates(option.discovery_file, metadata_ids)
@@ -1202,14 +1202,10 @@ class DiscoveryService:
             order = np.concatenate([order, np.array([int(prioritize_last)], dtype=order.dtype)])
         return order
 
-    def _random_discovery_dataset(self, project: "Project", metadata_ids: np.ndarray) -> DiscoveryDataset:
-        """A disposable view, stable per item and never published as an analysis."""
+    @staticmethod
+    def _random_discovery_dataset(metadata_ids: np.ndarray) -> DiscoveryDataset:
+        """One stable point per current Items row, without persisted coordinates."""
         ids = np.asarray(metadata_ids, dtype=np.int64)
-        media_database = project.paths.media / "media_index.db"
-        if ids.size == 0 or not media_database.is_file():
-            return DiscoveryRepository.empty()
-        linked_ids = MediaLinkRepository(media_database).linked_metadata_ids()
-        ids = ids[np.isin(ids, linked_ids)]
         if ids.size == 0:
             return DiscoveryRepository.empty()
         # SplitMix64 gives each ID a stable position, independent of row order,

@@ -1325,20 +1325,6 @@ class MediaLinkRepository:
         self._database_path = database_path
         MediaRepository(database_path)
 
-    def linked_metadata_ids(self) -> list[int]:
-        """Item IDs with explicit links to available, included media assets."""
-        with closing(self._connect()) as connection:
-            return [int(row[0]) for row in connection.execute(
-                """
-                SELECT DISTINCT links.metadata_row_id
-                FROM media_links AS links
-                INNER JOIN media_assets AS assets ON assets.id = links.media_asset_id
-                WHERE links.status = ? AND assets.status = ? AND assets.excluded = 0
-                ORDER BY links.metadata_row_id
-                """,
-                (MediaLinkStatus.LINKED.value, MediaAssetStatus.READY.value),
-            )]
-
     def matching_records(self, source_id: str, field: str, should_cancel=None):
         column = {"filename": "display_name", "relative_path": "relative_path", "identifier": "source_key"}.get(field)
         if column is None:

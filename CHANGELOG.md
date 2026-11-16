@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Build Discovery's Random projection from every Items row, without requiring media links. Added Items receive new dots while existing dots retain their positions.
+
 - Simplify Metadata controls to Add Files and source-only Link. Items offers Unlink all, Delete all, and Export; remove explicit source-replacement controls.
 
 - Offer metadata linking only when Items exist, restrict automatic and manual links to Items–source pairs, and add Unlink for a source’s saved relationships without deleting records.
