@@ -21,7 +21,7 @@ def pair_model_inputs(
         if item.content_type.value != modality:
             raise ValueError(f"Selected {modality} source contains incompatible input data.")
         if item.metadata_row_id is None:
-            raise ValueError("Choose a metadata key to pair unlinked media with source records.")
+            raise ValueError("Link the selected Media Sources to the same Items before combining inputs.")
         components = by_item.setdefault(item.metadata_row_id, {})
         if modality in components:
             raise ValueError(

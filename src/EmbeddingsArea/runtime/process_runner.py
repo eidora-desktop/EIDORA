@@ -28,8 +28,8 @@ def _child(connection, pause, arguments):
             phase_callback=lambda value: connection.send(("phase", value)),
         )
         connection.send(("result", result))
-    except RunPaused:
-        connection.send(("paused", None))
+    except RunPaused as exc:
+        connection.send(("paused", str(exc)))
     except BaseException as exc:
         connection.send(("error", dict(message=f"{type(exc).__name__}: {exc}", retryable=isinstance(exc, ExecutionFailure))))
     finally:
@@ -45,13 +45,39 @@ def _run_attempt(arguments, *, progress_callback=None, status_callback=None, con
     sender.close()
     heartbeat = time.monotonic()
     phase = "starting"
+    monitor = None
+    safety_reason = ''
+    safety_at = None
     try:
+        if arguments.get('runtime_adapter_id') == 'onnx':
+            from EmbeddingsArea.runtime.resources import ResourceMonitor
+            import psutil
+            monitor = ResourceMonitor(arguments['run_dir'], arguments.get('requested_device', 'auto'),
+                                      getattr(arguments.get('config'), 'batch_policy', 'auto'))
+            try:
+                monitor.process = psutil.Process(process.pid)
+            except psutil.NoSuchProcess:
+                monitor = None  # A completed worker's reply still owns its outcome.
         while True:
             action = control_callback() if control_callback else "continue"
             if action == "cancel":
                 raise RunCancelled("Embedding run cancelled.")
             if action == "pause":
                 pause.set()
+            if monitor is not None and not safety_reason:
+                try:
+                    safety_reason = monitor.sample().stop_reason
+                except (OSError, psutil.NoSuchProcess):
+                    pass
+                if safety_reason:
+                    safety_at = time.monotonic()
+                    pause.set()
+                    if status_callback:
+                        status_callback(safety_reason)
+            if safety_reason and time.monotonic() - safety_at >= 3:
+                # Native compilation/inference may not return to a batch boundary.
+                # Stop only the isolated process; committed checkpoints remain resumable.
+                raise RunPaused(safety_reason)
             if heartbeat_callback and time.monotonic() - heartbeat >= 1:
                 heartbeat_callback()
                 heartbeat = time.monotonic()
@@ -60,12 +86,18 @@ def _run_attempt(arguments, *, progress_callback=None, status_callback=None, con
                     kind, value = receiver.recv()
                 except EOFError as exc:
                     process.join(timeout=0.1)
+                    if safety_reason:
+                        raise RunPaused(safety_reason) from exc
                     raise WorkerFailure(f"Embedding process exited during {phase} (code {process.exitcode}).", phase in {"setup", "inference"}) from exc
                 if kind == "result":
+                    if safety_reason:
+                        raise RunPaused(safety_reason)
                     return value
                 if kind == "paused":
-                    raise RunPaused("Embedding run paused at a checkpoint.")
+                    raise RunPaused(safety_reason or value or "Embedding run paused at a checkpoint.")
                 if kind == "error":
+                    if safety_reason:
+                        raise RunPaused(safety_reason)
                     raise WorkerFailure(value["message"], value["retryable"])
                 if kind == "phase":
                     phase = value
@@ -76,6 +108,8 @@ def _run_attempt(arguments, *, progress_callback=None, status_callback=None, con
                 if kind == "status" and status_callback:
                     status_callback(value)
             elif not process.is_alive():
+                if safety_reason:
+                    raise RunPaused(safety_reason)
                 raise WorkerFailure(f"Embedding process exited during {phase} (code {process.exitcode}).", phase in {"setup", "inference"})
     finally:
         if process.is_alive():

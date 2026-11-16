@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from EmbeddingsArea.runtime.adapters.base import AdapterRunConfig, RuntimeAdapterDescriptor
-from EmbeddingsArea.runtime.contracts import RuntimeInput, ExecutionFailure
+from EmbeddingsArea.runtime.contracts import RuntimeInput, ExecutionFailure, BatchMemoryError
 from EmbeddingsArea.preparation_contract import validate_providers, resolve_contract
 from EmbeddingsArea.runtime.preparers import prepare_batch
 
@@ -148,6 +148,10 @@ class OnnxAdapter:
         self._budget = 256 * 1024 * 1024
         self._components: dict[str, OnnxAdapter] = {}
         self._phase_callback = None
+        self._fixed_batch = 0
+        self._config = None
+        self._original_contract = {}
+        self._providers = []
 
     def setup(self, config: AdapterRunConfig) -> None:
         self._phase_callback = config.phase_callback
@@ -183,6 +187,15 @@ class OnnxAdapter:
             import onnxruntime as ort
         providers = execution_providers_for_device(ort, config.requested_device, declared)
         self._contract = deepcopy(config.runtime_contract)
+        self._original_contract = deepcopy(self._contract)
+        self._config, self._providers = config, providers
+        self._budget = max(1, int(config.prepared_batch_budget_bytes))
+        self._fixed_batch = min(config.batch_size, self.batch_size_limit) if providers[0] == 'CoreMLExecutionProvider' else 0
+        options = ort.SessionOptions()
+        # Leave capacity for the UI and other applications; avoid nested CPU pools.
+        import os
+        options.intra_op_num_threads = max(1, min(8, (os.cpu_count() or 2) // 2))
+        options.inter_op_num_threads = 1
         self._phase("setup")
         try:
             if providers[0] == "CUDAExecutionProvider":
@@ -192,7 +205,7 @@ class OnnxAdapter:
             if providers[0] == "CoreMLExecutionProvider":
                 self._session = self._create_fixed_coreml_session(ort, config.model_path, providers)
             else:
-                self._session = create_onnx_session(ort, config.model_path, providers)
+                self._session = create_onnx_session(ort, config.model_path, providers, sess_options=options)
             if hasattr(self._session, "disable_fallback"):
                 self._session.disable_fallback()
             if self._session.get_providers() != providers:
@@ -218,7 +231,7 @@ class OnnxAdapter:
                 for index, dimension in enumerate(meta.shape):
                     if isinstance(dimension, int):
                         continue
-                    expected = 1 if index == 0 else declared[meta.name][index]
+                    expected = (self._fixed_batch or 1) if index == 0 else declared[meta.name][index]
                     if not isinstance(dimension, str) or not dimension or not isinstance(expected, int):
                         raise RuntimeError("CoreML requires resolvable named input dimensions.")
                     if dimension in symbols and symbols[dimension] != expected:
@@ -229,15 +242,33 @@ class OnnxAdapter:
         options = ort.SessionOptions()
         for symbol, size in sorted(symbols.items()):
             options.add_free_dimension_override_by_name(symbol, size)
-        session = create_onnx_session(ort, model_path, providers, sess_options=options,
-                                      coreml_options={"MLComputeUnits": "CPUAndGPU",
-                                                      "RequireStaticInputShapes": "1"})
-        # Existing batching splits requests into single-item calls and keeps
-        # order, preparation, finite-value and normalization checks unchanged.
+        options.intra_op_num_threads = 2
+        coreml_options = {"MLComputeUnits": "CPUAndGPU", "RequireStaticInputShapes": "1"}
+        if self._config is not None and self._config.batch_profile is not None:
+            coreml_options['ModelCacheDirectory'] = str(self._config.batch_profile.coreml_directory(self._fixed_batch, ort.__version__))
+        session = create_onnx_session(ort, model_path, providers, sess_options=options, coreml_options=coreml_options)
         for tensor in [*self._contract["inputs"], self._contract["output"]]:
             if tensor["shape"][0] in {"batch", "dynamic"}:
-                tensor["shape"][0] = 1
+                tensor["shape"][0] = self._fixed_batch or 1
         return session
+
+    def set_batch_size(self, size: int) -> None:
+        if self._components:
+            for adapter in self._components.values():
+                adapter.set_batch_size(size)
+        elif self._fixed_batch and size != self._fixed_batch:
+            import onnxruntime as ort
+            self._phase('setup')
+            self._session = None
+            self._fixed_batch = min(size, self.batch_size_limit)
+            self._contract = deepcopy(self._original_contract)
+            try:
+                self._session = self._create_fixed_coreml_session(ort, self._config.model_path, self._providers)
+            except Exception as exc:
+                raise ExecutionFailure(f'CoreML batch {self._fixed_batch} could not be initialized: {exc}') from exc
+            self._session.disable_fallback()
+            self._validate_graph_contract()
+            self._phase('idle')
 
     def _validate_graph_contract(self) -> None:
         assert self._session is not None
@@ -264,18 +295,28 @@ class OnnxAdapter:
             raise RuntimeError("ONNX embedding output must be float32.")
         _validate_meta_shape(getattr(meta, "shape", ()), output["shape"], "output")
 
+    @property
+    def batch_size_limit(self) -> int:
+        """Expose established shape/memory limits so progress follows real batches."""
+        if self._components:
+            return min(adapter.batch_size_limit for adapter in self._components.values())
+        limit = _contract_batch_limit(self._original_contract or self._contract, self._budget)
+        return min(limit, 128) if self._providers and self._providers[0] == 'CoreMLExecutionProvider' else limit
+
     def embed_batch(self, batch: list[RuntimeInput]) -> np.ndarray:
         if self._components:
             return self._embed_components(batch)
         if self._session is None or self._package_directory is None:
             raise RuntimeError("ONNX adapter session was not initialized.")
-        limit = _contract_batch_limit(self._contract, self._budget)
+        limit = self._fixed_batch or self.batch_size_limit
         parts: list[np.ndarray] = []
         for start in range(0, len(batch), limit):
             items = batch[start : start + limit]
             self._phase("preparation")
             try:
                 feed = prepare_batch(items, self._contract, package_directory=self._package_directory)
+            except MemoryError as exc:
+                raise BatchMemoryError("Not enough memory to prepare the model batch.") from exc
             except Exception as exc:
                 identifiers = ", ".join(item.identifier or item.path.name for item in items[:3])
                 raise RuntimeError(f"Could not prepare model input ({identifiers}): {exc}") from exc
@@ -290,15 +331,27 @@ class OnnxAdapter:
                 parts.extend((self.embed_batch(items[:midpoint]), self.embed_batch(items[midpoint:])))
                 continue
             self._phase("inference")
+            # Fixed CoreML shapes need a full tensor. Repeat the last prepared
+            # input for the tail, then discard padded outputs (never invent IDs).
+            if self._fixed_batch and len(items) < self._fixed_batch:
+                feed = {name: np.concatenate((value, np.repeat(value[-1:], self._fixed_batch - len(items), axis=0)))
+                        for name, value in feed.items()}
             try:
                 raw = self._session.run([self._output_name], feed)[0]
             except Exception as exc:
+                message = str(exc).casefold()
+                if isinstance(exc, MemoryError) or any(marker in message for marker in (
+                    "out of memory", "failed to allocate memory", "cuda_error_out_of_memory",
+                    "cublas_status_alloc_failed", "cudnn_status_alloc_failed", "bad_alloc",
+                )):
+                    raise BatchMemoryError(f"ONNX batch allocation failed: {exc}") from exc
                 raise ExecutionFailure(f"ONNX inference failed: {exc}") from exc
             vectors = np.asarray(raw)
             dimensions = int(dict(self._contract["embedding"])["dimensions"])
-            if vectors.dtype != np.float32 or vectors.shape != (len(items), dimensions):
+            expected_count = self._fixed_batch or len(items)
+            if vectors.dtype != np.float32 or vectors.shape != (expected_count, dimensions):
                 raise ExecutionFailure(
-                    f"ONNX output must be float32 [{len(items)}, {dimensions}], got {vectors.dtype} {vectors.shape}."
+                    f"ONNX output must be float32 [{expected_count}, {dimensions}], got {vectors.dtype} {vectors.shape}."
                 )
             if not np.isfinite(vectors).all():
                 raise ExecutionFailure("ONNX model returned nonfinite embeddings.")
@@ -306,7 +359,7 @@ class OnnxAdapter:
                 np.linalg.norm(vectors, axis=1), 1.0, rtol=1e-4, atol=1e-5
             ):
                 raise ExecutionFailure("ONNX output contradicts embedding.normalized: true.")
-            parts.append(vectors)
+            parts.append(vectors[:len(items)])
             self._phase("idle")
         return np.concatenate(parts, axis=0) if len(parts) > 1 else parts[0]
 

@@ -205,6 +205,18 @@ class ThumbnailsPanelController(UiPanelController):
     def set_media_source_busy_callback(self, callback) -> None:
         self._media_source_busy = callback
 
+    def start_embedding_thumbnails(self, run_id: str) -> bool:
+        if self._session is None or self._repo is None or self._active:
+            return False
+        from AssetsArea.thumbnail_service import default_embedding_thumbnail_request
+
+        self.refresh()
+        configuration = self._session.service.get_embedding_run_configuration(run_id)
+        request = default_embedding_thumbnail_request(configuration, self.available_inputs(), self._repo)
+        if request is None:
+            return False
+        return self._queue_request(request) is not None
+
     def open_create_dialog(
         self,
         preselected_input: ProcessInputReference | None = None,
@@ -269,7 +281,7 @@ class ThumbnailsPanelController(UiPanelController):
         self._poll.stop()
         self._executor.shutdown(wait=False, cancel_futures=True)
 
-    def _queue_request(self, request: ProcessRequest) -> None:
+    def _queue_request(self, request: ProcessRequest) -> str | None:
         if self._process_repo is None:
             return
         eligible_input = next(
@@ -286,7 +298,10 @@ class ThumbnailsPanelController(UiPanelController):
                 "The selected input is no longer available for thumbnail creation."
             )
             return
-        request = replace(request, input=eligible_input)
+        request = replace(request, input=eligible_input, parameters={
+            key: value for key, value in request.parameters.items()
+            if key != "video_frame_mode" or eligible_input.media_type == "video"
+        })
         if request.output_name.strip().casefold() in {
             variant.label.casefold()
             for variant in (self._repo.list_variants() if self._repo is not None else ())
@@ -326,9 +341,10 @@ class ThumbnailsPanelController(UiPanelController):
         if self._activity_manager is not None and hasattr(self._activity_manager, "processes"):
             active.admission = self._activity_manager.processes.submit(
                 panel="Project Thumbnails",
+                footer_label="Creating thumbnails",
                 title=record.output_name,
                 start=start,
-                cancel=active.cancel_event.set,
+                cancel=lambda: self._cancel(record.id),
             )
             self._activity_manager.processes.dispatch()
         else:
@@ -336,6 +352,7 @@ class ThumbnailsPanelController(UiPanelController):
         self._poll.start()
         self._render_records(select_id=record.id)
         self._show_status(f"Queued {record.operation_label} for '{record.input.label}'.")
+        return record.id
 
     def _start_process(self, active: _ActiveProcess, generation: int) -> None:
         if self._repo is None or self._session is None:
@@ -374,7 +391,8 @@ class ThumbnailsPanelController(UiPanelController):
                     self._session.media_repository,
                     self._session.link_repository,
                     summary,
-                    video_frame_mode=str(record.parameters.get("video_frame_mode") or "middle"),
+                    video_frame_mode=(str(record.parameters.get("video_frame_mode") or "middle")
+                                      if record.input.media_type == "video" else None),
                     **common,
                 )
         else:
@@ -385,6 +403,8 @@ class ThumbnailsPanelController(UiPanelController):
                 **common,
             )
         self._update_record_row(record)
+        if active.admission is not None:
+            active.admission.update(message=record.message, value=-1)
 
     @staticmethod
     def _raise_missing_input() -> ThumbnailGenerationResult:
@@ -438,6 +458,8 @@ class ThumbnailsPanelController(UiPanelController):
         if changed:
             active.record = record
             self._update_record_row(record)
+            if active.admission is not None:
+                active.admission.update(message=record.message, value=-1 if record.state == ProcessState.RUNNING and record.progress == 0 else record.progress)
 
     def _finish_completed(self, active: _ActiveProcess, result: ThumbnailGenerationResult) -> None:
         warnings = bool(result.failed_files or result.missing_files)
@@ -531,7 +553,7 @@ class ThumbnailsPanelController(UiPanelController):
 
     def _cancel(self, process_id: str) -> None:
         active = self._active.get(process_id)
-        if active is None:
+        if active is None or active.cancel_event.is_set():
             return
         active.cancel_event.set()
         active.record = replace(active.record, state=ProcessState.CANCELLING, message="Cancelling…")
@@ -539,6 +561,7 @@ class ThumbnailsPanelController(UiPanelController):
         admission = active.admission
         if admission is not None and hasattr(admission, "cancel"):
             admission.cancel()
+            admission.update(message="Cancelling thumbnails…", value=active.record.progress)
         if active.future is not None:
             active.future.cancel()
         elif active.record.id in self._active:
@@ -796,6 +819,7 @@ class ThumbnailsPanelController(UiPanelController):
                 self._parameter_text(str(key), value),
             )
             for key, value in record.parameters.items()
+            if key != "video_frame_mode" or record.input.media_type == "video"
         ]
         results = [
             ("generated", "Generated", f"{record.generated_files:,}"),

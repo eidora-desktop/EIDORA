@@ -149,6 +149,9 @@ class AssetsAreaController:
     def refresh_thumbnail_variants(self) -> None:
         self._thumbnails_panel.refresh()
 
+    def start_embedding_thumbnails(self, run_id: str) -> bool:
+        return self._thumbnails_panel.start_embedding_thumbnails(run_id)
+
     def open_thumbnail_creation_dialog(self) -> None:
         self._thumbnails_panel.open_create_dialog()
 

@@ -332,9 +332,10 @@ appearing in the active collection. Active IDs combine current metadata rows and
 asset identities explicitly prepared for analysis. Existing `metadata_id` API and
 array names remain compatibility names for permanent item IDs.
 
-Model configuration offers registered assets and metadata text columns. Background
-input review reports reuse, new items and skipped inputs before execution. A run
-processes available assets or matched existing items; multimodal pairing can use
-source-record keys before item creation. Only successful vector publication creates
+Local-model configuration offers registered file-based Media Sources only. Run Model
+prepares available assets and validates item assignments in the background, then
+starts automatically without a separate review. Multimodal inputs use established
+associations; the dialog offers no scope or metadata-key pairing choices. Saved
+legacy run snapshots remain supported. Only successful vector publication creates
 items and commits run/media bindings. Missing or ambiguous inputs never manufacture
 metadata rows. Saved input provenance is independent of later media relocation.

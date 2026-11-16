@@ -964,67 +964,86 @@ class MediaRepository:
                 for row in rows:
                     yield self._asset_from_row(row)
 
-    def assets_for_items(self, item_ids, *, source_ids=(), include_inherited=False):
+    def assets_for_items(self, item_ids, *, source_ids=(), include_inherited=False,
+                         should_cancel=None, progress_callback=None):
         """Resolve media through approved record paths, in bounded item batches.
 
         Direct media takes precedence over inherited media. Return all candidates
         so embedding preparation can reject ambiguity instead of choosing a file.
         Preview selectors can include inherited candidates alongside direct media.
         """
+        from concurrent.futures import CancelledError
         from project.domain import ProjectStoragePaths
         metadata_path = ProjectStoragePaths(self._database_path.parent.parent).metadata_database
         ids = list(dict.fromkeys(int(value) for value in item_ids))
         output = {}
         if not ids:
             return output
+        def check_cancelled():
+            if should_cancel is not None and should_cancel():
+                raise CancelledError("Media lookup cancelled.")
+
+        check_cancelled()
         with closing(self._connect()) as connection:
-            has_items = has_relations = False
-            if metadata_path.exists():
-                connection.execute("ATTACH DATABASE ? AS item_store", (str(metadata_path),))
-                names = {row[0] for row in connection.execute("SELECT name FROM item_store.sqlite_master WHERE type='table'")}
-                has_items = 'project_items' in names
-                has_relations = {'metadata_record_links', 'metadata_relationships'} <= names
-            for start in range(0, len(ids), 200):
-                batch = ids[start:start + 200]
-                record_sources = {}
-                if has_relations:
-                    record_sources = dict(connection.execute(f"""SELECT DISTINCT link.source_id, relation.source_table
-                        FROM item_store.metadata_record_links link
-                        JOIN item_store.metadata_relationships relation ON relation.id=link.relationship_id
-                        WHERE link.source_id IN ({','.join('?' for _ in batch)})""", batch))
-                seed = ','.join("(?,?,?)" for _ in batch)
-                traverse = """UNION SELECT reached.item, relation.target_table, link.target_id
-                    FROM reached JOIN item_store.metadata_relationships relation ON relation.source_table=reached.source
-                    JOIN item_store.metadata_record_links link ON link.relationship_id=relation.id
-                        AND link.source_id=reached.record""" if has_relations else ''
-                registry = """UNION SELECT reached.item, identity.asset_id, 0 FROM reached
-                    JOIN item_store.project_items identity ON identity.id=reached.item
-                    WHERE identity.asset_id IS NOT NULL""" if has_items else ''
-                source_filter = f"AND assets.source_id IN ({','.join('?' for _ in source_ids)})" if source_ids else ''
-                query = f"""WITH RECURSIVE reached(item,source,record) AS (VALUES {seed} {traverse}),
-                    candidates(item,asset,priority) AS (
-                        SELECT reached.item, link.media_asset_id, CASE WHEN reached.record=reached.item THEN 0 ELSE 1 END
-                        FROM reached JOIN media_links link ON link.metadata_row_id=reached.record AND link.status='linked'
-                        {registry})
-                    SELECT candidates.item AS item_id, MIN(candidates.priority) AS priority, assets.*
-                    FROM candidates JOIN media_assets assets ON assets.id=candidates.asset
-                    WHERE assets.status='ready' AND assets.excluded=0 {source_filter}
-                    GROUP BY candidates.item, assets.id ORDER BY candidates.item, priority, assets.id"""
-                priorities = {}
-                parameters = [value for identity in batch for value in (identity, record_sources.get(identity, "metadata"), identity)]
-                for row in connection.execute(query, (*parameters, *source_ids)):
-                    identity, priority = int(row['item_id']), int(row['priority'])
-                    if identity not in priorities:
-                        priorities[identity] = priority
-                    if include_inherited or priority == priorities[identity]:
-                        output.setdefault(identity, []).append(self._asset_from_row(row))
+            if should_cancel is not None:
+                connection.set_progress_handler(lambda: int(should_cancel()), 1000)
+            try:
+                has_items = has_relations = False
+                if metadata_path.exists():
+                    connection.execute("ATTACH DATABASE ? AS item_store", (str(metadata_path),))
+                    names = {row[0] for row in connection.execute("SELECT name FROM item_store.sqlite_master WHERE type='table'")}
+                    has_items = 'project_items' in names
+                    has_relations = {'metadata_record_links', 'metadata_relationships'} <= names
+                for start in range(0, len(ids), 200):
+                    check_cancelled()
+                    batch = ids[start:start + 200]
+                    record_sources = {}
+                    if has_relations:
+                        record_sources = dict(connection.execute(f"""SELECT DISTINCT link.source_id, relation.source_table
+                            FROM item_store.metadata_record_links link
+                            JOIN item_store.metadata_relationships relation ON relation.id=link.relationship_id
+                            WHERE link.source_id IN ({','.join('?' for _ in batch)})""", batch))
+                    seed = ','.join("(?,?,?)" for _ in batch)
+                    traverse = """UNION SELECT reached.item, relation.target_table, link.target_id
+                        FROM reached JOIN item_store.metadata_relationships relation ON relation.source_table=reached.source
+                        JOIN item_store.metadata_record_links link ON link.relationship_id=relation.id
+                            AND link.source_id=reached.record""" if has_relations else ''
+                    registry = """UNION SELECT reached.item, identity.asset_id, 0 FROM reached
+                        JOIN item_store.project_items identity ON identity.id=reached.item
+                        WHERE identity.asset_id IS NOT NULL""" if has_items else ''
+                    source_filter = f"AND assets.source_id IN ({','.join('?' for _ in source_ids)})" if source_ids else ''
+                    query = f"""WITH RECURSIVE reached(item,source,record) AS (VALUES {seed} {traverse}),
+                        candidates(item,asset,priority) AS (
+                            SELECT reached.item, link.media_asset_id, CASE WHEN reached.record=reached.item THEN 0 ELSE 1 END
+                            FROM reached CROSS JOIN media_links link INDEXED BY idx_media_links_metadata_row ON link.metadata_row_id=reached.record AND link.status='linked'
+                            {registry})
+                        SELECT candidates.item AS item_id, MIN(candidates.priority) AS priority, assets.*
+                        FROM candidates CROSS JOIN media_assets assets ON assets.id=candidates.asset
+                        WHERE assets.status='ready' AND assets.excluded=0 {source_filter}
+                        GROUP BY candidates.item, assets.id ORDER BY candidates.item, priority, assets.id"""
+                    priorities = {}
+                    parameters = [value for identity in batch for value in (identity, record_sources.get(identity, "metadata"), identity)]
+                    # Drive indexed asset lookups from this small candidate batch.
+                    for row in connection.execute(query, (*parameters, *source_ids)):
+                        identity, priority = int(row['item_id']), int(row['priority'])
+                        if identity not in priorities:
+                            priorities[identity] = priority
+                        if include_inherited or priority == priorities[identity]:
+                            output.setdefault(identity, []).append(self._asset_from_row(row))
+                    if progress_callback is not None:
+                        progress_callback(min(start + len(batch), len(ids)), len(ids))
+            except sqlite3.OperationalError:
+                check_cancelled()
+                raise
         return output
 
-    def linked_assets_for_metadata_ids(self, metadata_ids, *, source_ids=()):
+    def linked_assets_for_metadata_ids(self, metadata_ids, *, source_ids=(),
+                                       should_cancel=None, progress_callback=None):
         """Choose a deterministic preview; runs use assets_for_items to check ambiguity."""
         return {identity: next((asset for asset in assets if asset.content_type in
                                {MediaContentType.IMAGE, MediaContentType.VIDEO}), assets[0])
-                for identity, assets in self.assets_for_items(metadata_ids, source_ids=source_ids).items()}
+                for identity, assets in self.assets_for_items(metadata_ids, source_ids=source_ids,
+                    should_cancel=should_cancel, progress_callback=progress_callback).items()}
 
     def analysis_item_counts(self) -> dict[str, int]:
         """Count usable assets reachable from active items, including source records."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from collections.abc import Mapping, Sequence
 
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from EmbeddingsArea.domain import EmbeddingRunState
 from shared.qt.icons import apply_icon_color
@@ -55,6 +55,10 @@ class VectorDataCardController(QtCore.QObject):
         self._model_label = "Imported"
         self._progress_follow_latest = True
         self._adjusting_progress_scroll = False
+        self._report_state = None
+        self._rendered_report_end = 0
+        self._last_diagnostics = ""
+        self._last_execution_note = ""
         self._info_loader: Callable[[], list[tuple[str, object]]] | None = None
 
         self.toggle = require_child(self.widget, QtWidgets.QToolButton, "button_toggle_details")
@@ -67,8 +71,12 @@ class VectorDataCardController(QtCore.QObject):
         self.cancel = require_child(self.widget, QtWidgets.QPushButton, "button_cancel_run")
         self.options = require_child(self.widget, QtWidgets.QPushButton, "button_run_options")
         self.info = require_child(self.widget, QtWidgets.QTreeWidget, "tree_run_info")
-        self.progress_report = require_child(self.widget, QtWidgets.QTextBrowser, "tb_progress_report")
+        self.progress_report = require_child(self.widget, QtWidgets.QPlainTextEdit, "edit_execution_report")
+        self.execution_summary = require_child(self.widget, QtWidgets.QLabel, "label_execution_summary")
+        self.execution_activity = require_child(self.widget, QtWidgets.QLabel, "label_execution_activity")
         self.progress_tab = require_child(self.widget, QtWidgets.QWidget, "tab_progress")
+        self.progress_tab.installEventFilter(self)
+        self.progress_control.installEventFilter(self)
         self.info_tab = require_child(self.widget, QtWidgets.QWidget, "tab_run_info")
         self.clusters_tab = require_child(self.widget, QtWidgets.QWidget, "tab_run_clusters")
         self.cluster_tree = require_child(self.widget, QtWidgets.QTreeWidget, "tree_clustering_runs")
@@ -166,6 +174,8 @@ class VectorDataCardController(QtCore.QObject):
             self._load_info()
         elif checked and self.tabs.currentWidget() is self.clusters_tab:
             self._update_clusters(self._pending_records)
+        elif checked and self.tabs.currentWidget() is self.progress_tab:
+            self._update_progress_report()
         self._resize()
 
     def _tab_changed(self, index: int) -> None:
@@ -174,6 +184,8 @@ class VectorDataCardController(QtCore.QObject):
             self._load_info()
         elif current is self.clusters_tab and not self.tabs.isHidden():
             self._update_clusters(self._pending_records)
+        elif current is self.progress_tab:
+            self._update_progress_report()
         self._resize()
 
     def _load_info(self) -> None:
@@ -276,11 +288,14 @@ class VectorDataCardController(QtCore.QObject):
             self._presented_execution_state = "active"
             self.tabs.setCurrentWidget(self.progress_tab)
             self.toggle.setChecked(True)
-        self.tabs.setVisible(self.toggle.isChecked())
-        self._resize()
+
+    def eventFilter(self, watched, event):
+        if watched in (self.progress_tab, self.progress_control) and event.type() == QtCore.QEvent.Type.Show:
+            self._update_progress_report()
+        return super().eventFilter(watched, event)
 
     def _update_progress_report(self, *, progress: int | None = None, detail: str | None = None) -> None:
-        if self._run is None:
+        if self._run is None or not self.widget.isVisible():
             return
         live = self.coordinator.state("embedding", self.run_id)
         state = live.state if live is not None else self._run.state.value
@@ -288,62 +303,49 @@ class VectorDataCardController(QtCore.QObject):
             progress = live.progress if live is not None else int(self._run.progress)
         if detail is None:
             detail = live.detail if live is not None else ""
-        lines = [
-            "Embedding execution report",
-            "==========================",
-            f"Run: {self._run.label}",
-            f"Run ID: {self.run_id}",
-            f"Model: {self._model_label}",
-            f"Status: {state.replace('_', ' ').capitalize()}",
-            f"Progress: {'Working' if progress < 0 else f'{progress}%'}",
-        ]
+        activity = detail if state in _ACTIVE else state.replace("_", " ").capitalize()
+        self.execution_activity.setText(activity or ("Working…" if progress < 0 else f"Progress: {progress}%"))
+        if not self.progress_tab.isVisible():
+            return
+        summary = f"Model: {self._model_label} · Status: {state.replace('_', ' ').capitalize()}"
         prepared = int(getattr(self._run, "prepared_input_count", 0) or 0)
         processed = int(getattr(self._run, "processed_items", 0) or 0)
-        if prepared or processed:
-            lines.append(f"Items processed: {processed:,} of {prepared:,}")
-        if getattr(self._run, "updated_at", ""):
-            lines.append(f"Last saved: {self._run.updated_at}")
-        lines.extend(("", "Activity", "--------"))
-        report = list(live.report) if live is not None else []
-        if detail and detail not in report:
-            report.append(detail)
-        lines.extend(report or ["No live activity messages are available for this run."])
+        if state not in _ACTIVE and (prepared or processed):
+            summary += f"\nItems processed: {processed:,} of {prepared:,}"
+        self.execution_summary.setText(summary)
+        self.execution_summary.setToolTip(f"Run ID: {self.run_id}")
+        report = live.report if live is not None else []
+        offset = live.report_offset if live is not None else 0
+        if (live is not self._report_state or self._rendered_report_end < offset
+                or self._rendered_report_end > offset + len(report)):
+            self.progress_report.clear()
+            self._report_state = live
+            self._rendered_report_end = offset
+            self._last_diagnostics = self._last_execution_note = ""
+        lines = report[self._rendered_report_end - offset:]
+        self._rendered_report_end = offset + len(report)
         diagnostics = str(getattr(self._run, "error_message", "") or "")
         if live is not None and live.pending_error:
             diagnostics = live.pending_error
-        if diagnostics:
-            lines.extend(("", "Error details", "-------------", diagnostics))
+        # Keep full failure details copyable, even if a traceback exceeds the live-log cap.
+        self.progress_report.setMaximumBlockCount(0 if diagnostics else 1000)
+        if diagnostics and diagnostics != self._last_diagnostics:
+            heading = 'Pause reason' if state == 'paused' else 'Error details'
+            lines.extend(("", heading, "-" * len(heading), diagnostics))
+        self._last_diagnostics = diagnostics
         note = str(getattr(self, "_execution_note", "") or "")
-        if note:
+        if note and note != self._last_execution_note:
             lines.extend(("", "Execution note", "--------------", note))
+        self._last_execution_note = note
+        if not lines:
+            return
         scroll_bar = self.progress_report.verticalScrollBar()
-        previous_value = scroll_bar.value()
         followed_latest_output = self._progress_follow_latest
-        cursor = self.progress_report.textCursor()
-        anchor, position = cursor.anchor(), cursor.position()
-        had_selection = cursor.hasSelection()
-
         self._adjusting_progress_scroll = True
         try:
-            self.progress_report.setPlainText("\n".join(lines))
-
-            if had_selection:
-                document_length = max(0, self.progress_report.document().characterCount() - 1)
-                cursor.setPosition(min(anchor, document_length))
-                cursor.setPosition(
-                    min(position, document_length),
-                    QtGui.QTextCursor.MoveMode.KeepAnchor,
-                )
-                self.progress_report.setTextCursor(cursor)
+            self.progress_report.appendPlainText("\n".join(lines))
             if followed_latest_output:
-                if not had_selection:
-                    cursor = self.progress_report.textCursor()
-                    cursor.movePosition(QtGui.QTextCursor.MoveOperation.End)
-                    self.progress_report.setTextCursor(cursor)
-                self.progress_report.ensureCursorVisible()
                 scroll_bar.setValue(scroll_bar.maximum())
-            else:
-                scroll_bar.setValue(min(previous_value, scroll_bar.maximum()))
         finally:
             self._adjusting_progress_scroll = False
         self._progress_follow_latest = followed_latest_output

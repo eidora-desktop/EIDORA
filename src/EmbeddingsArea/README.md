@@ -62,18 +62,27 @@ before using canonical metadata IDs for groups, Discovery, or thumbnails.
 Keep model/backend imports lazy and heavy work off the GUI thread.
 Preserve explicit accelerator choices; unavailable explicit devices must fail clearly.
 
-Model inputs may be registered assets or metadata text columns, including source
-records before any items exist. **Available assets** prepares one observation per
-asset; **Matched existing items** selects the usable inputs of existing items.
-Ambiguous assignments require an explicit choice. A model with several modalities
-can pair media paths against a selected metadata key without publishing links.
-Only complete input combinations are processed; shared images can accompany distinct
-text records. One selected modality also works without existing identities.
+The local-model dialog offers only registered file-based Media Sources, filtered
+by the model's input modalities. It processes available assets without a scope
+selector or metadata-key pairing. Metadata columns are not offered, even if an
+older run registered one as a text source. Existing saved runs retain their input
+snapshots and service-level compatibility.
 
-**Review Inputs** prepares the run in a background worker and reports planned
-vectors, item reuse, new items on success, and unused inputs. **Run Model** starts
-the reviewed preparation. Changing settings requires another review. Canceling
-cleans the prepared draft. Preparation creates no items. Only successful vectors
+**Run Model** saves the configuration and closes the dialog immediately. The
+embedding card opens with input preparation running in its background job, followed
+by inference. Preparation supports pause/cancel and reports failures on the card
+for retry. Optional default thumbnails start as a separate Assets job only after
+the embedding completes and releases its worker. The current workspace stays open;
+the footer tracks the thumbnail job. They use the same visual source,
+original aspect ratio, and the middle frame for video; model tensor resizing does
+not affect previews. The Designer-owned
+focused form presents the model heading, Media Source, output name, and execution
+device in that order. Selected-source counts and paths appear below the inputs.
+Batch size and model preparation settings are under collapsed
+**Advanced settings & parameters**. A single modality needs no existing item links.
+Multiple selected modalities require established associations to the same items;
+only complete combinations are processed. Ambiguous item assignments are rejected.
+Preparation creates no items. Only successful vectors
 publish item bindings and media associations in the same transaction as the run.
 Repeated observations reuse unambiguous identities; failed publication rolls back.
 Source, metadata, and file revisions guard against stale prepared input.

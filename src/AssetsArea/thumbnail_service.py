@@ -36,15 +36,6 @@ def create_source_thumbnails(
     if progress_callback is not None:
         progress_callback("prepare", 0, 0, "Resolving thumbnail inputs…")
     source_content_type = getattr(summary.source, "content_type", MediaContentType.IMAGE)
-    assets = {}
-    for asset in media_repository.ready_assets_for_sources((summary.source.id,)):
-        check_cancelled()
-        if asset.content_type == source_content_type and asset.content_type in {
-            MediaContentType.IMAGE,
-            MediaContentType.VIDEO,
-        }:
-            assets[asset.id] = asset
-    check_cancelled()
     from project.item_repository import ItemRepository
     from project.domain import ProjectStoragePaths
 
@@ -52,10 +43,24 @@ def create_source_thumbnails(
     inputs_by_metadata = {}
     if metadata_path.exists():
         item_ids = ItemRepository(metadata_path).active_ids()
-        resolved = media_repository.linked_assets_for_metadata_ids(item_ids, source_ids=(summary.source.id,))
+        import time
+        from concurrent.futures import CancelledError
+        last_report = float("-inf")
+        def resolved_progress(count, total):
+            nonlocal last_report
+            now = time.monotonic()
+            if progress_callback is not None and (now - last_report >= 0.25 or count == total):
+                progress_callback("prepare", count, total, f"Resolving thumbnail inputs: {count:,}/{total:,} Items…")
+                last_report = now
+        try:
+            resolved = media_repository.linked_assets_for_metadata_ids(item_ids,
+                source_ids=(summary.source.id,), should_cancel=should_cancel,
+                progress_callback=resolved_progress)
+        except CancelledError as exc:
+            raise ThumbnailGenerationCancelled("") from exc
         for item_id, asset in resolved.items():
             check_cancelled()
-            if asset.id in assets:
+            if asset.content_type == source_content_type:
                 inputs_by_metadata[item_id] = ThumbnailGenerationInput(
                     asset.absolute_path, item_id, asset.content_type.value)
     return create_thumbnail_variant(
@@ -119,4 +124,27 @@ def create_artifact_thumbnails(
         progress_callback=progress_callback,
         should_cancel=should_cancel,
         variant_id=variant_id,
+    )
+
+
+def default_embedding_thumbnail_request(configuration, available_inputs, repo):
+    """Use the completed embedding's visual source with preview defaults."""
+    from uuid import uuid4
+    from AssetsArea.domain import ProcessInputKind, ProcessRequest
+    from EmbeddingsArea.domain import EmbeddingRunState
+
+    if configuration.run.state != EmbeddingRunState.COMPLETED or repo.list_variants():
+        return None
+    source_ids = [binding.source_id for binding in configuration.input_bindings]
+    if not source_ids:
+        source_ids = configuration.run.selected_source_ids
+    sources = {item.id: item for item in available_inputs if item.kind == ProcessInputKind.MEDIA_SOURCE}
+    source = next((sources[identity] for identity in source_ids if identity in sources), None)
+    if source is None:
+        return None
+    return ProcessRequest(
+        operation_id="create_thumbnails", input=source, output_id=uuid4().hex,
+        output_name=f"{source.label} (thumbs)",
+        parameters={"resize_mode": "original_aspect",
+                    **({"video_frame_mode": "middle"} if source.media_type == "video" else {})},
     )

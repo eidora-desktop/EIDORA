@@ -4,6 +4,28 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Simplify the thumbnail footer to “Creating thumbnails” with the same progress state as the Assets panel.
+
+- Fix stalled thumbnail input resolution on large collections with indexed, cancellable lookups; show live thumbnail preparation/progress in the footer, clear stale activity labels, finish footer cancellation for queued jobs, and omit video frame settings from image jobs.
+
+- Close Run Model immediately and prepare inputs in the embedding card with pause/cancel support. After successful embedding completion, run optional default thumbnails as a separate Assets job with aspect-preserving previews, tracked in the footer without changing workspaces.
+
+- Simplify the batch selector by removing its explanatory paragraph; Auto now prefers faster batches when the throughput gap exceeds 2%, matching High's tolerance.
+
+- Offer Auto, High, Low and fixed batches of 4, 8, 16, 32 or 64 for embedding runs. Tune High through larger CoreML batches, retain mild thermal throughput, remove fixed per-batch waits, and reduce soft memory pressure gradually while keeping critical safety pauses and recovery.
+
+- Recover embedding batch sizes gradually after temporary resource pressure clears, preserving measured preferences and resuming interrupted Auto comparisons without weakening memory, thermal, disk or allocation-failure limits. Report temporary reductions and recovery with resource readings.
+
+- Guard embedding runs with memory, available thermal and disk checks; compare Auto batches of 8, 16 and 32 over longer measurement windows, retaining measured speeds and selection reasons in the run report. Support fixed CoreML batches up to 32 and checkpoint at 4,096 items or 10 seconds. Preserve readable reasons for resumable safety pauses.
+
+- Default embedding runs to automatic batch tuning with a saved manual override in Advanced settings & parameters; show live batch size, counts and speed directly above the progress bar.
+
+- Keep embedding inference batches independent of checkpoint saves, throttle live reporting, and use compact status labels with an incremental bounded Vector Data activity log.
+
+- Present Run Model as a focused form with a model heading, stacked Media Source/output/device fields, source counts and paths, and collapsed “Advanced settings & parameters”.
+
+- Simplify local embedding runs to registered file-based Media Sources and one Run Model action, with automatic background validation and collapsed advanced settings.
+
 - Match Discovery item previews to the selected Items row, using readable column names and the same linked values; keep values visible beside long field names.
 
 - Show linked/total media counts beside source status icons combined with the media type; tighten Metadata tabs while retaining complete scrolling labels.

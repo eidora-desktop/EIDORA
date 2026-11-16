@@ -419,6 +419,11 @@ class MainWindowController:
 
         embeddings_area.set_metadata_changed_callback(refresh_after_embedding_metadata)
 
+        def start_embedding_thumbnails(run_id: str) -> None:
+            assets_area.start_embedding_thumbnails(run_id)
+
+        embeddings_area.set_thumbnails_requested_callback(start_embedding_thumbnails)
+
         def refresh_clustering_groups() -> None:
             metadata_area.refresh()
             discovery_area.refresh_metadata_groups()

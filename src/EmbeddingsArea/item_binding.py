@@ -135,7 +135,7 @@ def existing_item_bindings(database, inputs):
         record = item.metadata_row_id
         choices = {record} if record in active else candidates.get(record, set())
         if len(choices) > 1:
-            raise ValueError('A source record matches multiple items. Choose existing items explicitly.')
+            raise ValueError('A source record matches multiple items. Resolve its links before running the model.')
         identity = next(iter(choices)) if choices else assets.get(item.media_item_id) if record is None else None
         output[item.ordinal] = identity if identity in active else None
     return output

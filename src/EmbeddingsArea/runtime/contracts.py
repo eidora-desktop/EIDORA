@@ -18,8 +18,11 @@ class RuntimeInput:
 
 @dataclass(frozen=True)
 class RuntimeConfig:
-    chunk_size: int = 256
-    batch_size: int | None = None
+    # Checkpoint targets never split an inference batch.
+    chunk_size: int = 4096
+    batch_size: int | None = None  # None selects automatic tuning.
+    checkpoint_interval_seconds: float = 10.0
+    batch_policy: str = 'auto'
 
 
 @dataclass(frozen=True)
@@ -48,11 +51,19 @@ class RuntimeProgress:
     total: int
     elapsed_seconds: float
     items_per_second: float = 0.0
+    batch_size: int = 0
+    batch_mode: str = ""
+    batch_note: str = ""
 
     @property
     def message(self) -> str:
-        label = {"embedding": "Embedding", "saving": "Saving embeddings", "complete": "Embeddings saved"}.get(self.stage, self.stage)
-        text = f"{label}: {self.completed:,} / {self.total:,} · elapsed {self.elapsed_seconds:.0f}s"
+        label = {"embedding": "Embedding", "saving": "Saving embeddings", "complete": "Embeddings saved", "thumbnails": "Creating thumbnails"}.get(self.stage, self.stage)
+        text = f"{label}: {self.completed:,} / {self.total:,}"
+        if self.batch_size and self.stage == "embedding":
+            text += f" · Batch {self.batch_size} · {self.batch_mode}"
+            if self.batch_note:
+                text += f" · {self.batch_note}"
+        text += f"\nElapsed {self.elapsed_seconds:.0f}s"
         if self.items_per_second > 0 and self.stage == "embedding":
             remaining = max(0, self.total - self.completed) / self.items_per_second
             text += f" · {self.items_per_second:,.1f} items/s · about {remaining:.0f}s remaining"
@@ -61,3 +72,7 @@ class RuntimeProgress:
 
 class ExecutionFailure(RuntimeError):
     """Session initialization/inference failed; an accelerator attempt may retry on CPU."""
+
+
+class BatchMemoryError(ExecutionFailure):
+    """A recoverable allocation failure; Auto may retry a smaller batch."""

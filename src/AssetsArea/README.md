@@ -94,6 +94,10 @@ journal after cleanup.
 Thumbnail creation resolves active item IDs through approved record paths and
 uses only the selected image/video source, or the largest images of an existing
 thumbnail set. It never writes source-record indexes into an item thumbnail set.
+Input resolution uses indexed lookups in bounded batches with SQLite cancellation
+checks and preparation progress. Image jobs omit video frame settings. The footer
+shows the live thumbnail stage and progress; queued and running cancellations
+follow the same cleanup path from the footer and Assets.
 
 A local 50,000-file synthetic folder benchmark on 2026-11-16 measured inspection
 and publication at 3.54 s before and 1.23 s after removing repeated file checks

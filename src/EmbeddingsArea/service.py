@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal
 import hashlib
 import json
-import math
 import re
 from pathlib import Path
 import shutil
+import time
 import uuid
 
 from EmbeddingsArea.clustering import ClusteringMethodDescriptor
@@ -138,6 +138,9 @@ class EmbeddingRunService:
             provenance = summary.get("provenance") or {}
             attempts = provenance.get("attempts", []) if isinstance(provenance, dict) else []
             execution_note = next((str(value["fallback_reason"]) for value in attempts if isinstance(value, dict) and value.get("fallback_reason")), "")
+            batching = provenance.get("batching", {}) if isinstance(provenance, dict) else {}
+            batch_report = str(batching.get("selection_report") or "") if isinstance(batching, dict) else ""
+            execution_note = "\n".join(value for value in (execution_note, batch_report) if value)
             datasets.append(
                 SavedEmbeddingDataset(
                     size_bytes=summary.get("size_bytes"),
@@ -329,7 +332,19 @@ class EmbeddingRunService:
             parameter_values=tuple(self._runs_repository.list_run_parameter_values(run_id)),
         )
 
-    def prepare_run(self, run_id: str) -> EmbeddingRunPreparation:
+    def prepare_run(self, run_id: str, *, control_callback=None, status_callback=None) -> EmbeddingRunPreparation:
+        from EmbeddingsArea.runtime.contracts import RunCancelled, RunPaused
+
+        def checkpoint(message=""):
+            action = control_callback() if control_callback is not None else "continue"
+            if action == "cancel":
+                raise RunCancelled("Preparation cancelled.")
+            if action == "pause":
+                raise RunPaused("Preparation paused.")
+            if message and status_callback is not None:
+                status_callback(message)
+
+        checkpoint("Preparing embedding inputs: loading sources…")
         run = self.require_run(run_id)
         if not run.selected_model_id:
             raise ValueError("Choose a model before preparing the embedding run.")
@@ -353,12 +368,15 @@ class EmbeddingRunService:
         parameters = {(value.scope, value.parameter_id): value.value for value in configuration.parameter_values}
         scope = parameters.get(("run", "input_scope"), "assets")
         pairing_field = parameters.get(("run", "pairing_field"), "") if len(sources) > 1 else ""
+        checkpoint("Preparing embedding inputs: resolving media and Items…")
         active = set(ItemRepository(self._project.paths.metadata_database).active_ids())
         pairs = self._media_links.assets_with_optional_links(refreshed.selected_source_ids)
         available_assets = {asset.id for asset, _ in pairs}
         if scope == "assets":
             grouped = {}
-            for asset, link in pairs:
+            for index, (asset, link) in enumerate(pairs):
+                if index % 256 == 0:
+                    checkpoint()
                 grouped.setdefault(asset.id, (asset, set()))[1].update([link.metadata_row_id] if link else [])
             selected = []
             for asset, records in grouped.values():
@@ -366,7 +384,7 @@ class EmbeddingRunService:
                     records = set()
                 records = records & active or records
                 if len(records) > 1:
-                    raise ValueError("A media asset matches several records. Choose matched existing items or resolve its input matching first.")
+                    raise ValueError("A media asset is linked to several records. Resolve its links in Media Sources before running the model.")
                 selected.append((asset, next(iter(records)) if records else None))
         elif scope == "items":
             selected = []
@@ -381,6 +399,7 @@ class EmbeddingRunService:
                     selected.append((assets[0], item_id))
         else:
             raise ValueError("Choose available assets or matched existing items.")
+        checkpoint("Preparing embedding inputs: matching identities…")
         source_revisions = {source_id: self._media_library.require_source(source_id).source_revision
                             for source_id in sources}
         inputs = [EmbeddingRunInput(
@@ -428,6 +447,7 @@ class EmbeddingRunService:
             error_message="",
             prepared_signature="",
         )
+        checkpoint("Preparing embedding inputs: saving prepared data…")
         snapshot = self._snapshot_payload(queued, configuration, inputs)
         signature = self._snapshot_signature(snapshot)
         self._clear_run_runtime_artifacts(run.id, run.artifact_path)
@@ -436,6 +456,7 @@ class EmbeddingRunService:
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         write_text_atomic(snapshot_path, json.dumps(snapshot, sort_keys=True, default=str))
         queued = replace(queued, prepared_signature=signature)
+        checkpoint()
         self._runs_repository.save_prepared_run(queued, inputs)
         return EmbeddingRunPreparation(run=queued, input_count=len(inputs), reused_count=reused_count,
             new_count=len(inputs) - reused_count, skipped_count=skipped_count)
@@ -449,16 +470,27 @@ class EmbeddingRunService:
         status_callback: Callable[[str], None] | None = None,
         event_callback=None,
     ) -> EmbeddingRun:
+        from EmbeddingsArea.runtime.contracts import RunCancelled, RunPaused
+
         run = self.require_run(run_id)
         if run.state == EmbeddingRunState.DRAFT or not run.prepared_signature:
             try:
-                run = self.prepare_run(run.id).run
+                run = self.prepare_run(run.id, control_callback=control_callback,
+                                       status_callback=status_callback).run
+            except (RunCancelled, RunPaused) as exc:
+                self._clear_run_runtime_artifacts(run.id, "")
+                current = self._runs_repository.get_run(run.id) or run
+                stopped = replace(current,
+                    state=EmbeddingRunState.CANCELLED if isinstance(exc, RunCancelled) else EmbeddingRunState.PAUSED,
+                    updated_at=_utc_now(), error_message="", prepared_signature="")
+                self._runs_repository.upsert_run(stopped)
+                return stopped
             except Exception as exc:
                 current = self._runs_repository.get_run(run.id) or run
                 self._runs_repository.upsert_run(
                     replace(
                         current,
-                        state=EmbeddingRunState.DRAFT,
+                        state=EmbeddingRunState.FAILED,
                         updated_at=_utc_now(),
                         error_message=str(exc),
                     )
@@ -485,16 +517,16 @@ class EmbeddingRunService:
         snapshot_inputs = self._runs_repository.fetch_run_inputs(run.id, limit=self._runs_repository.count_run_inputs(run.id), offset=0)
         if not snapshot_inputs:
             raise ValueError("The embedding run has no prepared inputs.")
-        effective_chunk_size = _adaptive_embedding_chunk_size(len(snapshot_inputs), chunk_size)
-        batch_size = int(next((value.value for value in configuration.parameter_values if value.scope == "run" and value.parameter_id == "batch_size"), "32"))
-        if not 1 <= batch_size <= 512:
-            raise ValueError("Inference batch size must be between 1 and 512.")
-        if model.runtime_contract and any(
-            list(item.get("shape", []))[:1] == [1]
-            for item in [*model.runtime_contract.get("inputs", []), model.runtime_contract.get("output", {})]
-            if isinstance(item, dict)
-        ):
-            batch_size = 1
+        effective_chunk_size = max(1, int(chunk_size)) if chunk_size is not None else 4096
+        batch_value = next((value.value for value in configuration.parameter_values if value.scope == "run" and value.parameter_id == "batch_size"), "auto").strip().casefold()
+        from EmbeddingsArea.runtime.batching import BATCH_POLICIES
+        batch_policy = batch_value if batch_value in BATCH_POLICIES else 'auto'
+        try:
+            batch_size = None if batch_value in BATCH_POLICIES else int(batch_value)
+            if batch_size is not None and not 1 <= batch_size <= 512:
+                raise ValueError
+        except ValueError as exc:
+            raise ValueError("Batch performance must be Auto, Low, High, or a saved size between 1 and 512.") from exc
         requested_device = next(
             (
                 value.value.strip().casefold()
@@ -532,8 +564,6 @@ class EmbeddingRunService:
         if progress_callback is not None:
             progress_callback(running.progress)
 
-        total_inputs = max(1, len(snapshot_inputs))
-
         def _record_progress(progress: int) -> None:
             checkpoint = CheckpointStore(self._project.paths.embeddings / ".runs" / running.id).load()
             processed = checkpoint.next_index if checkpoint is not None else 0
@@ -552,19 +582,24 @@ class EmbeddingRunService:
             if progress_callback is not None:
                 progress_callback(progress)
 
+        last_control_read = float("-inf")
+        persisted_action: Literal["continue", "pause", "cancel"] = "continue"
+
         def _control_action() -> Literal["continue", "pause", "cancel"]:
+            nonlocal last_control_read, persisted_action
             if control_callback is not None:
                 requested = control_callback()
                 if requested in {"pause", "cancel"}:
                     return requested
-            current = self._runs_repository.get_run(running.id)
-            if current is None:
-                return "cancel"
-            if current.state == EmbeddingRunState.CANCELLED:
-                return "cancel"
-            if current.state == EmbeddingRunState.PAUSED:
-                return "pause"
-            return "continue"
+            now = time.monotonic()
+            if now - last_control_read >= 0.25:
+                last_control_read = now
+                current = self._runs_repository.get_run(running.id)
+                persisted_action = (
+                    "cancel" if current is None or current.state == EmbeddingRunState.CANCELLED
+                    else "pause" if current.state == EmbeddingRunState.PAUSED else "continue"
+                )
+            return persisted_action
 
         preprocess_values = {
             parameter.id: parameter.default
@@ -595,7 +630,7 @@ class EmbeddingRunService:
                 inputs=self._runtime_inputs_for_run(run.id),
                 run_dir=self._project.paths.embeddings / ".runs" / running.id,
                 output_path=self._project.paths.embeddings / f"{running.id}.npz",
-                config=RuntimeConfig(chunk_size=effective_chunk_size, batch_size=batch_size),
+                config=RuntimeConfig(chunk_size=effective_chunk_size, batch_size=batch_size, batch_policy=batch_policy),
                 progress_callback=_record_progress,
                 status_callback=status_callback,
                 event_callback=event_callback,
@@ -616,13 +651,15 @@ class EmbeddingRunService:
                 package_directory=model.directory,
                 requested_device=requested_device,
             )
-        except RunPaused:
+        except RunPaused as exc:
+            if status_callback is not None:
+                status_callback(str(exc))
             current = self._runs_repository.get_run(running.id) or running
             paused = replace(
                 current,
                 state=EmbeddingRunState.PAUSED,
                 updated_at=_utc_now(),
-                error_message="",
+                error_message=str(exc),
             )
             self._runs_repository.upsert_run(paused)
             return paused
@@ -1148,7 +1185,11 @@ class EmbeddingsService:
         return self.media_library.scan_source(source_id)
 
     def list_embedding_input_sources(self) -> list[MediaSourceSummary]:
-        return self.media_library.list_analysis_sources()
+        """Offer only explicitly registered file-based sources for local runs."""
+        return [
+            summary for summary in self.media_library.list_source_summaries()
+            if summary.source.source_kind in {MediaSourceKind.FILE, MediaSourceKind.DIRECTORY}
+        ]
 
     def list_media_source_summaries(self) -> list[MediaSourceSummary]:
         return self.media_library.list_source_summaries()
@@ -1366,13 +1407,3 @@ def _simple_embedding_model_label(label: str) -> str:
     text = re.sub(r"\s*\([^)]*\)\s*", " ", str(label or "")).strip()
     text = " ".join(text.split())
     return text
-
-
-def _adaptive_embedding_chunk_size(total_items: int, requested_chunk_size: int | None) -> int:
-    if requested_chunk_size is not None:
-        return max(1, int(requested_chunk_size))
-    total = max(1, int(total_items))
-    if total <= 1:
-        return 1
-    target_updates = 20
-    return max(1, min(256, int(math.ceil(total / target_updates))))
