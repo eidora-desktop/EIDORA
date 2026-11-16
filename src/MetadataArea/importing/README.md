@@ -92,3 +92,25 @@ literal text as JSON. Empty lists remain supported. Delimited list interpretatio
 remains available through the column type/format controls. Publication uses the
 repository's shared cell codec; previews and table display format arrays only at
 the UI boundary.
+
+## Inspection performance
+
+Inspection streams every record into bounded row/cell batches (10,000 cells or
+1 MiB of serialized row data, plus the current record). The disposable cell table
+uses its composite primary key directly, without a separate rowid index. Its
+column/value lookup index is built after loading, inside the scratch transaction.
+Encoding detection reads only the first 128 KiB.
+
+The first 25 records reach the dialog as a provisional sample while full
+inspection continues. Types, field discovery, exact counts, and validation remain
+authoritative only after the entire source has been checked; Import stays disabled.
+SQLite index construction and Python schema scans support cancellation and remove
+staging on failure.
+
+Successful type checks are cached inside each inspection database by source
+column, type, and format. Renaming a destination reuses those checks; changing
+a type/format or reading options requires validation again. Failed checks are
+never cached. Matching, replacement dependencies, freshness checks and atomic
+writes retain their existing behavior. Row payloads and indexed cells remain
+separate to support structured records and matching without changing storage
+contracts. UI progress says “Writing rows”.

@@ -51,6 +51,7 @@ class MetadataImportService:
         *,
         progress_callback: Callable[[int, str], None] | None = None,
         should_cancel: Callable[[], bool] | None = None,
+        sample_callback: Callable[[tuple[str, ...], tuple[dict, ...]], None] | None = None,
     ) -> MetadataImportInspection:
         staging_root = self.project.paths.metadata
         staging_root.mkdir(parents=True, exist_ok=True)
@@ -61,6 +62,18 @@ class MetadataImportService:
         samples: list[dict[str, MetadataValue]] = []
         row_count = 0
         connection = sqlite3.connect(database)
+        # Interrupt long SQLite scans/index creation as well as Python row loops.
+        connection.set_progress_handler(lambda: int(bool(should_cancel and should_cancel())), 1000)
+        pending_rows = []
+        pending_cells = []
+        pending_bytes = 0
+
+        def flush():
+            connection.executemany("INSERT INTO source_rows VALUES (?, ?)", pending_rows)
+            connection.executemany("INSERT INTO source_cells VALUES (?, ?, ?)", pending_cells)
+            pending_rows.clear()
+            pending_cells.clear()
+
         try:
             connection.executescript(
                 """
@@ -73,9 +86,13 @@ class MetadataImportService:
                   column_name TEXT NOT NULL,
                   value TEXT NOT NULL,
                   PRIMARY KEY (row_index, column_name)
-                );
-                CREATE INDEX source_cells_column_value
-                  ON source_cells(column_name, value);
+                ) WITHOUT ROWID;
+                CREATE TABLE validated_types (
+                  column_name TEXT NOT NULL,
+                  value_type TEXT NOT NULL,
+                  value_format TEXT NOT NULL,
+                  PRIMARY KEY (column_name, value_type, value_format)
+                ) WITHOUT ROWID;
                 CREATE TABLE source_columns (
                   position INTEGER PRIMARY KEY,
                   name TEXT NOT NULL UNIQUE
@@ -106,22 +123,28 @@ class MetadataImportService:
                             "INSERT INTO source_columns (position, name) VALUES (?, ?)",
                             (len(columns) - 1, name),
                         )
-                connection.execute(
-                    "INSERT INTO source_rows (row_index, payload_json) VALUES (?, ?)",
-                    (row_index, json.dumps(record, ensure_ascii=False)),
-                )
-                connection.executemany(
-                    "INSERT INTO source_cells (row_index, column_name, value) VALUES (?, ?, ?)",
-                    ((row_index, name, encode_value(value)) for name, value in record.items()),
-                )
+                payload = json.dumps(record, ensure_ascii=False)
+                pending_rows.append((row_index, payload))
+                pending_cells.extend((row_index, name, encode_value(value)) for name, value in record.items())
+                pending_bytes += len(payload.encode("utf-8"))
                 if len(samples) < 25:
                     samples.append(record)
-                if row_count % 1000 == 0:
-                    connection.commit()
-                    if progress_callback is not None:
-                        hint = probe.row_count_hint
-                        value = min(90, int(row_count / hint * 90)) if hint else 0
-                        progress_callback(value, f"Inspected {row_count:,} metadata rows…")
+                    if len(samples) == 25 and sample_callback is not None:
+                        sample_callback(tuple(columns), tuple(samples))
+                # Bound batches by cells and bytes, including wide/text-heavy records.
+                if len(pending_cells) >= 10000 or pending_bytes >= 1024 * 1024:
+                    flush()
+                    pending_bytes = 0
+                if row_count % 1000 == 0 and progress_callback is not None:
+                    hint = probe.row_count_hint
+                    value = min(90, int(row_count / hint * 90)) if hint else 0
+                    progress_callback(value, f"Read {row_count:,} metadata rows…")
+            flush()
+            if sample_callback is not None and len(samples) < 25:
+                sample_callback(tuple(columns), tuple(samples))
+            if progress_callback is not None:
+                progress_callback(0, "Checking metadata values…")
+            connection.execute("CREATE INDEX source_cells_column_value ON source_cells(column_name, value)")
             columns = self._expand_empty_collections(connection, columns, should_cancel)
             samples = [json.loads(row[0]) for row in connection.execute(
                 "SELECT payload_json FROM source_rows ORDER BY row_index LIMIT 25")]
@@ -131,7 +154,8 @@ class MetadataImportService:
             if not columns:
                 raise ValueError("The selected metadata source contains no fields.")
             schemas = tuple(self._infer_schemas(connection, columns,
-                infer_text_lists=probe.format_key in {"delimited", "xlsx", "ods"}))
+                infer_text_lists=probe.format_key in {"delimited", "xlsx", "ods"},
+                should_cancel=should_cancel))
             current_fingerprint = source_fingerprint(probe.source_path)
             if current_fingerprint != probe.source_fingerprint:
                 raise ValueError("The metadata source changed during inspection. Inspect it again.")
@@ -151,6 +175,7 @@ class MetadataImportService:
         except Exception:
             connection.close()
             self._remove_staging(staging)
+            self._raise_if_cancelled(should_cancel)
             raise
         finally:
             try:
@@ -361,7 +386,7 @@ class MetadataImportService:
             provenance = (str(source_path.resolve()), content_fingerprint(source_path))
         validate_publication()
         if progress_callback is not None:
-            progress_callback(15, "Publishing metadata…")
+            progress_callback(15, "Writing rows…")
         schemas = self._final_schemas(plan)
         try:
             self.repository.publish_staged_import(
@@ -378,7 +403,7 @@ class MetadataImportService:
                     if progress_callback is None
                     else lambda completed, total: progress_callback(
                         min(90, 15 + int(completed / max(1, total) * 70)),
-                        f"Publishing {completed:,} metadata rows…",
+                        f"Writing rows: {completed:,}…",
                     )
                 ),
             )
@@ -789,6 +814,10 @@ class MetadataImportService:
         for mapping in mappings:
             if not mapping.enabled:
                 continue
+            MetadataImportService._raise_if_cancelled(should_cancel)
+            cache_key = (mapping.source_name, mapping.value_type, mapping.value_format)
+            if stage.execute("SELECT 1 FROM validated_types WHERE column_name=? AND value_type=? AND value_format=?", cache_key).fetchone():
+                continue
             value_type = mapping.value_type
             has_lists = stage.execute(
                 "SELECT 1 FROM source_cells WHERE column_name=? AND typeof(value)='blob' LIMIT 1",
@@ -798,6 +827,7 @@ class MetadataImportService:
                 messages.append(f"Field {mapping.source_name!r} contains structured lists; use the List type.")
                 continue
             if value_type == "text":
+                stage.execute("INSERT OR IGNORE INTO validated_types VALUES (?, ?, ?)", cache_key)
                 continue
             if value_type in {"datetime", "list"} and not mapping.value_format:
                 messages.append(
@@ -834,6 +864,8 @@ class MetadataImportService:
                         f"Field {mapping.source_name!r} contains a value that is not {value_type}."
                     )
                     break
+            else:
+                stage.execute("INSERT OR IGNORE INTO validated_types VALUES (?, ?, ?)", cache_key)
         return messages
 
     @staticmethod
@@ -886,7 +918,7 @@ class MetadataImportService:
         return [column for column in columns if column not in empty]
 
     @staticmethod
-    def _infer_schemas(connection: sqlite3.Connection, columns: list[str], *, infer_text_lists=True) -> Iterator[MetadataColumnSchema]:
+    def _infer_schemas(connection: sqlite3.Connection, columns: list[str], *, infer_text_lists=True, should_cancel=None) -> Iterator[MetadataColumnSchema]:
         for name in columns:
             values = connection.execute(
                 "SELECT value FROM source_cells WHERE column_name = ?", (name,)
@@ -896,6 +928,7 @@ class MetadataImportService:
             nullable = False
             has_lists = False
             for (raw,) in values:
+                MetadataImportService._raise_if_cancelled(should_cancel)
                 if isinstance(raw, bytes):
                     has_lists = True
                     continue

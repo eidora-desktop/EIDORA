@@ -134,6 +134,7 @@ class MetadataImportDialogController:
         self.future: Future | None = None
         self.future_kind = ""
         self.cancel_event = threading.Event()
+        self.samples: queue.SimpleQueue = queue.SimpleQueue()
         self.events: queue.SimpleQueue[tuple[int, str]] = queue.SimpleQueue()
         self.connections: list[tuple[object, object]] = []
         self.timer = QtCore.QTimer(self.dialog)
@@ -277,6 +278,7 @@ class MetadataImportDialogController:
                 interpretation,
                 progress_callback=self._queue_progress,
                 should_cancel=self.cancel_event.is_set,
+                sample_callback=lambda columns, rows: self.samples.put((columns, rows)),
             )
             requires_replacement_matching = (
                 self.preset == MetadataImportPreset.REPLACE_TABLE
@@ -637,6 +639,16 @@ class MetadataImportDialogController:
             self._process_manager.end_metadata_publication()
 
     def _poll(self) -> None:
+        while not self.samples.empty():
+            columns, rows = self.samples.get_nowait()
+            if self.future_kind == "prepare" and not self.cancel_event.is_set():
+                self.data_preview.setColumnCount(len(columns))
+                self.data_preview.setHorizontalHeaderLabels(list(columns))
+                self.data_preview.setRowCount(len(rows))
+                for row, record in enumerate(rows):
+                    for column, name in enumerate(columns):
+                        self.data_preview.setItem(row, column, QtWidgets.QTableWidgetItem(display_value(record.get(name, ""))))
+                self.preview_count.setText(f"Provisional sample: {len(rows):,} rows · checking all records…")
         while True:
             try:
                 value, message = self.events.get_nowait()

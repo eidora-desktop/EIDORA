@@ -635,7 +635,8 @@ def _sniff_delimiter_details(path: Path, encoding: str = "utf-8-sig") -> tuple[s
 
 
 def _detect_text_encoding(path: Path) -> tuple[str, bool]:
-    prefix = path.read_bytes()[:131072]
+    with path.open("rb") as stream:
+        prefix = stream.read(131072)
     if prefix.startswith(b"\xef\xbb\xbf"):
         return "utf-8-sig", False
     if prefix.startswith((b"\xff\xfe", b"\xfe\xff")):

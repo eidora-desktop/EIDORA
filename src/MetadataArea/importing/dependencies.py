@@ -23,6 +23,14 @@ def replacement_blockers(project, removed_ids: list[int], removed_columns: set[s
                 for source, column in connection.execute(f"SELECT source_id, metadata_column FROM {table}"):
                     if column in removed_columns:
                         blocked.append(f"Media source {source!r} uses column {column!r}.")
+            if "media_link_settings" in tables and "metadata_columns_json" in {
+                row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")
+            }:
+                for source, raw in connection.execute("SELECT source_id, metadata_columns_json FROM media_link_settings"):
+                    for column in set(json.loads(raw)) & removed_columns:
+                        message = f"Media source {source!r} uses column {column!r}."
+                        if message not in blocked:
+                            blocked.append(message)
             if "media_sources" in tables:
                 fields = {row[1] for row in connection.execute("PRAGMA table_info(media_sources)")}
                 identity = "id" if "id" in fields else "''"

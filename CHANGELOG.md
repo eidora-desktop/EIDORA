@@ -22,11 +22,9 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Keep embedding inference batches independent of checkpoint saves, throttle live reporting, and use compact status labels with an incremental bounded Vector Data activity log.
 
-- Present Run Model as a focused form with a model heading, stacked Media Source/output/device fields, source counts and paths, and collapsed “Advanced settings & parameters”.
-
-- Simplify local embedding runs to registered file-based Media Sources and one Run Model action, with automatic background validation and collapsed advanced settings.
-
 - Match Discovery item previews to the selected Items row, using readable column names and the same linked values; keep values visible beside long field names.
+
+- Present Run Model as a focused form with a model heading, stacked Media Source/output/device fields, source counts and paths, and collapsed “Advanced settings & parameters”.
 
 - Show linked/total media counts beside source status icons combined with the media type; tighten Metadata tabs while retaining complete scrolling labels.
 
@@ -34,11 +32,25 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Show a fixed-width disabled “linked” label for linked media sources, show their link icon beside the name, and offer Relink... in source options.
 
+- Simplify local embedding runs to registered file-based Media Sources and one Run Model action, with automatic background validation and collapsed advanced settings.
+
 - Standardize Media Sources, Models, and Vector Data options on Snapshot-style 22-pixel toolbuttons, with matching Link... and Run... actions; use standard pushbutton heights and 6-pixel gaps.
+
+- Match Media Sources action buttons to Models with standard pushbuttons and a 4-pixel gap; label model options “...”.
 
 - Compact Media Sources to two-line rows, with source details above the path and Link/status beside the top-right options button.
 
+- Show vector counts and saved embedding file sizes on Embeddings cards, with exact byte counts in tooltips.
+
+- Put source actions in a row options button, move Link to a natural-size left control with a smaller linked icon and Items-column tooltip, and show linked counts beside the media type.
+
+- Limit item previews to a shared common-format contract, including MPEG, and require packaged playback audits on every release target. Check WAV variants, default/software video decoding, source switching and per-case diagnostics without adding runtime libraries; distinguish decoding success from audible-device QA.
+
 - Consolidate media matching into Link… with an explicit replacement checkbox and added, kept, and removed link counts.
+
+- Speed up metadata inspection with bounded batches, compact temporary tables and deferred indexes; show provisional samples, reuse completed type checks, and label database progress “Writing rows”. Full validation and transactional safeguards remain required.
+
+- Load audio metadata when selecting an item preview so duration and seeking are available before playback starts.
 
 - Match media folders against multiple metadata columns and filename lists, allowing several assets per Item with saved column selections and complete Source previews.
 
@@ -48,23 +60,17 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Give Media Sources full-width rows with separate progress, show cancellable folder/archive inspection immediately, and prevent duplicate rows when switching projects.
 
-- Limit item previews to a shared common-format contract, including MPEG, and require packaged playback audits on every release target. Check WAV variants, default/software video decoding, source switching and per-case diagnostics without adding runtime libraries; distinguish decoding success from audible-device QA.
-
-- Load audio metadata when selecting an item preview so duration and seeking are available before playback starts.
-
-- Give Discovery item previews dedicated image, video, audio, and read-only text views; limit the source selector to supported file formats and resolve JSONL text to the linked record.
-
-- Add a media source selector to Discovery’s individual item dialog, using Media Sources names and allowing image, video, and audio previews across directly linked and inherited media.
-
-- Show vector counts and saved embedding file sizes on Embeddings cards, with exact byte counts in tooltips.
-
 - Resolve linked metadata in Items and Discovery regardless of matching direction; show readable mapped-size fields, load complete previews in bounded background pages, and reuse compact metadata columns and saved field summaries for faster project opening.
 
 - Identify sessions interrupted by force quit even without a crash trace, and show their saved diagnostics before the new session after restarting.
 
 - Enforce a 10 MiB budget for automatic diagnostics, with oldest-inactive-session cleanup, byte-exact log rotation, and bounded crash traces that cannot grow after a freeze or crash.
 
+- Give Discovery item previews dedicated image, video, audio, and read-only text views; limit the source selector to supported file formats and resolve JSONL text to the linked record.
+
 - Simplify the Help pop-up: place About EIDORA first, separate the remaining help options, and keep update checks in About instead of a duplicate pop-up action.
+
+- Add a media source selector to Discovery’s individual item dialog, using Media Sources names and allowing image, video, and audio previews across directly linked and inherited media.
 
 - Add Help → Diagnostics... with editable reports for manual submission to mail@eidora.org, bounded session logs, crash/freeze stack capture, and recovery guidance for common storage and access failures. Keep sharing information above the report and put the user's problem description before technical details.
 
@@ -88,8 +94,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Show metadata import column, file-reading, and applicable matching settings directly inside the collapsed Import options panel without tabs or an extra enclosing box.
 
-- Keep registered media available without creating items or requiring matching. Match existing Items through linked metadata, review embedding input counts and item reuse before execution, and create items only when vectors publish successfully.
-- Pair first-run media/text inputs by source-record keys, resolve thumbnails to canonical items, and relocate registered media without changing asset identities or saved embedding provenance.
+- Keep registered media available without creating items or requiring matching. Match existing Items through linked metadata, validate embedding inputs and item reuse automatically before execution, and create items only when vectors publish successfully.
+- Resolve thumbnails to canonical items and relocate registered media without changing asset identities or saved embedding provenance.
 
 - Match the metadata import header to Link tables with a prominent filename, file details, and left-aligned preview headers; remove redundant preview and result headings while retaining the sample row count.
 
