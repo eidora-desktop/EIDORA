@@ -38,6 +38,64 @@ documents, and Windows/Linux artwork remains independent.
 - `runtime-requirements.txt` and `release-tools.txt` pin dependencies and build tools.
 - `resource-manifest.toml` lists runtime resources and dynamically loaded modules.
 
+### Item media playback release gate
+
+Every release target (macOS Apple Silicon/Intel, Windows x64 and Linux x64)
+executes the real Discovery item dialog through the packaged executable. The
+same gate runs for installed MSIX validation. A passing thumbnail decoder or
+constructible QMediaPlayer alone is insufficient.
+
+The checked-in synthetic fixtures in `src/shared/resources/media-audit/` cover
+the common preview formats listed below. Manifest hashes and exact agreement
+with `DiscoveryArea.media_preview_service.SUPPORTED_PREVIEW_EXTENSIONS` are
+mandatory: adding a preview extension requires adding a fixture. Broader import
+recognition does not automatically enable item previews. WAV includes PCM
+16/24/32-bit and float samples, mono/stereo and 44.1/48 kHz. Video includes H.264,
+HEVC, VP9, MPEG-2 and MPEG-4. These are representative container/codec combinations,
+not a promise that every codec permitted inside each container is supported.
+
+| Preview | Supported common formats |
+| --- | --- |
+| Video | MP4, M4V, MOV, MKV, WebM, AVI, MPG/MPEG |
+| Audio | WAV/WAVE, MP3, M4A, AAC, FLAC, OGG/OGA, Opus, AIFF/AIF |
+| Image | JPEG/JPG, PNG, GIF, WebP, BMP, TIFF/TIF |
+| Text | TXT/TEXT, Markdown/MD, CSV, TSV, JSON, JSONL/NDJSON |
+
+No additional runtime libraries are required. The fixtures add approximately
+4.25 MiB; generation uses the existing development PyAV/Pillow/NumPy packages.
+Use the existing Qt FFmpeg backend and image/text readers. Any future format
+requiring a substantial dependency needs an explicit size/maintenance rationale.
+Transport streams (TS/MTS/M2TS), WMA, configuration files and specialist video
+codec fixtures are outside this preview contract.
+
+Each case uses an isolated worker, explicit JSON reply, crash checkpoint and
+native log. Audio/video checks require duration before Play, decoded nonzero
+audio samples or video frames, advancing playback, pause, seek, resume, source
+switching and cleanup. Images check pixels/aspect; text checks Unicode content
+and JSONL record selection. Every video runs again with hardware decoding
+disabled. Currently 41 fixtures produce 50 checks. Individual workers have a
+30-second timeout; the media audit has a ten-minute total budget.
+
+The runner uses Qt's bundled FFmpeg backend, independent of system codecs.
+The report records Qt/PySide versions, platform, plugin paths and audio devices;
+native logs record decoder details. Keep `release-self-test.media.json` and the
+`release-self-test.media/` directory with the main report. Candidate receipts
+checksum these diagnostics, archived as `media-audit.tar`. Missing, incomplete,
+failed or source-only audits cannot pass packaged candidate validation.
+
+Automated playback is muted. Decoded buffers prove codec execution, **not audible
+speaker output**. On each supported OS, native device QA must additionally play
+the WAV variants and a video with sound through speakers/headphones, verify
+volume/mute and device changes, and check the installed artifact on a clean
+machine without Python or system FFmpeg. Record OS/build, output device, result
+and any decoder log. A runner without an audio endpoint may pass decoding, but
+its report explicitly records that limitation. Individual workers accept
+`--require-audio-output` for device checks; listening remains manual.
+
+Regenerate fixtures only with `python automation/prepare_media_audit_fixtures.py`
+in the pinned development environment, then review the manifest and binaries.
+No encoding or network download occurs during release audits.
+
 ### ONNX execution providers
 
 Windows and Linux x64 ship CPU-only `onnxruntime==1.26.0`. Optional GPU setup

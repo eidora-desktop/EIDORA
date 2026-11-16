@@ -193,6 +193,24 @@
         <number>0</number>
        </property>
        <item>
+        <layout class="QHBoxLayout" name="layout_media_source">
+         <item>
+          <widget class="QLabel" name="label_media_source">
+           <property name="text"><string>Media source</string></property>
+           <property name="buddy"><cstring>combo_media_source</cstring></property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="combo_media_source">
+           <property name="sizePolicy"><sizepolicy hsizetype="Expanding" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property>
+           <property name="toolTip"><string>Choose linked media to preview</string></property>
+           <property name="sizeAdjustPolicy"><enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum></property>
+           <property name="minimumContentsLength"><number>20</number></property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
         <widget class="QStackedWidget" name="stack_metadata_media">
          <property name="minimumSize">
           <size>
@@ -271,6 +289,38 @@
                <number>0</number>
               </property>
              </layout>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="page_source_text">
+          <layout class="QVBoxLayout" name="layout_source_text">
+           <property name="leftMargin"><number>0</number></property>
+           <property name="topMargin"><number>0</number></property>
+           <property name="rightMargin"><number>0</number></property>
+           <property name="bottomMargin"><number>0</number></property>
+           <item>
+            <widget class="QPlainTextEdit" name="edit_source_text">
+             <property name="readOnly"><bool>true</bool></property>
+             <property name="accessibleName"><string>Text document preview</string></property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_source_text_status">
+             <property name="text"><string/></property>
+             <property name="wordWrap"><bool>true</bool></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="page_source_audio">
+          <layout class="QVBoxLayout" name="layout_source_audio">
+           <item>
+            <widget class="QLabel" name="label_source_audio">
+             <property name="text"><string>Audio source</string></property>
+             <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+             <property name="alignment"><set>Qt::AlignmentFlag::AlignCenter</set></property>
+             <property name="wordWrap"><bool>true</bool></property>
             </widget>
            </item>
           </layout>

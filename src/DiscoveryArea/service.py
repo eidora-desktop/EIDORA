@@ -8,13 +8,14 @@ from typing import Any
 
 import numpy as np
 
-from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset
+from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset, MediaSourceKind
 from EmbeddingsArea.runtime.readers import load_embedding_matrix_with_ids
 from EmbeddingsArea.repository import EmbeddingRunRepository, MediaRepository
 from MetadataArea.repository import MetadataRepository
 from MetadataArea.group_repository import MetadataGroupRepository
 from MetadataArea.group_service import MetadataGroupService
 from DiscoveryArea.domain import (
+    ItemMediaSource,
     PinnedAnnotation,
     PolygonArea,
     PolygonAreaMetadataWritePreview,
@@ -30,6 +31,7 @@ from DiscoveryArea.filters import (
     filter_matching_from_state_payload,
     required_filter_columns,
 )
+from DiscoveryArea.media_preview_service import supports_media_preview
 from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
 from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
 from DiscoveryArea.discovery_methods.base import ProjectionExecutionResult
@@ -99,6 +101,38 @@ class DiscoveryService:
             project.paths.media / "media_index.db"
         ).linked_assets_for_metadata_ids([int(metadata_id)])
         return assets.get(int(metadata_id))
+
+    def item_media_sources(self, project: "Project", metadata_id: int) -> tuple[ItemMediaSource, ...]:
+        """List all linked files with catalog labels, keeping the usual preview first."""
+        repository = MediaRepository(project.paths.media / "media_index.db")
+        assets = repository.assets_for_items(
+            [int(metadata_id)], include_inherited=True,
+        ).get(int(metadata_id), [])
+        default = repository.linked_assets_for_metadata_ids([int(metadata_id)]).get(int(metadata_id))
+        sources = {source.id: source for source in repository.list_sources()}
+        if default is not None:
+            assets.sort(key=lambda asset: asset.id != default.id)
+        return tuple(
+            ItemMediaSource(
+                asset.id, asset.source_id, sources[asset.source_id].label,
+                asset.absolute_path, asset.content_type.value,
+                text_record_key=(
+                    asset.source_key
+                    if asset.content_type.value == "text"
+                    and asset.absolute_path.suffix.lower() in {".jsonl", ".ndjson"}
+                    and (
+                        sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN
+                        or (
+                            sources[asset.source_id].source_kind == MediaSourceKind.FILE
+                            and sources[asset.source_id].path.suffix.lower() in {".jsonl", ".ndjson"}
+                        )
+                    )
+                    else ""
+                ),
+            )
+            for asset in assets
+            if supports_media_preview(asset.content_type.value, asset.absolute_path)
+        )
 
     def sync_polygon_area_group(
         self,

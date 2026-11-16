@@ -57,3 +57,14 @@ Hover tooltips show up to 300 characters per metadata value, with an ellipsis
 for longer values. Text wraps within a maximum 360 px section, including URLs
 and identifiers without spaces. Short tooltips remain compact; thumbnail size
 and placement are independent. Full metadata stays unchanged.
+
+Individual-item dialogs offer named media sources with separate image, video,
+audio, and read-only text views. The selector includes only file extensions
+in the common-format contract in `media_preview_service.py`, shared with the
+packaged playback audit. Video includes MPEG as well as MP4/MOV/MKV/WebM/AVI;
+transport streams and WMA are excluded. TXT, Markdown, CSV/TSV, JSON and JSONL
+display as plain text; PDF and
+Word documents are not supported. JSONL record sources show only the linked
+record. Text reads run off the GUI thread and preview up to 200,000 characters,
+with an explicit notice when truncated. Switching sources cancels pending text
+reads and stops playback without changing the canvas preview source.

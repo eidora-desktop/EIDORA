@@ -61,8 +61,18 @@ class ThumbnailResolver:
         self,
         metadata_id: int,
         variant_id: str | None = None,
+        source_asset_id: str = "",
     ) -> ThumbnailRef | None:
         """Resolve the original image behind a generated thumbnail variant."""
+
+        if source_asset_id:
+            assets = self._media_repo.assets_for_items(
+                [metadata_id], include_inherited=True,
+            ).get(int(metadata_id), [])
+            asset = next((asset for asset in assets if asset.id == source_asset_id), None)
+            if asset is None or not asset.absolute_path.is_file():
+                return None
+            return self._make_ref(metadata_id, asset.absolute_path, source="media")
 
         if variant_id:
             item = self._resolve_variant_item(

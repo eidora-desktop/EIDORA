@@ -4,6 +4,14 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Limit item previews to a shared common-format contract, including MPEG, and require packaged playback audits on every release target. Check WAV variants, default/software video decoding, source switching and per-case diagnostics without adding runtime libraries; distinguish decoding success from audible-device QA.
+
+- Load audio metadata when selecting an item preview so duration and seeking are available before playback starts.
+
+- Give Discovery item previews dedicated image, video, audio, and read-only text views; limit the source selector to supported file formats and resolve JSONL text to the linked record.
+
+- Add a media source selector to Discovery’s individual item dialog, using Media Sources names and allowing image, video, and audio previews across directly linked and inherited media.
+
 - Show vector counts and saved embedding file sizes on Embeddings cards, with exact byte counts in tooltips.
 
 - Resolve linked metadata in Items and Discovery regardless of matching direction; show readable mapped-size fields, load complete previews in bounded background pages, and reuse compact metadata columns and saved field summaries for faster project opening.

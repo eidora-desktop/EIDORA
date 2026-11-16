@@ -57,7 +57,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "EmbeddingsArea.runtime" = ["cuda-downloads.json"]
-shared = ["resources/video-audit/*.mkv"]
+shared = ["resources/video-audit/*.mkv", "resources/media-audit/*"]
 project = ["resources/*.json"]
 MainWindow = ["tour_text.toml"]
 DiscoveryArea = ["palettes.json", "palettes.LICENSE.txt"]

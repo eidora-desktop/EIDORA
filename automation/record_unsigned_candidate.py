@@ -37,6 +37,8 @@ def record(target: str, output: Path) -> dict:
         raise ValueError("A successful packaged self-test is required.")
     sys.path.insert(0, str(ROOT / "src"))
     from eidora_version import __version__
+    from shared.media_runtime_audit import require_media_audit
+    require_media_audit(report, require_packaged=True)
 
     output.mkdir(parents=True, exist_ok=False)
     suffixes = {".msix", ".exe"} if target == "windows" else {".dmg"} if target.startswith("apple-") else {".deb", ".AppImage"}
@@ -48,6 +50,10 @@ def record(target: str, output: Path) -> dict:
         shutil.copy2(path, output / path.name)
     for path in (build / "release-self-test.json", ROOT / "build-dependencies.txt"):
         shutil.copy2(path, output / path.name)
+    media_directory = build / "release-self-test.media"
+    shutil.copy2(build / "release-self-test.media.json", output / "release-self-test.media.json")
+    with tarfile.open(output / "media-audit.tar", "w") as archive:
+        archive.add(media_directory, arcname=media_directory.name)
     if target.startswith("apple-"):
         app = build / "dist/EIDORA.app"
         if not app.is_dir():

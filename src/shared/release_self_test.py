@@ -24,7 +24,7 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
 
     trace_file = output_path.with_suffix(".trace.log").open("w", encoding="utf-8")
     faulthandler.enable(file=trace_file)
-    faulthandler.dump_traceback_later(90, file=trace_file)
+    faulthandler.dump_traceback_later(900, file=trace_file)
     checkpoint("imports")
     controller = None
     application = None
@@ -58,19 +58,6 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
         application.setApplicationName("EIDORA Desktop")
         application.setQuitOnLastWindowClosed(False)
         report["default_workspace_root"] = str(default_workspace_root())
-
-        checkpoint("multimedia-player")
-        from PySide6 import QtMultimedia, QtMultimediaWidgets
-        media_player = QtMultimedia.QMediaPlayer(application)
-        media_audio = QtMultimedia.QAudioOutput(application)
-        media_video = QtMultimediaWidgets.QVideoWidget()
-        media_player.setAudioOutput(media_audio)
-        media_player.setVideoOutput(media_video)
-        media_player.stop()
-        media_player.setVideoOutput(None)
-        media_player.setAudioOutput(None)
-        media_video.close()
-        report["multimedia_player_ready"] = True
 
         checkpoint("create-project")
         workspace = Path(temporary.name) / "workspace"
@@ -106,6 +93,13 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
             checkpoint("restore-starter-snapshot")
             report["starter_collection"] = check_starter_view(controller, project)
         report["main_window_ready_seconds"] = round(time.perf_counter() - started_at, 3)
+
+        checkpoint("media-playback")
+        from shared.media_runtime_audit import audit_media_runtime, require_media_audit
+        report["media_playback"] = audit_media_runtime(
+            output_path.with_suffix(".media.json"), checkpoint=checkpoint,
+        )
+        require_media_audit(report)
 
         checkpoint("load-discovery-methods")
         methods = DiscoveryMethodCatalog().list_methods()

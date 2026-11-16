@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 
 INTERNAL_WORKER_FLAG = "--internal-worker"
-_WORKER_NAMES = frozenset({"discovery", "gif", "native-probe", "video-thumbnail", "onnx-audit", "cuda-device", "diagnostic-trace"})
+_WORKER_NAMES = frozenset({"discovery", "gif", "native-probe", "video-thumbnail", "onnx-audit", "cuda-device", "diagnostic-trace", "media-playback-audit"})
 
 
 def internal_worker_arguments(name: str, *arguments: object) -> list[str]:
@@ -45,6 +45,10 @@ def dispatch_internal_worker(argv: Sequence[str]) -> int:
         return 2
 
     name, worker_args = args[0], args[1:]
+    if name == "media-playback-audit":
+        from shared.media_playback_probe import main
+
+        return main(worker_args)
     if name == "diagnostic-trace":
         from shared.diagnostics.trace import main
 

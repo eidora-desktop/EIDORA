@@ -49,6 +49,10 @@ patterns = ["src/project/resources/starter-collection.json"]
 name = "video-audit-fixtures"
 patterns = ["src/shared/resources/video-audit/*.mkv"]
 
+[[groups]]
+name = "media-audit-fixtures"
+patterns = ["src/shared/resources/media-audit/*"]
+
 [native_renderer]
 stage_subdirectory = "DiscoveryRenderer"
 required_files = ["DiscoveryRenderer/qmldir"]
@@ -104,6 +108,8 @@ modules = [
   "shared.release_self_test",
   "project.starter_ui_audit",
   "shared.video_runtime_audit",
+  "shared.media_runtime_audit",
+  "shared.media_playback_probe",
 ]
 
 [exclude]

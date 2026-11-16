@@ -46,7 +46,7 @@ def main() -> int:
                 env=environment,
             )
             try:
-                returncode = process.wait(timeout=300)
+                returncode = process.wait(timeout=900)
             except subprocess.TimeoutExpired:
                 try:
                     if sys.platform == "win32":
@@ -59,7 +59,7 @@ def main() -> int:
                         process.kill()
                     process.wait(timeout=10)
                 detail = report_path.read_text(encoding="utf-8") if report_path.exists() else "No checkpoint was written; startup did not reach the self-test."
-                raise RuntimeError(f"Timed out after 300 seconds. Last report: {detail}")
+                raise RuntimeError(f"Timed out after 900 seconds. Last report: {detail}")
         if returncode != 0:
             if report_path.is_file():
                 failed_report = json.loads(report_path.read_text(encoding="utf-8"))
@@ -72,8 +72,11 @@ def main() -> int:
         report = json.loads(report_path.read_text(encoding="utf-8"))
         if report.get("ok") is not True:
             raise RuntimeError(str(report.get("error") or "self-test reported failure"))
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+        from shared.media_runtime_audit import require_media_audit
+        require_media_audit(report, require_packaged=True)
         print(json.dumps(report, indent=2))
-    except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         print(f"Bundle self-test failed: {error}", file=sys.stderr)
         for suffix in (".process.log", ".trace.log"):
             log_path = arguments.report.resolve().with_suffix(suffix)

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import sys
+from typing import Protocol
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from DiscoveryArea.controllers.text_preview_panel_controller import TextPreviewPanelController
+from DiscoveryArea.domain import ItemMediaSource
 from DiscoveryArea.nearest_neighbors import NeighborSearchRequest, NeighborSearchResult
 from DiscoveryArea.thumbnails.service import DecodedThumbnail, ThumbnailDecodeFailure
 from shared.qt.icons import apply_icon_color
@@ -29,6 +33,7 @@ class SelectionActionsDialogData:
     ] = ()
     neighbor_default_embedding_id: str = ""
     neighbor_thumbnail_variant_id: str = "none"
+    media_sources: tuple[ItemMediaSource, ...] = ()
     source_file_path: str = ""
     source_content_type: str = ""
     source_file_unavailable_reason: str = ""
@@ -39,7 +44,13 @@ class SelectionActionsResult:
     action: str
 
 
-ThumbnailRequester = Callable[[str, int, str, int, bool], None]
+class ThumbnailRequester(Protocol):
+    def __call__(
+        self, target: str, metadata_id: int, variant_id: str, target_px: int,
+        prefer_original: bool = False, source_asset_id: str = "",
+    ) -> None: ...
+
+
 NeighborRequester = Callable[[NeighborSearchRequest], int]
 NeighborCanceller = Callable[[], None]
 NeighborGroupSaver = Callable[[str, tuple[int, ...]], str]
@@ -151,6 +162,9 @@ class SelectionActionsDialogController:
         self._highlight_neighbor: NeighborHighlighter | None = None
         self._pending: dict[str, tuple[int, str, int]] = {}
         self._metadata_label: QtWidgets.QLabel | None = None
+        self._source_asset_id = ""
+        self._text_preview: TextPreviewPanelController | None = None
+        self._source_audio_label: QtWidgets.QLabel | None = None
         self._source_video_status_label: QtWidgets.QLabel | None = None
         self._source_file_button: QtWidgets.QPushButton | None = None
         self._source_file_revealer: Callable[[Path], bool] | None = None
@@ -320,9 +334,14 @@ class SelectionActionsDialogController:
         remove_pin.triggered.connect(lambda: change_scope(""))
 
     def close(self) -> None:
+        if self._text_preview is not None:
+            self._text_preview.close()
+            self._text_preview = None
+        self._source_audio_label = None
         self._dispose_source_video_player()
         self._pending.clear()
         self._data = None
+        self._source_asset_id = ""
         self._request_thumbnail = None
         self._request_neighbors = None
         if self._cancel_neighbors is not None:
@@ -356,7 +375,8 @@ class SelectionActionsDialogController:
         handled = False
         key = (int(payload.metadata_id), str(payload.variant_id or "none"), int(payload.target_px))
         for target, pending in tuple(self._pending.items()):
-            if pending != key:
+            expected_asset = self._source_asset_id if target == "metadata_source" else ""
+            if pending != key or payload.source_asset_id != expected_asset:
                 continue
             handled = True
             self._pending.pop(target, None)
@@ -960,6 +980,8 @@ class SelectionActionsDialogController:
 
     def _populate_metadata(self, dialog: QtWidgets.QDialog, data: SelectionActionsDialogData) -> None:
         self._metadata_label = require_child(dialog, QtWidgets.QLabel, "label_metadata_thumbnail")
+        self._source_audio_label = require_child(dialog, QtWidgets.QLabel, "label_source_audio")
+        self._text_preview = TextPreviewPanelController(dialog)
         self._metadata_media_stack = require_child(
             dialog,
             QtWidgets.QStackedWidget,
@@ -996,40 +1018,28 @@ class SelectionActionsDialogController:
             QtWidgets.QPushButton,
             "button_show_file",
         )
-        content_type = str(data.source_content_type).strip().lower()
-        has_playback = content_type in {"audio", "video"}
-        has_source_file = bool(
-            data.source_file_path
-            or data.source_file_unavailable_reason
-        )
-        source_file_available = bool(data.source_file_path) and not bool(
-            data.source_file_unavailable_reason
-        )
-        self._source_file_button.setVisible(has_source_file)
-        self._source_file_button.setEnabled(source_file_available)
         self._source_file_button.clicked.connect(self._reveal_source_file)
-        self._source_media_controls.setVisible(has_playback)
-        source_available = has_playback and source_file_available
-        self._source_video_button.setEnabled(source_available)
         self._source_video_button.clicked.connect(self._toggle_source_video)
-        self._source_video_slider.setEnabled(False)
         self._source_video_slider.setRange(0, 1000)
-        self._source_video_slider.setValue(0)
-        self._source_video_slider.sliderPressed.connect(
-            self._handle_source_video_seek_started
-        )
-        self._source_video_slider.sliderMoved.connect(
-            self._handle_source_video_seek_preview
-        )
-        self._source_video_slider.sliderReleased.connect(
-            self._handle_source_video_seek_finished
-        )
-        self._source_video_time_label.setText("0:00 / 0:00")
-        source_status = data.source_file_unavailable_reason
-        self._source_video_status_label.setText(source_status)
-        self._source_video_status_label.setVisible(
-            bool(source_status)
-        )
+        self._source_video_slider.sliderPressed.connect(self._handle_source_video_seek_started)
+        self._source_video_slider.sliderMoved.connect(self._handle_source_video_seek_preview)
+        self._source_video_slider.sliderReleased.connect(self._handle_source_video_seek_finished)
+        combo = require_child(dialog, QtWidgets.QComboBox, "combo_media_source")
+        source_counts = Counter(source.source_id for source in data.media_sources)
+        for source in data.media_sources:
+            # Keep the catalog name; distinguish multiple files from one source.
+            repeated = source_counts[source.source_id] > 1
+            label = f"{source.label} — {source.text_record_key or source.path.name}" if repeated else source.label
+            combo.addItem(label, source.asset_id)
+            combo.setItemData(combo.count() - 1, str(source.path), QtCore.Qt.ItemDataRole.ToolTipRole)
+        if not data.media_sources:
+            combo.addItem("Linked source" if data.source_file_path else "No supported media")
+        combo.setEnabled(len(data.media_sources) > 1)
+        if data.media_sources:
+            self._set_media_source(0)
+        else:
+            self._update_source_controls()
+        combo.currentIndexChanged.connect(self._set_media_source)
         metadata_tree = dialog.findChild(
             QtWidgets.QTreeWidget,
             "tree_metadata_excerpt",
@@ -1063,7 +1073,52 @@ class SelectionActionsDialogController:
             item.setToolTip(0, field_text)
             item.setToolTip(1, value_text)
             metadata_tree.addTopLevelItem(item)
-        QtCore.QTimer.singleShot(0, self._request_initial_source_preview)
+        if not data.media_sources:
+            QtCore.QTimer.singleShot(0, self._request_initial_source_preview)
+
+    def _set_media_source(self, index: int) -> None:
+        if self._data is None or not 0 <= index < len(self._data.media_sources):
+            return
+        source = self._data.media_sources[index]
+        self._pending.pop("metadata_source", None)
+        if self._text_preview is not None:
+            self._text_preview.clear()
+        self._source_video_preview_pending = False
+        if self._source_video_player is not None:
+            self._source_video_player.stop()
+            self._source_video_player.setSource(QtCore.QUrl())
+        self._source_video_loaded_path = None
+        self._source_video_seeking = False
+        self._source_asset_id = source.asset_id
+        self._data = replace(
+            self._data,
+            source_file_path=str(source.path),
+            source_content_type=source.content_type,
+            source_file_unavailable_reason=(
+                "" if source.path.is_file() else "The linked source file is no longer available."
+            ),
+        )
+        self._update_source_controls()
+        self._request_initial_source_preview()
+
+    def _update_source_controls(self) -> None:
+        data = self._data
+        if data is None:
+            return
+        has_playback = data.source_content_type in {"audio", "video"}
+        available = bool(data.source_file_path) and not data.source_file_unavailable_reason
+        self._metadata_media_stack.setCurrentIndex(0)
+        self._metadata_label.clear()
+        self._source_file_button.setVisible(bool(data.source_file_path or data.source_file_unavailable_reason))
+        self._source_file_button.setEnabled(available)
+        self._source_media_controls.setVisible(has_playback)
+        self._source_video_button.setEnabled(has_playback and available)
+        self._handle_source_video_playback_state(None)
+        self._source_video_slider.setEnabled(False)
+        self._source_video_slider.setValue(0)
+        self._source_video_time_label.setText("0:00 / 0:00")
+        self._source_video_status_label.setText(data.source_file_unavailable_reason)
+        self._source_video_status_label.setVisible(bool(data.source_file_unavailable_reason))
 
     def _request_initial_source_preview(self) -> None:
         if self._dialog is None or self._data is None:
@@ -1073,30 +1128,46 @@ class SelectionActionsDialogController:
             self._prepare_source_video_preview()
             return
         if content_type == "audio" and self._data.source_file_path:
-            if self._metadata_label is not None:
-                self._metadata_label.setText(
-                    f"Audio source\n{Path(self._data.source_file_path).name}"
-                )
+            self._metadata_media_stack.setCurrentIndex(3)
+            self._source_audio_label.setText(f"Audio source\n{Path(self._data.source_file_path).name}")
+            self._source_video_time_label.setText("0:00 / …")
+            self._load_source_media()
             return
-        self._request_original_source_preview()
+        if content_type == "text" and self._data.source_file_path:
+            self._metadata_media_stack.setCurrentIndex(2)
+            source = next((source for source in self._data.media_sources if source.asset_id == self._source_asset_id), None)
+            self._text_preview.show(
+                Path(self._data.source_file_path), source.text_record_key if source is not None else "",
+            )
+            return
+        if content_type == "image":
+            self._request_original_source_preview()
+        elif self._metadata_label is not None:
+            self._metadata_label.setText("No supported media preview")
 
-    def _prepare_source_video_preview(self) -> None:
+    def _load_source_media(self) -> bool:
+        """Let Qt read duration and other metadata without starting playback."""
         if self._data is None or not self._data.source_file_path:
-            return
+            return False
         path = Path(self._data.source_file_path)
         if not path.is_file():
             self._show_source_video_error(
                 "The linked source file is no longer available."
             )
-            return
+            return False
         if not self._ensure_source_video_player():
-            return
+            return False
         assert self._source_video_player is not None
         if self._source_video_loaded_path != path:
             self._source_video_player.setSource(
                 QtCore.QUrl.fromLocalFile(str(path))
             )
             self._source_video_loaded_path = path
+        return True
+
+    def _prepare_source_video_preview(self) -> None:
+        if not self._load_source_media():
+            return
         if self._metadata_media_stack is not None:
             self._metadata_media_stack.setCurrentIndex(1)
         self._source_video_preview_pending = True
@@ -1123,7 +1194,10 @@ class SelectionActionsDialogController:
             self.DETAIL_THUMBNAIL_SIZE,
         )
         self._pending["metadata_source"] = request
-        self._request_thumbnail("metadata_source", *request, True)
+        if self._source_asset_id:
+            self._request_thumbnail("metadata_source", *request, True, self._source_asset_id)
+        else:
+            self._request_thumbnail("metadata_source", *request, True)
 
     def _show_metadata_thumbnail(self, payload: DecodedThumbnail) -> None:
         if self._metadata_label is None:
@@ -1150,26 +1224,12 @@ class SelectionActionsDialogController:
         self._play_source_video()
 
     def _play_source_video(self) -> None:
-        if self._data is None or not self._data.source_file_path:
+        if not self._load_source_media():
             return
-        path = Path(self._data.source_file_path)
-        if not path.is_file():
-            self._show_source_video_error(
-                "The linked source file is no longer available."
-            )
-            return
-        if not self._ensure_source_video_player():
-            return
-        assert self._source_video_player is not None
         self._source_video_preview_pending = False
         if self._source_video_audio_output is not None:
             self._source_video_audio_output.setMuted(False)
-        if self._source_video_loaded_path != path:
-            self._source_video_player.setSource(
-                QtCore.QUrl.fromLocalFile(str(path))
-            )
-            self._source_video_loaded_path = path
-        elif getattr(
+        if getattr(
             self._source_video_player.mediaStatus(),
             "name",
             "",
@@ -1187,16 +1247,40 @@ class SelectionActionsDialogController:
 
     def _ensure_source_video_player(self) -> bool:
         if self._source_video_player is not None:
-            return True
+            return self._ensure_source_video_output()
         if self._dialog is None:
             return False
         try:
-            from PySide6 import QtMultimedia, QtMultimediaWidgets
+            from PySide6 import QtMultimedia
         except ImportError:
             self._show_source_video_error(
-                "Video playback is unavailable in this EIDORA installation."
+                "Media playback is unavailable in this EIDORA installation."
             )
             return False
+        audio_output = QtMultimedia.QAudioOutput(self._dialog)
+        audio_output.setVolume(0.8)
+        player = QtMultimedia.QMediaPlayer(self._dialog)
+        player.setAudioOutput(audio_output)
+        player.positionChanged.connect(self._handle_source_video_position)
+        player.durationChanged.connect(self._handle_source_video_duration)
+        player.playbackStateChanged.connect(
+            self._handle_source_video_playback_state
+        )
+        player.mediaStatusChanged.connect(self._handle_source_video_media_status)
+        player.errorOccurred.connect(self._handle_source_video_player_error)
+        self._source_video_player = player
+        self._source_video_audio_output = audio_output
+        return self._ensure_source_video_output()
+
+    def _ensure_source_video_output(self) -> bool:
+        if self._data is None or self._data.source_content_type != "video" or self._source_video_widget is not None:
+            return True
+        try:
+            from PySide6 import QtMultimediaWidgets
+        except ImportError:
+            self._show_source_video_error("Video playback is unavailable in this EIDORA installation.")
+            return False
+
         host = require_child(
             self._dialog,
             QtWidgets.QWidget,
@@ -1212,23 +1296,8 @@ class SelectionActionsDialogController:
             QtCore.Qt.AspectRatioMode.KeepAspectRatio
         )
         layout.addWidget(video_widget)
-        audio_output = QtMultimedia.QAudioOutput(self._dialog)
-        audio_output.setVolume(0.8)
-        player = QtMultimedia.QMediaPlayer(self._dialog)
-        player.setAudioOutput(audio_output)
-        player.setVideoOutput(video_widget)
-        player.positionChanged.connect(self._handle_source_video_position)
-        player.durationChanged.connect(self._handle_source_video_duration)
-        player.playbackStateChanged.connect(
-            self._handle_source_video_playback_state
-        )
-        player.mediaStatusChanged.connect(self._handle_source_video_media_status)
-        player.errorOccurred.connect(self._handle_source_video_player_error)
-        video_widget.videoSink().videoFrameChanged.connect(
-            self._handle_source_video_frame
-        )
-        self._source_video_player = player
-        self._source_video_audio_output = audio_output
+        self._source_video_player.setVideoOutput(video_widget)
+        video_widget.videoSink().videoFrameChanged.connect(self._handle_source_video_frame)
         self._source_video_widget = video_widget
         return True
 

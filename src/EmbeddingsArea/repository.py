@@ -951,11 +951,12 @@ class MediaRepository:
                 for row in rows:
                     yield self._asset_from_row(row)
 
-    def assets_for_items(self, item_ids, *, source_ids=()):
+    def assets_for_items(self, item_ids, *, source_ids=(), include_inherited=False):
         """Resolve media through approved record paths, in bounded item batches.
 
         Direct media takes precedence over inherited media. Return all candidates
         so embedding preparation can reject ambiguity instead of choosing a file.
+        Preview selectors can include inherited candidates alongside direct media.
         """
         from project.domain import ProjectStoragePaths
         metadata_path = ProjectStoragePaths(self._database_path.parent.parent).metadata_database
@@ -1002,7 +1003,7 @@ class MediaRepository:
                     identity, priority = int(row['item_id']), int(row['priority'])
                     if identity not in priorities:
                         priorities[identity] = priority
-                    if priority == priorities[identity]:
+                    if include_inherited or priority == priorities[identity]:
                         output.setdefault(identity, []).append(self._asset_from_row(row))
         return output
 

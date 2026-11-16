@@ -2149,24 +2149,12 @@ class DiscoveryAreaController:
         panel = self._panel(LayersSettingPanelController)
         display = panel.pin_display_settings_payload() if panel is not None else {}
         variants = self._service.list_thumbnail_variants(self._project) if self._project is not None else []
-        source_file_path = ""
-        source_content_type = ""
-        source_file_unavailable_reason = ""
+        media_sources = ()
         if self._project is not None:
             try:
-                media_asset = self._service.linked_media_asset(
-                    self._project,
-                    int(metadata_id),
-                )
+                media_sources = self._service.item_media_sources(self._project, int(metadata_id))
             except (OSError, sqlite3.Error, ValueError):
-                media_asset = None
-            if media_asset is not None:
-                source_file_path = str(media_asset.absolute_path)
-                source_content_type = media_asset.content_type.value
-                if not media_asset.absolute_path.is_file():
-                    source_file_unavailable_reason = (
-                        "The linked source file is no longer available."
-                    )
+                pass
         dataset = self._active_dataset
         option = self._discovery_options.get(self._active_discovery_key)
         neighbor_source_label = ""
@@ -2234,9 +2222,7 @@ class DiscoveryAreaController:
             neighbor_thumbnail_variant_id=str(
                 display.get("tooltip_thumbnail_variant_id") or "none"
             ),
-            source_file_path=source_file_path,
-            source_content_type=source_content_type,
-            source_file_unavailable_reason=source_file_unavailable_reason,
+            media_sources=media_sources,
         )
 
     def _metadata_pin_scope_mode(self, metadata_id: int) -> str:
@@ -2262,6 +2248,7 @@ class DiscoveryAreaController:
         variant_id: str,
         target_px: int,
         prefer_original: bool = False,
+        source_asset_id: str = "",
     ) -> None:
         del target
         if self._thumbnail_service is None:
@@ -2272,6 +2259,7 @@ class DiscoveryAreaController:
                 target_px=max(1, int(target_px)),
                 variant_id=str(variant_id),
                 prefer_original=bool(prefer_original),
+                source_asset_id=source_asset_id,
             )
         )
 
@@ -2931,6 +2919,8 @@ class DiscoveryAreaController:
             (DecodedThumbnail, ThumbnailDecodeFailure),
         ):
             dialog_controller.apply_thumbnail(payload)
+        if isinstance(payload, (DecodedThumbnail, ThumbnailDecodeFailure)) and payload.source_asset_id:
+            return
         if isinstance(payload, ThumbnailDecodeFailure):
             self._handle_thumbnail_decode_failure(payload)
             return
