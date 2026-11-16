@@ -88,7 +88,12 @@ the editable report masks paths where possible. A freeze lasting about 30 second
 can produce a stack snapshot; force quit before capture, power loss, full storage,
 or a native failure can leave incomplete diagnostics. A snapshot is evidence of
 where work stopped, not proof of the cause. After restarting, the chooser flags
-unreviewed crash/freeze diagnostics.
+unreviewed crash/freeze diagnostics and sessions that ended without a normal
+shutdown. Reports show these sessions before fresh startup output and label
+running and normally closed sessions separately. A missing shutdown marker
+does not establish the cause; older sessions without lifecycle markers have an
+unknown shutdown status. Restarting creates a separate session, with previous
+sessions retained until the oldest-session cleanup is necessary.
 
 ## Uninstalling
 

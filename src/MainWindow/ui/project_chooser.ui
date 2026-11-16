@@ -200,7 +200,7 @@
       </item>
       <item>
        <widget class="QLabel" name="label_diagnostics_notice">
-        <property name="text"><string>A crash or unresponsive interface was recorded. Open Diagnostics... to review the report.</string></property>
+        <property name="text"><string>A previous session ended unexpectedly or recorded a crash or freeze. Open Diagnostics... to review the report.</string></property>
         <property name="wordWrap"><bool>true</bool></property>
        </widget>
       </item>

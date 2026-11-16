@@ -150,5 +150,6 @@ class DiagnosticSession:
             self._handler.close()
         if self._trace is not None:
             self._trace.close()
+        ReportRepository.finish_session(self.directory)
         self._lock.release()
 

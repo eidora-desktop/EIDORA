@@ -195,7 +195,7 @@ class ProjectChooserController:
         self._button_storage = self._find_required(QtWidgets.QPushButton, "button_storage")
         self._button_report = self._find_required(QtWidgets.QPushButton, "button_report")
         self._diagnostics_notice = self._find_required(QtWidgets.QLabel, "label_diagnostics_notice")
-        self._diagnostics_notice.setVisible(report_repository().has_unreviewed_trace())
+        self._diagnostics_notice.setVisible(report_repository().has_unreviewed_problem())
         self._button_starter = self._find_required(QtWidgets.QPushButton, "button_starter")
         from project.starter_collection import bundled_resources, read_manifest
 
@@ -326,7 +326,7 @@ class ProjectChooserController:
 
     def _show_report(self) -> None:
         show_diagnostics()
-        self._diagnostics_notice.setVisible(report_repository().has_unreviewed_trace())
+        self._diagnostics_notice.setVisible(report_repository().has_unreviewed_problem())
 
     def _open_storage(self) -> None:
         from MainWindow.controllers.storage_dialog_controller import StorageDialogController

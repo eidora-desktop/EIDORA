@@ -81,10 +81,26 @@ def build_report(repository: ReportRepository) -> str:
         "",
     ]
     sessions = repository.sessions()[:SESSION_LIMIT]
+    statuses = {directory: repository.session_status(directory) for directory in sessions}
+    # Keep the session that prompted a restart ahead of fresh startup output.
+    # Within each group, retain newest-first order.
+    sessions.sort(key=lambda directory: (
+        2 if statuses[directory] == "running" else
+        0 if statuses[directory] == "interrupted" or repository.trace_size(directory) else 1
+    ))
+    status_labels = {
+        "running": "Running now",
+        "closed": "Closed normally",
+        "interrupted": "Ended without a normal shutdown",
+        "unknown": "Shutdown status unavailable",
+    }
     if not sessions:
         lines.append("No saved diagnostics are available.")
     for directory in sessions:
         lines.extend((f"--- {directory.name} ---",))
+        lines.append(f"Status: {status_labels[statuses[directory]]}")
+        if statuses[directory] == "interrupted" and not repository.trace_size(directory):
+            lines.append("No crash trace was captured. A force quit can prevent capture; the cause is unknown.")
         for filename in ("context.txt", "events.log.1", "events.log", "trace.log"):
             content = repository.read_tail(directory / filename)
             if content:

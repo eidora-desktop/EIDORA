@@ -6,6 +6,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Resolve linked metadata in Items and Discovery regardless of matching direction; show readable mapped-size fields, load complete previews in bounded background pages, and reuse compact metadata columns and saved field summaries for faster project opening.
 
+- Identify sessions interrupted by force quit even without a crash trace, and show their saved diagnostics before the new session after restarting.
+
 - Enforce a 10 MiB budget for automatic diagnostics, with oldest-inactive-session cleanup, byte-exact log rotation, and bounded crash traces that cannot grow after a freeze or crash.
 
 - Simplify the Help pop-up: place About EIDORA first, separate the remaining help options, and keep update checks in About instead of a duplicate pop-up action.

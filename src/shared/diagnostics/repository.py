@@ -20,6 +20,7 @@ CONTEXT_LIMIT = 4096
 _METADATA_RESERVATION = 4096
 _SESSION_FILES = (
     "context.txt", "events.log", "events.log.1", "trace.log", "reviewed", "trace.done",
+    "session.started", "session.closed", "shutdown.reviewed",
 )
 
 
@@ -59,6 +60,11 @@ class ReportRepository:
             directory.mkdir(mode=0o700)
             lock = FileLock(directory / "active.lock")
             lock.acquire(timeout=0)
+            try:
+                (directory / "session.started").touch()
+            except OSError:
+                lock.release()
+                raise
             return directory, lock
 
     def budget_lock(self, *, timeout: float = 0) -> FileLock:
@@ -102,10 +108,48 @@ class ReportRepository:
         except OSError as error:
             return f"[Diagnostics could not be read: {type(error).__name__}]"
 
-    def has_unreviewed_trace(self) -> bool:
+    def session_status(self, directory: Path) -> str:
+        # Serialize against pruning, so probing a lock never recreates a removed
+        # session. An OS lock is released even when the process is force-killed.
+        try:
+            with self.budget_lock():
+                if not directory.is_dir():
+                    return "unknown"
+                try:
+                    with FileLock(directory / "active.lock", timeout=0):
+                        if (directory / "session.closed").exists():
+                            return "closed"
+                        if (directory / "session.started").exists():
+                            return "interrupted"
+                        # Older versions did not write lifecycle markers.
+                        if "Diagnostic session closed." in self.read_tail(directory / "events.log"):
+                            return "closed"
+                        return "unknown"
+                except Timeout:
+                    return "running"
+        except (OSError, Timeout):
+            return "unknown"
+
+    @staticmethod
+    def finish_session(directory: Path) -> None:
+        try:
+            (directory / "session.closed").touch()
+        except OSError:
+            pass
+
+    @staticmethod
+    def trace_size(directory: Path) -> int:
+        try:
+            return (directory / "trace.log").stat().st_size
+        except OSError:
+            return 0
+
+    def has_unreviewed_problem(self) -> bool:
         for directory in self.sessions()[:SESSION_LIMIT]:
+            if self.session_status(directory) == "interrupted" and not (directory / "shutdown.reviewed").exists():
+                return True
             try:
-                if (directory / "trace.log").stat().st_size > int(
+                if self.trace_size(directory) > int(
                     (directory / "reviewed").read_text() if (directory / "reviewed").exists() else "0"
                 ):
                     return True
@@ -116,7 +160,9 @@ class ReportRepository:
     def mark_reviewed(self) -> None:
         for directory in self.sessions()[:SESSION_LIMIT]:
             try:
-                (directory / "reviewed").write_text(str((directory / "trace.log").stat().st_size))
+                (directory / "reviewed").write_text(str(self.trace_size(directory)))
+                if self.session_status(directory) == "interrupted":
+                    (directory / "shutdown.reviewed").touch()
             except OSError:
                 pass
 
