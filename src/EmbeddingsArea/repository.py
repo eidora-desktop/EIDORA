@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import asdict, replace
 import hashlib
-from itertools import zip_longest
+from itertools import islice, zip_longest
 import json
 from pathlib import Path
 import re
 import sqlite3
 from tempfile import TemporaryDirectory
-from contextlib import closing
+from contextlib import closing, nullcontext
 
 from EmbeddingsArea.domain import (
     EmbeddingRun,
@@ -790,56 +790,69 @@ class MediaRepository:
 
     def synchronize_source_assets(
         self, source_id, assets, *, updated_at, batch_size=2000,
-        progress_callback=None, should_cancel=None, stage_callback=None, replacement_path=None,
+        progress_callback=None, should_cancel=None, stage_callback=None, replacement_path=None, inspected=False, expected_count=0,
     ):
         """Discover once off-store, then publish one complete catalog generation."""
         from EmbeddingsArea.domain import MediaProgress
-        count, scan_cursor = 0, ""
-        with TemporaryDirectory(prefix="eidora-media-scan-") as directory:
-            stage_path = Path(directory) / "scan.db"
-            with closing(self._connect()) as connection:
-                schema = connection.execute("SELECT sql FROM sqlite_master WHERE name='media_assets'").fetchone()[0]
-            with closing(sqlite3.connect(stage_path)) as stage, stage:
-                stage.execute(schema)
-                batch = []
-                for asset in assets:
-                    if should_cancel and should_cancel():
-                        raise RuntimeError("Media indexing cancelled.")
-                    batch.append(asset)
-                    scan_cursor = asset.relative_path
-                    if len(batch) == batch_size:
+        count, scan_cursor = expected_count if inspected else 0, ""
+        staging = nullcontext() if inspected else TemporaryDirectory(prefix="eidora-media-scan-")
+        with staging as directory:
+            if not inspected:
+                stage_path = Path(directory) / "scan.db"
+                with closing(self._connect()) as connection:
+                    schema = connection.execute("SELECT sql FROM sqlite_master WHERE name='media_assets'").fetchone()[0]
+                with closing(sqlite3.connect(stage_path)) as stage, stage:
+                    stage.execute(schema)
+                    batch = []
+                    for asset in assets:
+                        if should_cancel and should_cancel():
+                            raise RuntimeError("Media indexing cancelled.")
+                        batch.append(asset)
+                        scan_cursor = asset.relative_path
+                        if len(batch) == batch_size:
+                            self._upsert_assets(stage, batch, strict=True)
+                            count += len(batch)
+                            batch.clear()
+                            if progress_callback:
+                                progress_callback(count)
+                            if stage_callback:
+                                stage_callback(MediaProgress("Discovering files", count))
+                    if batch:
                         self._upsert_assets(stage, batch, strict=True)
                         count += len(batch)
-                        batch.clear()
                         if progress_callback:
                             progress_callback(count)
-                        if stage_callback:
-                            stage_callback(MediaProgress("Discovering files", count))
-                if batch:
-                    self._upsert_assets(stage, batch, strict=True)
-                    count += len(batch)
-                    if progress_callback:
-                        progress_callback(count)
-                stage.commit()
+                    stage.commit()
             if should_cancel and should_cancel():
                 raise RuntimeError("Media indexing cancelled.")
             with closing(self._connect()) as connection:
-                connection.execute("ATTACH DATABASE ? AS scan_stage", (str(stage_path),))
+                if not inspected:
+                    connection.execute("ATTACH DATABASE ? AS scan_stage", (str(stage_path),))
                 if should_cancel:
                     connection.set_progress_handler(lambda: int(should_cancel()), 1000)
                 try:
                     connection.execute("BEGIN IMMEDIATE")
                     connection.execute("UPDATE media_assets SET status=?,updated_at=? WHERE source_id=?",
                                        (MediaAssetStatus.MISSING.value, updated_at, source_id))
-                    cursor = connection.execute("SELECT * FROM scan_stage.media_assets ORDER BY rowid")
+                    if inspected:
+                        # The inspection manifest is already a bounded, cancellable stage.
+                        # Consume it directly; do not write a second copy of the catalog.
+                        pending = iter(assets)
+                    else:
+                        cursor = connection.execute("SELECT * FROM scan_stage.media_assets ORDER BY rowid")
+                        pending = (self._asset_from_row(row) for row in cursor)
                     completed = 0
-                    while rows := cursor.fetchmany(batch_size):
+                    while batch := list(islice(pending, batch_size)):
                         if should_cancel and should_cancel():
                             raise RuntimeError("Media indexing cancelled.")
-                        self._upsert_assets(connection, [self._asset_from_row(row) for row in rows])
-                        completed += len(rows)
+                        self._upsert_assets(connection, batch, resolved=inspected)
+                        completed += len(batch)
+                        if inspected and progress_callback:
+                            progress_callback(completed)
+                        scan_cursor = batch[-1].relative_path
                         if stage_callback:
                             stage_callback(MediaProgress("Indexing", completed, count))
+                    count = completed
                     if replacement_path is not None:
                         connection.execute("UPDATE media_sources SET path=? WHERE id=?",
                                            (self._paths.encode(replacement_path), source_id))
@@ -856,7 +869,7 @@ class MediaRepository:
                     raise
         return count, scan_cursor
 
-    def _upsert_assets(self, connection: sqlite3.Connection, assets: list[MediaAsset], *, strict=False) -> None:
+    def _upsert_assets(self, connection: sqlite3.Connection, assets: list[MediaAsset], *, strict=False, resolved=False) -> None:
         query = """
             INSERT INTO media_assets (
                 id, source_id, source_key, absolute_path, relative_path, display_name,
@@ -882,7 +895,7 @@ class MediaRepository:
                     asset.id,
                     asset.source_id,
                     asset.source_key,
-                    self._paths.encode(asset.absolute_path),
+                    self._paths.encode(asset.absolute_path, resolved=resolved),
                     asset.relative_path,
                     asset.display_name,
                     asset.content_type.value,
@@ -1110,6 +1123,7 @@ class MediaRepository:
             ).fetchall()
             rule_rows = connection.execute(
                 "SELECT source_id, metadata_column FROM media_link_settings UNION "
+                "SELECT source_id, value AS metadata_column FROM media_link_settings, json_each(metadata_columns_json) UNION "
                 "SELECT source_id, metadata_column FROM media_match_rules"
             ).fetchall()
         counts = {
@@ -1141,6 +1155,7 @@ class MediaRepository:
                     missing_count=int(source_counts.get("missing_count", 0)),
                     error_count=int(source_counts.get("error_count", 0)),
                     metadata_columns=tuple(columns_by_source.get(source.id, [])),
+
                 )
             )
         return summaries
@@ -1279,6 +1294,8 @@ class MediaRepository:
                 );
                 """
             )
+            if "metadata_columns_json" not in {row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")}:
+                connection.execute("ALTER TABLE media_link_settings ADD COLUMN metadata_columns_json TEXT NOT NULL DEFAULT '[]'")
             if "table_id" not in {row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")}:
                 connection.execute("ALTER TABLE media_link_settings ADD COLUMN table_id TEXT NOT NULL DEFAULT 'metadata'")
             _execute_statements(connection,
@@ -1379,7 +1396,8 @@ class MediaLinkRepository:
             saved = connection.execute("SELECT * FROM media_link_settings WHERE source_id=?", (source_id,)).fetchone()
             if saved:
                 return MediaLinkRequest(source_id, saved['source_field'], saved['metadata_column'], saved['comparison'],
-                                        bool(saved['ignore_case']), bool(saved['replace_existing']), bool(saved['create_missing']), saved['table_id'])
+                                        bool(saved['ignore_case']), bool(saved['replace_existing']), bool(saved['create_missing']), saved['table_id'],
+                                        tuple(json.loads(saved['metadata_columns_json'])))
             row = connection.execute(
                 "SELECT * FROM media_match_rules WHERE source_id=? ORDER BY updated_at DESC LIMIT 1", (source_id,)
             ).fetchone()
@@ -1414,17 +1432,23 @@ class MediaLinkRepository:
                 if should_cancel and should_cancel():
                     raise RuntimeError("Media operation cancelled.")
                 batch = plan.matches[start:start+2000]
-                self._publish_link_batch(connection, request.source_id, request.metadata_column, strategy, batch, updated_at)
+                by_column = {}
+                for match in batch:
+                    column = plan.match_columns.get(match[:2], request.metadata_column)
+                    by_column.setdefault(column, []).append(match)
+                for column, column_batch in by_column.items():
+                    self._publish_link_batch(connection, request.source_id, column, strategy, column_batch, updated_at)
                 completed += len(batch)
                 if progress:
                     progress(MediaProgress("Linking", completed, total))
             # Legacy rules remain untouched and are never executed automatically.
             connection.execute(
                 "INSERT OR REPLACE INTO media_store.media_link_settings "
-                "(source_id,source_field,metadata_column,comparison,ignore_case,replace_existing,create_missing,table_id) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "(source_id,source_field,metadata_column,comparison,ignore_case,replace_existing,create_missing,table_id,metadata_columns_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (request.source_id, request.source_field, request.metadata_column, request.comparison,
-                 int(request.ignore_case), int(request.replace_existing), int(request.create_missing), request.table_id),
+                 int(request.ignore_case), int(request.replace_existing), int(request.create_missing), request.table_id,
+                 json.dumps(request.selected_columns)),
             )
             self._finish_publication(connection, request.source_id, updated_at)
             if progress:

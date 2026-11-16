@@ -13,18 +13,19 @@ from shared.qt.widgets import require_child
 class MediaLinkDialogController:
     """Suggest a match, preview it, and let the user adjust before applying."""
 
-    def __init__(self, project, source, columns, saved_request, jobs, *, relink=False):
+    def __init__(self, project, source, columns, saved_request, jobs):
         self.dialog = load_ui("AssetsArea", "ui/media_link_dialog.ui", None)
         self.dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
-        self.dialog.setWindowTitle("Replace Item Matches" if relink else "Match Items")
+        self.dialog.setWindowTitle("Link Items")
         self._project, self._source, self._jobs = project, source, jobs
         self._alive, self._ticket, self._job_id = True, 0, None
-        self._relink = relink
+        self._saved_request = saved_request
         self._suggest_on_open = saved_request is None
         self._connections = []
         self.plan = None
         self.source_field = self._child(QtWidgets.QComboBox, "combo_source_field")
-        self.column = self._child(QtWidgets.QComboBox, "combo_metadata_column")
+        self.columns = self._child(QtWidgets.QListWidget, "list_metadata_columns")
+        self._column_checks = {}
         self.comparison_combo = self._child(QtWidgets.QComboBox, "combo_comparison")
         self.coverage = self._child(QtWidgets.QLabel, "label_match_coverage")
         self.relationship = self._child(QtWidgets.QLabel, "label_match_summary")
@@ -36,11 +37,9 @@ class MediaLinkDialogController:
         self.options_button = self._child(QtWidgets.QToolButton, "button_link_options")
         self.options_panel = self._child(QtWidgets.QWidget, "panel_link_options")
         self._child(QtWidgets.QLabel, "label_source_name").setText(source.label)
-        if relink:
-            self._child(QtWidgets.QLabel, "label_matching_rules").setText(
-                "Letter case must match. Duplicate media keys stay unlinked. One media asset can match "
-                "several items. Applying replaces this source’s existing links; unmatched items lose those links."
-            )
+        self.replace_existing = self._child(QtWidgets.QCheckBox, "check_replace_existing_links")
+        # Replacing links is an explicit choice for this visit, not a restored preference.
+        self.replace_existing.setChecked(False)
         for label, key in [("Exact identifier or path", "exact"), ("Filename", "filename"),
                            ("Filename without extension", "stem"),
                            ("Remove final numbered suffix from records", "stem_suffix")]:
@@ -51,7 +50,12 @@ class MediaLinkDialogController:
         labels = {column.name: column.label for column in
                   MetadataService(MetadataRepository(project.paths.metadata_database)).list_columns()}
         for name in columns:
-            self.column.addItem(labels.get(name, name), name)
+            item = QtWidgets.QListWidgetItem(self.columns)
+            checkbox = QtWidgets.QCheckBox(labels.get(name, name), self.columns)
+            checkbox.setChecked(name == columns[0])
+            item.setSizeHint(checkbox.sizeHint())
+            self.columns.setItemWidget(item, checkbox)
+            self._column_checks[name] = checkbox
         for label, key in [("All records", "all"), ("Matched", "matched"),
                            ("Unmatched media", "unmatched"), ("Ambiguous", "ambiguous")]:
             self.examples.addItem(label, key)
@@ -68,20 +72,23 @@ class MediaLinkDialogController:
             self.source_field.findData(saved_request.source_field) >= 0
             and self.comparison_combo.findData(saved_request.comparison) >= 0
             and not saved_request.ignore_case
-            and saved_request.metadata_column in columns
+            and set(saved_request.selected_columns) <= set(columns)
         )
         if supported_saved:
             self._select_request(saved_request)
         elif saved_request is not None:
             # Unsupported saved rules need an explicit choice, never reinterpretation.
             self.source_field.setCurrentIndex(-1)
-            self.column.setCurrentIndex(-1)
+            self._set_columns(())
         self._debounce = QtCore.QTimer(self.dialog)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(200)
         self._connect(self._debounce.timeout, self._start_preview)
-        for combo in (self.source_field, self.column, self.comparison_combo):
+        for combo in (self.source_field, self.comparison_combo):
             self._connect(combo.currentIndexChanged, self._configuration_changed)
+        for checkbox in self._column_checks.values():
+            self._connect(checkbox.toggled, self._configuration_changed)
+        self._connect(self.replace_existing.toggled, self._configuration_changed)
         self._connect(self.options_button.toggled, self._show_matching)
         self._connect(self.examples.currentIndexChanged, self._render_examples)
         self._connect(self.apply_button.clicked, self.dialog.accept)
@@ -137,22 +144,24 @@ class MediaLinkDialogController:
             self._jobs.cancel(self._job_id)
         self.plan = None
         self.apply_button.setEnabled(False)
-        self.apply_button.setText("Match Items")
+        self.apply_button.setText("Apply Links")
         self.coverage.setText("Checking matches…")
         self.preview_count.setText("Updating preview…")
         self.table.setRowCount(0)
 
     def _show_relationship(self):
+        self.relationship.setToolTip("\n".join(
+            checkbox.text() for checkbox in self._column_checks.values() if checkbox.isChecked()))
         self.relationship.setText(
             f"{self.source_field.currentText()} ({self._source.label}) → "
-            f"{self.column.currentText()} (Items)\n{self.comparison_combo.currentText()}"
+            f"{self._column_label()} (Items)\n{self.comparison_combo.currentText()}"
         )
 
     def _configuration_changed(self, *_):
         self._invalidate()
-        if self.source_field.currentIndex() < 0 or self.column.currentIndex() < 0:
+        if self.source_field.currentIndex() < 0 or not self._selected_columns():
             self.coverage.setText("No matching setting selected")
-            self.relationship.setText("Choose a source field and item column in Link options.")
+            self.relationship.setText("Choose a source field and item columns in Link options.")
             self.summary.setText("Use Find best match to check the available values.")
             self.preview_count.clear()
             self.options_button.setChecked(True)
@@ -161,8 +170,21 @@ class MediaLinkDialogController:
         self.summary.setText("Checking matches in the background…")
         self._debounce.start()
 
+    def _selected_columns(self):
+        return tuple(name for name, checkbox in self._column_checks.items() if checkbox.isChecked())
+
+    def _column_label(self):
+        labels = [checkbox.text() for checkbox in self._column_checks.values() if checkbox.isChecked()]
+        return ", ".join(labels) if len(labels) <= 3 else f"{len(labels)} metadata columns"
+
+    def _set_columns(self, names):
+        for name, checkbox in self._column_checks.items():
+            with QtCore.QSignalBlocker(checkbox):
+                checkbox.setChecked(name in names)
+
     def _select_request(self, request):
-        for combo, value in ((self.source_field, request.source_field), (self.column, request.metadata_column),
+        self._set_columns(request.selected_columns)
+        for combo, value in ((self.source_field, request.source_field),
                              (self.comparison_combo, request.comparison)):
             with QtCore.QSignalBlocker(combo):
                 combo.setCurrentIndex(combo.findData(value))
@@ -171,16 +193,17 @@ class MediaLinkDialogController:
         self._invalidate()
         self.relationship.setText("Comparing media fields with item metadata…")
         self.summary.setText("Finding the strongest match…")
-        project, source_id, relink = self._project, self._source.id, self._relink
-        self._submit(lambda progress, cancel: suggest_links(project, source_id, relink, progress, cancel),
+        project, source_id, replace_existing = self._project, self._source.id, self.replace_existing.isChecked()
+        self._submit(lambda progress, cancel: suggest_links(project, source_id, replace_existing, progress, cancel),
                      suggested=True)
 
     def _start_preview(self):
-        if not self._alive or self.column.currentIndex() < 0 or self.source_field.currentIndex() < 0:
+        if not self._alive or not self._selected_columns() or self.source_field.currentIndex() < 0:
             return
         request = MediaLinkRequest(
-            self._source.id, self.source_field.currentData(), self.column.currentData(),
-            comparison=self.comparison_combo.currentData(), replace_existing=self._relink,
+            self._source.id, self.source_field.currentData(), self._selected_columns()[0],
+            comparison=self.comparison_combo.currentData(), replace_existing=self.replace_existing.isChecked(),
+            metadata_columns=self._selected_columns(),
         )
         project = self._project
         self._submit(lambda progress, cancel: preview_links(project, request, progress, cancel))
@@ -192,10 +215,9 @@ class MediaLinkDialogController:
             if not self._alive or ticket != self._ticket:
                 return
             if plan is None:
-                with QtCore.QSignalBlocker(self.column):
-                    self.column.setCurrentIndex(-1)
+                self._set_columns(())
                 self.coverage.setText("No suggested match")
-                self.relationship.setText("Choose a source field and item column in Link options.")
+                self.relationship.setText("Choose a source field and item columns in Link options.")
                 self.summary.setText("No unambiguous matching values found. Items need matching metadata first.")
                 self.preview_count.clear()
                 self.options_button.setChecked(True)
@@ -217,25 +239,28 @@ class MediaLinkDialogController:
     def _show_plan(self):
         plan = self.plan
         self._show_relationship()
-        matched = len(plan.matches) + plan.preserved_count
+        matched = plan.matched_item_count
         total = matched + plan.unmatched_metadata_count
         state = "All Matched" if matched and matched == total else "Partly Matched" if matched else "None Matched"
         self.coverage.setText(f"{state} ({matched:,}/{total:,} items)")
         self.summary.setText(
-            f"{plan.unmatched_count + plan.blank_count:,} unmatched media · {plan.ambiguous_count:,} ambiguous · "
-            f"{plan.preserved_count:,} existing links kept"
+            f"Links: {plan.added_link_count:,} added · {plan.kept_link_count:,} kept · {plan.removed_link_count:,} removed\n"
+            f"{plan.matched_asset_count:,} linked assets · "
+            f"{plan.unmatched_count + plan.blank_count:,} unmatched media · {plan.ambiguous_count:,} ambiguous"
         )
-        if self._relink:
-            self.summary.setText(
-                f"{plan.removed_count:,} existing links replaced · {plan.disappearing_count:,} no longer linked\n"
-                f"{plan.unmatched_count + plan.blank_count:,} unmatched media · {plan.ambiguous_count:,} ambiguous"
-            )
-        changes = bool(plan.matches or plan.removed_count)
-        label = "Replace Matches" if self._relink and changes else "Match Items"
+        saved = self._saved_request
+        settings_changed = saved is None or (
+            saved.selected_columns, saved.source_field, saved.comparison
+        ) != (plan.request.selected_columns, plan.request.source_field, plan.request.comparison)
+        save_settings = bool(plan.kept_link_count and settings_changed)
+        changes = bool(plan.added_link_count or plan.removed_link_count or save_settings)
+        label = "Apply Links"
+        if save_settings and not plan.added_link_count and not plan.removed_link_count:
+            label = "Save Link Options"
         if not changes:
-            label = "Already linked" if plan.preserved_count else "No matches"
-        if plan.removed_count and not plan.matches:
-            label = f"Remove {plan.removed_count:,} Matches"
+            label = "Already linked" if plan.kept_link_count else "No matches"
+        if plan.removed_link_count and not plan.added_link_count and not plan.kept_link_count:
+            label = f"Remove {plan.removed_link_count:,} " + ("Link" if plan.removed_link_count == 1 else "Links")
         self.apply_button.setText(label)
         self.apply_button.setEnabled(changes)
         self._render_examples()
@@ -256,12 +281,12 @@ class MediaLinkDialogController:
         self.preview_count.setText(f"Showing {len(rows):,} of {counts[kind]:,} rows (up to 25 per result)")
         self.table.setHorizontalHeaderLabels([
             f"{self.source_field.currentText()} ({self._source.label})", "Item ID",
-            f"{self.column.currentText()} (Items)", "Result",
+            "Matched item value", "Result",
         ])
         self.table.setRowCount(len(rows))
         ambiguous = set(plan.examples.get("ambiguous", ()))
         for index, (value, row_id, detail) in enumerate(rows):
-            target = plan.example_values.get(row_id, "No match")
+            target = plan.example_matches.get((value, row_id), plan.example_values.get(row_id, "No match"))
             if (value, row_id, detail) in ambiguous:
                 target = "Ambiguous match"
             values = (value, "—" if row_id is None else str(row_id), target, detail)

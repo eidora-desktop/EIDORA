@@ -7,3 +7,7 @@ one metadata column, and a bounded preview. Artifacts forms have been removed.
 
 Object names are controller contracts. Keep layouts Designer-owned and preserve
 semantic icons in both light and dark themes.
+
+`media_source_row.ui` owns each Media Sources row, including its separate progress
+area. The panel uses one stretched column without a header; the row controller
+elides long names and paths and adjusts row height when progress is shown.

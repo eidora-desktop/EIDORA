@@ -65,7 +65,7 @@ class VectorDataCardController(QtCore.QObject):
         self.progress_control = require_child(self.widget, QtWidgets.QWidget, "progress_control")
         self.pause = require_child(self.widget, QtWidgets.QPushButton, "button_pause_run")
         self.cancel = require_child(self.widget, QtWidgets.QPushButton, "button_cancel_run")
-        self.options = require_child(self.widget, QtWidgets.QToolButton, "button_run_options")
+        self.options = require_child(self.widget, QtWidgets.QPushButton, "button_run_options")
         self.info = require_child(self.widget, QtWidgets.QTreeWidget, "tree_run_info")
         self.progress_report = require_child(self.widget, QtWidgets.QTextBrowser, "tb_progress_report")
         self.progress_tab = require_child(self.widget, QtWidgets.QWidget, "tab_progress")

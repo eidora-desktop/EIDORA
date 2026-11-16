@@ -3,7 +3,8 @@
 The Metadata UI separates the fixed **Items** tab from named source tabs. Items
 uses bold text and a small star beside the italic source tabs. The selected tab
 has a text-colored underline and a subtle background.
-Tab icons sit close to their labels. Source tabs show a simple connected chain when they participate
+Tab icons sit immediately to the right of their labels with compact padding.
+Tab labels remain complete; overflowing tabs scroll instead of eliding their text. Source tabs show a simple connected chain when they participate
 in direct saved links to Items (incoming or outgoing), or a red question
 mark when unlinked.
 The status is also included in tab tooltips; a link does not imply every record matches. The toolbar exposes **Add files**, **Link…**,

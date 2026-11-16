@@ -218,6 +218,8 @@ class MediaLibraryService:
                     scanned_at=started_at,
                     should_cancel=should_cancel,
                 ),
+                inspected=source.path.suffix.lower() != ".zip",
+                expected_count=dict(inspection.counts).get(source.content_type, 0),
                 updated_at=started_at,
                 progress_callback=progress_callback,
                 should_cancel=should_cancel,

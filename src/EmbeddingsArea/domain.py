@@ -195,6 +195,11 @@ class MediaLinkRequest:
     replace_existing: bool = False
     create_missing: bool = False
     table_id: str = "metadata"
+    metadata_columns: tuple[str, ...] = ()
+
+    @property
+    def selected_columns(self) -> tuple[str, ...]:
+        return tuple(dict.fromkeys(self.metadata_columns or (self.metadata_column,)))
 
 
 @dataclass(frozen=True)
@@ -220,6 +225,24 @@ class MediaLinkPlan:
     unmatched_metadata_count: int = 0
     disappearing_count: int = 0
     example_values: dict[int, str] = field(default_factory=dict)
+    matched_item_count: int = 0
+    matched_asset_count: int = 0
+    match_columns: dict[tuple[str, int], str] = field(default_factory=dict)
+    example_matches: dict[tuple[str, int], str] = field(default_factory=dict)
+
+    @property
+    def kept_link_count(self) -> int:
+        if self.request.replace_existing:
+            return self.removed_count - self.disappearing_count
+        return self.preserved_count
+
+    @property
+    def added_link_count(self) -> int:
+        return len(self.matches) - (self.kept_link_count if self.request.replace_existing else 0)
+
+    @property
+    def removed_link_count(self) -> int:
+        return self.disappearing_count if self.request.replace_existing else 0
 
 
 @dataclass(frozen=True)

@@ -1,24 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from EmbeddingsArea.domain import MediaContentType, MediaLinkRequest, MediaOperationResult, MediaProgress
+from EmbeddingsArea.domain import MediaContentType, MediaProgress
 from EmbeddingsArea.media_sources import cleanup_media_source_inspection, source_id_for_path
 from EmbeddingsArea.session import EmbeddingsAreaSession
 from AssetsArea.controllers.media_link_dialog_controller import MediaLinkDialogController
 from AssetsArea.controllers.media_source_jobs_controller import MediaSourceJobsController
+from AssetsArea.controllers.media_source_row_controller import MediaSourceRowController
 from AssetsArea import media_service
 from shared.qt.item_views import configure_panel_item_view
 from shared.qt.message_dialogs import show_error
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
-
-
-def _format_count(value: int) -> str:
-    return f"{value:,}".replace(",", ".")
 
 
 class MediaSourcesPanelController(UiPanelController):
@@ -31,9 +27,11 @@ class MediaSourcesPanelController(UiPanelController):
         self._can_create_thumbnails = self._create_thumbnails = self._source_in_use = None
         self._session = None
         self._link_dialog = None
+        self._column_labels = {}
         self._summaries = {}
         self._rows = {}
         self._states = {}
+        self._inspections = {}
         self._pending_registrations = set()
         self._refresh_pending = False
         super().__init__(*args, **kwargs)
@@ -81,12 +79,20 @@ class MediaSourcesPanelController(UiPanelController):
             self._link_dialog.dialog.reject()
         self._jobs.reset()
         self._states.clear()
+        self._inspections.clear()
         self._pending_registrations.clear()
+        self._table.setRowCount(0)
         self._rows.clear()
         self._summaries.clear()
+        self._column_labels.clear()
         self._refresh_pending = False
         super().set_project(project)
-        if project is not None and self._session is None:
+        if project is None:
+            self._session = None
+        elif (
+            self._session is None
+            or self._session.media_repository.database_path != project.paths.media / "media_index.db"
+        ):
             self._session = EmbeddingsAreaSession.for_project(project)
         if self._busy_callback:
             self._busy_callback(False)
@@ -104,12 +110,13 @@ class MediaSourcesPanelController(UiPanelController):
         except Exception as exc:
             self._show_status(f"Media sources could not be loaded: {exc}")
             return
+        self._column_labels.clear()
         self._summaries = {summary.source.id: summary for summary in summaries}
         self._render_summaries(summaries)
 
     def _render_summaries(self, summaries, **_):
         selected = self._selected_source_id()
-        wanted = {summary.source.id for summary in summaries}
+        wanted = {summary.source.id for summary in summaries} | self._inspections.keys()
         # Add/update replacements before removing old or placeholder rows.
         for summary in summaries:
             self._update_source(summary)
@@ -119,7 +126,7 @@ class MediaSourcesPanelController(UiPanelController):
             if source_id not in wanted:
                 self._table.removeRow(row)
                 self._rows.pop(source_id, None)
-        if not summaries:
+        if not wanted:
             self._render_empty("No media sources imported")
         elif selected in wanted:
             self._select_source_row(selected)
@@ -129,81 +136,49 @@ class MediaSourcesPanelController(UiPanelController):
     def _update_source(self, summary):
         source_id = summary.source.id
         self._summaries[source_id] = summary
-        if source_id not in self._rows:
-            row = self._table.rowCount()
-            self._table.insertRow(row)
-            for column in range(self._table.columnCount()):
-                self._table.setItem(row, column, QtWidgets.QTableWidgetItem())
-            item = self._table.item(row, 0)
-            item.setData(QtCore.Qt.ItemDataRole.UserRole, source_id)
-            status = load_ui("AssetsArea", "ui/media_source_status.ui", self._table)
-            self._table.setCellWidget(row, 3, status)
-            self._rows[source_id] = (item, status)
-            status.findChild(QtWidgets.QPushButton, "button_link").clicked.connect(
-                lambda _checked=False, identity=source_id: self._on_link_source(identity))
-            status.findChild(QtWidgets.QPushButton, "button_cancel").clicked.connect(
-                lambda _checked=False, identity=source_id: self._jobs.cancel_source(identity))
-        item, _status = self._rows[source_id]
-        row = item.row()
-        path = str(summary.source.path)
-        for column, text in ((0, summary.source.label), (1, summary.source.content_type.value),
-                             (2, _format_count(summary.asset_count)),
-                             (4, path if len(path)<=120 else "..."+path[-120:])):
-            self._table.item(row, column).setText(text)
-        self._table.item(row, 0).setToolTip(path)
-        self._table.item(row, 4).setToolTip(path)
-        available = max(0, summary.asset_count - summary.missing_count - summary.error_count)
-        self._table.item(row, 2).setToolTip(f"{available:,} available · {summary.missing_count:,} missing · {summary.error_count:,} errors")
+        row = self._ensure_row(source_id)
+        if any(name not in self._column_labels for name in summary.metadata_columns):
+            from MetadataArea.service import MetadataService
+            self._column_labels.update({column.name: column.label for column in
+                MetadataService(self._session.metadata_repository).list_columns()})
+        row.set_summary(summary, self._column_labels)
         self._update_status(source_id)
+
+    def _ensure_row(self, source_id):
+        if source_id not in self._rows:
+            row = MediaSourceRowController(self._table, source_id)
+            self._rows[source_id] = row
+            row.link.clicked.connect(lambda _checked=False: self._on_link_source(row.source_id))
+            row.options.clicked.connect(lambda _checked=False: self._open_source_menu(
+                row.source_id, row.options.mapToGlobal(row.options.rect().bottomLeft())))
+            row.cancel.clicked.connect(lambda _checked=False: self._jobs.cancel_source(row.source_id))
+        return self._rows[source_id]
 
     def _update_status(self, source_id):
         if source_id not in self._rows:
             return
-        _, status = self._rows[source_id]
-        summary = self._summaries[source_id]
+        summary = self._summaries.get(source_id)
         progress, active = self._states.get(source_id, (MediaProgress(""), False))
-        bar = status.findChild(QtWidgets.QProgressBar, "progress_source")
-        label = status.findChild(QtWidgets.QLabel, "label_status")
-        cancel = status.findChild(QtWidgets.QPushButton, "button_cancel")
-        link = status.findChild(QtWidgets.QPushButton, "button_link")
-        bar.setVisible(active)
-        cancel.setVisible(active)
-        cancel.setEnabled(progress.stage not in {"Cancelling", "Saving"})
-        if active:
-            label.setVisible(True)
-            link.setVisible(False)
-            label.setText(progress.stage)
-            if progress.total:
-                bar.setRange(0, 100)
-                bar.setValue(min(99, int(100*progress.completed/progress.total)))
-                bar.setFormat(
-                    f"{_format_count(progress.completed)}/{_format_count(progress.total)}"
-                )
-            else:
-                bar.setRange(0, 0)
-                label.setText(
-                    progress.stage
-                    + (f" · {_format_count(progress.completed)}" if progress.completed else "")
-                )
-        else:
-            has_matches = summary.linked_count > 0
-            label.setVisible(has_matches)
-            link.setVisible(not has_matches)
-            label.setText(
-                "all"
-                if summary.asset_count > 0 and summary.linked_count >= summary.asset_count
-                else f"{_format_count(summary.linked_count)}/{_format_count(summary.asset_count)}"
-            )
+        can_match = False
+        if summary is not None and not active and not self._jobs.busy():
             from project.item_repository import ItemRepository
-            link.setText("Match Items…")
-            link.setToolTip("Optional: match registered files to existing items. Media is already available for embedding runs.")
-            link.setEnabled(summary.asset_count > 0 and not self._jobs.busy()
-                            and ItemRepository.has_items(self._project.paths.metadata_database))
+            can_match = summary.asset_count > 0 and ItemRepository.has_items(self._project.paths.metadata_database)
+        self._rows[source_id].options.setEnabled(summary is not None)
+        self._rows[source_id].set_status(
+            progress, active,
+            has_matches=summary is not None and summary.linked_count > 0,
+            can_match=can_match,
+        )
 
     def _on_job_changed(self, source_id, progress, active):
         if not active and self._jobs.busy(source_id):
             return
-        self._states[source_id] = (progress, active)
+        if not active and source_id in self._inspections:
+            self._inspections.pop(source_id)
+            self._states.pop(source_id, None)
+            self._render_summaries(list(self._summaries.values()))
+        elif source_id in self._rows:
+            self._states[source_id] = (progress, active)
         if not active and source_id in self._pending_registrations:
             self._pending_registrations.discard(source_id)
             self._refresh_pending = True
@@ -264,12 +239,19 @@ class MediaSourcesPanelController(UiPanelController):
         ]
         if path.is_dir() or path.suffix.lower() == ".zip":
             project = self._project
-            source_id = source_id_for_path(path)
+            source_id = "inspection:" + source_id_for_path(path)
+            if self._jobs.busy(source_id):
+                self._select_source_row(source_id)
+                return
+            self._inspections[source_id] = path
+            self._ensure_row(source_id).set_inspection(path)
+            self._render_summaries(list(self._summaries.values()))
+            self._select_source_row(source_id)
             self._jobs.submit(
                 source_id,
-                "Inspecting media",
+                "Inspecting folder…" if path.is_dir() else "Inspecting archive…",
                 lambda progress, cancel: media_service.inspect_source(path, recursive, progress, cancel),
-                lambda inspection: self._on_source_inspected(project, path, recursive, inspection),
+                lambda inspection: self._on_source_inspected(project, path, recursive, inspection, source_id),
                 self._failed,
             )
             return
@@ -288,7 +270,7 @@ class MediaSourcesPanelController(UiPanelController):
         except Exception as exc:
             self._failed(str(exc), False)
 
-    def _on_source_inspected(self, project, path, recursive, inspection):
+    def _on_source_inspected(self, project, path, recursive, inspection, inspection_id):
         if self._project is not project or self._session is None:
             cleanup_media_source_inspection(inspection)
             return
@@ -327,6 +309,12 @@ class MediaSourcesPanelController(UiPanelController):
                 content_type,
                 recursive=recursive,
             )
+            # Keep the visible row and selection through the inspection/indexing handoff.
+            row = self._rows.pop(inspection_id)
+            self._inspections.pop(inspection_id)
+            self._states.pop(inspection_id, None)
+            row.set_source_id(source.id)
+            self._rows[source.id] = row
             self._begin_source_scan(source, inspection=inspection)
         except Exception as exc:
             cleanup_media_source_inspection(inspection)
@@ -363,14 +351,14 @@ class MediaSourcesPanelController(UiPanelController):
     def _on_link_selected_source(self):
         self._on_link_source(self._selected_source_id())
 
-    def _on_link_source(self, source_id, *, relink=False):
+    def _on_link_source(self, source_id):
         if not source_id or not self._session or self._jobs.busy() or self._in_use(source_id):
             self._show_status("Select an available source before matching items.")
             return
         self._select_source_row(source_id)
-        self._prompt_link_dialog(source_id, relink=relink)
+        self._prompt_link_dialog(source_id)
 
-    def _prompt_link_dialog(self, source_id, *, relink=False):
+    def _prompt_link_dialog(self, source_id):
         project = self._project
         links = self._session.media_links
         from project.item_repository import ItemRepository
@@ -383,7 +371,7 @@ class MediaSourcesPanelController(UiPanelController):
             saved_request = replace(saved_request, create_missing=False, table_id="metadata")
         columns = links.list_metadata_columns()
         controller = MediaLinkDialogController(project, self._summaries[source_id].source,
-            columns, saved_request, self._jobs, relink=relink)
+            columns, saved_request, self._jobs)
         self._link_dialog = controller
         try:
             plan = controller.exec()
@@ -405,13 +393,7 @@ class MediaSourcesPanelController(UiPanelController):
         self._jobs.shutdown()
 
     def _configure_table_columns(self) -> None:
-        header = self._table.horizontalHeader()
-        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Interactive)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        self._table.setColumnWidth(0, 200)
+        self._table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
 
     def _choose_media_file_path(self) -> Path | None:
         file_path, _filter = QtWidgets.QFileDialog.getOpenFileName(
@@ -539,19 +521,18 @@ class MediaSourcesPanelController(UiPanelController):
             return
         source_item = self._table.item(item.row(), 0)
         source_id = str(source_item.data(QtCore.Qt.ItemDataRole.UserRole) or "").strip()
-        if not source_id:
+        self._open_source_menu(source_id, self._table.viewport().mapToGlobal(position))
+
+    def _open_source_menu(self, source_id, global_position):
+        if source_id not in self._summaries:
             return
-        self._table.setCurrentCell(item.row(), 0)
+        self._select_source_row(source_id)
         can_create = not self._in_use(source_id) and self._can_create_thumbnails is not None and self._can_create_thumbnails(source_id)
         menu = QtWidgets.QMenu(self._widget)
-        action_link = menu.addAction("Match Items…")
+        action_link = menu.addAction("Relink..." if self._summaries[source_id].linked_count else "Link...")
         from project.item_repository import ItemRepository
         action_link.setEnabled(not self._jobs.busy() and not self._in_use(source_id)
                                and ItemRepository.has_items(self._project.paths.metadata_database))
-        action_relink = menu.addAction("Relink…")
-        action_relink.setEnabled(
-            action_link.isEnabled() and self._summaries[source_id].linked_count > 0
-        )
         menu.addSeparator()
         action_thumbnails = menu.addAction("Make Thumbnails…")
         action_thumbnails.setEnabled(can_create)
@@ -568,11 +549,9 @@ class MediaSourcesPanelController(UiPanelController):
         if self._jobs.busy() or self._in_use(source_id):
             action_remove.setEnabled(False)
             action_remove.setToolTip("This source is used by a queued or running process.")
-        selected = self._exec_row_context_menu(menu, self._table.viewport().mapToGlobal(position))
+        selected = self._exec_row_context_menu(menu, global_position)
         if selected == action_link:
             self._on_link_source(source_id)
-        elif selected == action_relink:
-            self._on_link_source(source_id, relink=True)
         elif selected == action_thumbnails and self._create_thumbnails is not None:
             self._create_thumbnails(source_id)
         elif selected == action_locate:
@@ -605,6 +584,7 @@ class MediaSourcesPanelController(UiPanelController):
 
     def _render_empty(self, text: str) -> None:
         self._table.setRowCount(0)
+        self._rows.clear()
         self._table.insertRow(0)
         item = QtWidgets.QTableWidgetItem(text)
         item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsSelectable & ~QtCore.Qt.ItemFlag.ItemIsEnabled)

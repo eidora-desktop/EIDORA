@@ -4,6 +4,26 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Show linked/total media counts beside source status icons combined with the media type; tighten Metadata tabs while retaining complete scrolling labels.
+
+- Place media-source and Metadata-tab status icons after their labels; show a red question mark for unlinked media and retain linked-column tooltips.
+
+- Show a fixed-width disabled “linked” label for linked media sources, show their link icon beside the name, and offer Relink... in source options.
+
+- Standardize Media Sources, Models, and Vector Data options on Snapshot-style 22-pixel toolbuttons, with matching Link... and Run... actions; use standard pushbutton heights and 6-pixel gaps.
+
+- Compact Media Sources to two-line rows, with source details above the path and Link/status beside the top-right options button.
+
+- Consolidate media matching into Link… with an explicit replacement checkbox and added, kept, and removed link counts.
+
+- Match media folders against multiple metadata columns and filename lists, allowing several assets per Item with saved column selections and complete Source previews.
+
+- Label the Media Sources linking pushbutton and context-menu action “Link...” to match the Metadata workflow.
+
+- Index ordinary media folders with one inspection stage, reuse captured file statistics, and avoid repeated per-file path resolution while retaining transactional publication.
+
+- Give Media Sources full-width rows with separate progress, show cancellable folder/archive inspection immediately, and prevent duplicate rows when switching projects.
+
 - Limit item previews to a shared common-format contract, including MPEG, and require packaged playback audits on every release target. Check WAV variants, default/software video decoding, source switching and per-case diagnostics without adding runtime libraries; distinguish decoding success from audible-device QA.
 
 - Load audio metadata when selecting an item preview so duration and seeking are available before playback starts.

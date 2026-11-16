@@ -11,12 +11,13 @@ from shared.qt.widgets import require_child
 
 
 class _MetadataTabStyle(QtWidgets.QProxyStyle):
-    """Keep tab labels close to their icons without replacing native tab painting."""
+    """Tighten the status-icon gap without reducing the text rectangle."""
 
-    def drawItemText(self, painter, rect, flags, palette, enabled, text, text_role=QtGui.QPalette.ColorRole.NoRole):
-        # This proxy is scoped to the tab bar. Reduce Qt's icon-to-label gap.
-        offset = 4 if self.parent().layoutDirection() == QtCore.Qt.LayoutDirection.RightToLeft else -4
-        super().drawItemText(painter, rect.translated(offset, 0), flags, palette, enabled, text, text_role)
+    def drawItemText(self, painter, rect, flags, palette, enabled, text,
+                     text_role=QtGui.QPalette.ColorRole.NoRole):
+        offset = -4 if self.parent().layoutDirection() == QtCore.Qt.LayoutDirection.RightToLeft else 4
+        super().drawItemText(painter, rect.translated(offset, 0), flags, palette,
+                             enabled, text, text_role)
 
 
 class MetadataTablesPanelController(QtCore.QObject):
@@ -29,6 +30,9 @@ class MetadataTablesPanelController(QtCore.QObject):
         self._tab_style = _MetadataTabStyle()
         self._tab_style.setParent(self.tabs.tabBar())
         self.tabs.tabBar().setStyle(self._tab_style)
+        self.tabs.tabBar().setExpanding(False)
+        self.tabs.tabBar().setElideMode(QtCore.Qt.TextElideMode.ElideNone)
+        self.tabs.tabBar().setUsesScrollButtons(True)
         QtWidgets.QApplication.instance().paletteChanged.connect(self._refresh_tab_icons)
         self.content = require_child(self.widget, QtWidgets.QFrame, 'panel_metadata_table')
         self.first_page = require_child(self.widget, QtWidgets.QWidget, 'page_metadata_table')
@@ -52,10 +56,20 @@ class MetadataTablesPanelController(QtCore.QObject):
                     icon.addPixmap(pixmap, mode, state)
             icons.append(icon)
         items, linked, unlinked = icons
-        self.tabs.setTabIcon(0, items)
-        for index in range(1, self.tabs.count()):
-            table_id = self.tabs.tabBar().tabData(index)
-            self.tabs.setTabIcon(index, linked if table_id in self._linked_table_ids else unlinked)
+        bar = self.tabs.tabBar()
+        for index in range(self.tabs.count()):
+            table_id = bar.tabData(index)
+            icon = items if index == 0 else linked if table_id in self._linked_table_ids else unlinked
+            self.tabs.setTabIcon(index, QtGui.QIcon())
+            label = bar.tabButton(index, QtWidgets.QTabBar.ButtonPosition.RightSide)
+            if label is None:
+                label = QtWidgets.QLabel(bar)
+                label.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+                label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+                bar.setTabButton(index, QtWidgets.QTabBar.ButtonPosition.RightSide, label)
+            label.setFixedSize(size)
+            label.setPixmap(icon.pixmap(size))
+            label.setToolTip(self.tabs.tabToolTip(index))
 
     def _open_links(self):
         self._run(self._link_tables)

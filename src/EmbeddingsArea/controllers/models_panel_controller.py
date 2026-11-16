@@ -324,17 +324,24 @@ class LocalModelsPanelController(_BaseModelsPanelController):
         panel = QtWidgets.QWidget(self._widget)
         layout = QtWidgets.QHBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(6)
 
         executable = installed.descriptor.package_status == "ready"
-        run_button = QtWidgets.QPushButton("run" if executable else "requires repackaging", panel)
+        run_button = QtWidgets.QPushButton(panel)
+        run_button.setText("Run..." if executable else "requires repackaging")
+        run_button.setAutoDefault(False)
         run_button.setEnabled(executable)
         if not executable:
             run_button.setToolTip("This legacy model package must be repackaged with the EIDORA schema v3 contract.")
         run_button.clicked.connect(lambda: self._on_run_installed_model(installed))
         layout.addWidget(run_button)
 
-        more_button = QtWidgets.QPushButton("more", panel)
+        more_button = QtWidgets.QPushButton(panel)
+        more_button.setText("...")
+        more_button.setFixedWidth(22)
+        more_button.setAutoDefault(False)
+        more_button.setToolTip("Model options")
+        more_button.setAccessibleName("Model options")
         more_button.clicked.connect(lambda: self._open_local_more_menu(installed, more_button))
         layout.addWidget(more_button)
         layout.addStretch(1)

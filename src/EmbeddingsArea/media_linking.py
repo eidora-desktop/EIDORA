@@ -45,7 +45,7 @@ def build_media_link_plan(request, metadata_values, assets, existing_links, *, s
                 progress(MediaProgress("Reading metadata", index, len(metadata_values)))
         value = match_value(raw, request, record=True)
         if value:
-            by_value.setdefault(value, []).append(int(row_id))
+            by_value.setdefault(value, set()).add(int(row_id))
     records = []
     counts = Counter()
     for index, (asset_id, raw) in enumerate(assets):
@@ -75,7 +75,7 @@ def build_media_link_plan(request, metadata_values, assets, existing_links, *, s
             _check_cancel(should_cancel)
             if progress:
                 progress(MediaProgress("Matching", index, len(records)))
-        row_ids = by_value.get(key, [])
+        row_ids = sorted(by_value.get(key, ()))
         row_id = row_ids[0] if row_ids else None
         if not request.replace_existing and not row_ids and asset_id in old_by_asset:
             for identity in old_by_asset[asset_id]:
@@ -86,15 +86,11 @@ def build_media_link_plan(request, metadata_values, assets, existing_links, *, s
             sample("unmatched", raw, None, "Blank identifier")
         elif counts[key] > 1:
             ambiguous += 1
-            sample("ambiguous", raw, row_id, "Duplicate key or metadata row already linked")
+            sample("ambiguous", raw, row_id, "Duplicate media key")
         elif row_id is not None:
             for identity in row_ids:
                 if not request.replace_existing and (asset_id, identity) in old_pairs:
                     sample("matched", raw, identity, "Already linked")
-                    continue
-                if not request.replace_existing and identity in occupied:
-                    ambiguous += 1
-                    sample("ambiguous", raw, identity, "Record already linked to another source asset")
                     continue
                 matches.append((asset_id, identity, key))
                 sample("matched", raw, identity, "Link")
@@ -109,13 +105,19 @@ def build_media_link_plan(request, metadata_values, assets, existing_links, *, s
     removed = len(existing_links) if request.replace_existing else 0
     covered_rows = occupied | {row_id for _, row_id, _ in matches}
     sampled_ids = {row_id for rows in examples.values() for _, row_id, _ in rows if row_id is not None}
-    example_values = {row_id: str(raw) for row_id, raw in metadata_values if row_id in sampled_ids}
+    example_keys = {}
+    for row_id, raw in metadata_values:
+        if row_id in sampled_ids and raw:
+            example_keys.setdefault(row_id, {})[str(raw)] = None
+    example_values = {row_id: "; ".join(keys) for row_id, keys in example_keys.items()}
     return MediaLinkPlan(request, source_revision, metadata_revision, tuple(matches), tuple(new_rows),
                          preserved, removed, unmatched, ambiguous, blank,
                          {kind: tuple(rows) for kind, rows in examples.items()},
-                         max(0, len(metadata_values) - len(covered_rows)),
+                         max(0, len({row for row, _ in metadata_values}) - len(covered_rows)),
                          len(set(existing_links) - {(asset, row) for asset, row, _ in matches}) if request.replace_existing else 0,
-                         example_values)
+                         example_values, len(covered_rows),
+                         len({asset for asset, _ in old_pairs} | {asset for asset, _, _ in matches})
+                         if not request.replace_existing else len({asset for asset, _, _ in matches}))
 
 
 class MediaLinkService:
@@ -151,10 +153,16 @@ class MediaLinkService:
                 cell = cells.get(identity)
                 keys = {str(value) for record in cell.records for value in scalar_values(record.value)
                         if value is not None and str(value).strip()} if cell else set()
-                # Shared metadata may contain several candidate keys; do not guess.
-                values.append((identity, next(iter(keys)) if len(keys) == 1 else ""))
+                explicit_list = cell and len(cell.records) == 1 and isinstance(cell.records[0].value, list)
+                if len(keys) == 1 or explicit_list:
+                    values.extend((identity, key) for key in (sorted(keys) or [""]))
+                else:
+                    values.append((identity, ""))
         else:
-            values = self._metadata_repository.column_items(column, should_cancel=should_cancel)
+            from MetadataArea.values import scalar_values
+            values = [(identity, key) for identity, value in
+                      self._metadata_repository.column_items(column, should_cancel=should_cancel)
+                      for key in (tuple(scalar_values(value)) or ("",))]
         return values
 
     def suggest_plan(self, source_id, *, replace_existing=False, progress=None, should_cancel=None):
@@ -199,20 +207,38 @@ class MediaLinkService:
 
     def preview_plan(self, request: MediaLinkRequest, *, progress=None, should_cancel=None):
         _check_cancel(should_cancel)
-        if request.metadata_column not in self.list_metadata_columns():
+        if not request.selected_columns or not set(request.selected_columns) <= set(self.list_metadata_columns()):
             raise ValueError("Choose an existing metadata column.")
         source = self._media_repository.get_source(request.source_id)
         if source is None:
             raise ValueError("This media source no longer exists.")
         revision = self._metadata_repository.revision()
-        values = self._metadata_values(request.metadata_column, should_cancel)
+        values = []
+        columns_by_key = {}
+        original_values = {}
+        for column in request.selected_columns:
+            column_values = self._metadata_values(column, should_cancel)
+            values.extend(column_values)
+            for identity, value in column_values:
+                key = (identity, match_value(value, request, record=True))
+                columns_by_key.setdefault(key, column)
+                original_values.setdefault(key, str(value))
         plan = build_media_link_plan(
             request, values, self._link_repository.matching_records(request.source_id, request.source_field, should_cancel),
             self._link_repository.linked_pairs(request.source_id), source_revision=source.source_revision,
             metadata_revision=revision, progress=progress, should_cancel=should_cancel,
         )
         self._check_revision(source, revision)
-        return plan
+        example_matches = {}
+        for raw, identity, _ in plan.examples["matched"]:
+            key = (identity, match_value(raw, request))
+            if key in original_values:
+                label = f"{columns_by_key[key]}: " if len(request.selected_columns) > 1 else ""
+                example_matches[(raw, identity)] = label + original_values[key]
+        return replace(plan, example_matches=example_matches, match_columns={
+            (asset, identity): columns_by_key[(identity, key)]
+            for asset, identity, key in plan.matches
+        })
 
     def apply_plan(self, plan, *, progress=None, should_cancel=None):
         _check_cancel(should_cancel)
