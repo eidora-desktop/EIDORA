@@ -354,6 +354,25 @@ class MetadataRepository:
             )
         return metadata_rows
 
+    def fetch_row(self, metadata_id: int) -> MetadataRow | None:
+        """Read one canonical row by primary key, without scanning preceding rows."""
+        columns = [column.name for column in self.list_columns()]
+        if not columns:
+            return None
+        select_sql = ", ".join(self._quote_identifier(column) for column in columns)
+        with closing(self._connect()) as connection:
+            raw_row = connection.execute(
+                f"SELECT {select_sql} FROM {self.sql_table} WHERE id = ?",
+                (int(metadata_id),),
+            ).fetchone()
+        if raw_row is None:
+            return None
+        values = dict(zip(columns, raw_row, strict=True))
+        return MetadataRow(
+            id=int(values.pop("id")),
+            values={key: decode_value(value) for key, value in values.items()},
+        )
+
     def iter_rows(self) -> Iterator[MetadataRow]:
         """Yield canonical metadata rows without materializing the table."""
 

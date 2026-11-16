@@ -213,7 +213,15 @@ class MetadataService:
         offset: int = 0,
     ) -> list[MetadataRow]:
         rows = self._repository.fetch_rows(order_by=order_by, descending=descending, limit=limit, offset=offset)
-        if self._repository.table_id != 'metadata':
+        return self._resolve_rows(rows)
+
+    def fetch_row(self, metadata_id: int) -> MetadataRow | None:
+        """Return the same resolved values as Items for one permanent item ID."""
+        row = self._repository.fetch_row(metadata_id)
+        return self._resolve_rows([row])[0] if row is not None else None
+
+    def _resolve_rows(self, rows: list[MetadataRow]) -> list[MetadataRow]:
+        if not rows or self._repository.table_id != 'metadata':
             return rows
         from MetadataArea.related_fields import discovery_columns
         from MetadataArea.resolution import resolve_overview_fields

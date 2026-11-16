@@ -2129,23 +2129,10 @@ class DiscoveryAreaController:
         self._open_metadata_callback = callback
 
     def _selection_actions_dialog_data(self, metadata_id: int) -> SelectionActionsDialogData:
-        columns = self._metadata_columns()
-        requested = {column for column in columns if column != "id"}
-        metadata_text, _numeric = self._metadata_values_for_ids(
-            np.asarray([int(metadata_id)], dtype=np.int64),
-            columns=requested,
-            numeric_columns=set(),
-            display=True,
+        rows = (
+            self._service.item_metadata_rows(self._project, int(metadata_id))
+            if self._project is not None else (("ID", str(metadata_id)),)
         )
-        rows: list[tuple[str, str]] = []
-        for column in columns:
-            if column == "id":
-                rows.append(("ID", str(metadata_id)))
-                continue
-            values = metadata_text.get(column)
-            rows.append((column, "" if values is None or values.size == 0 else str(values[0])))
-        if not any(column == "id" for column in columns):
-            rows.insert(0, ("ID", str(metadata_id)))
         panel = self._panel(LayersSettingPanelController)
         display = panel.pin_display_settings_payload() if panel is not None else {}
         variants = self._service.list_thumbnail_variants(self._project) if self._project is not None else []

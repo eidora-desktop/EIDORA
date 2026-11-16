@@ -1060,12 +1060,13 @@ class SelectionActionsDialogController:
         metadata_tree.setTextElideMode(QtCore.Qt.TextElideMode.ElideRight)
         metadata_tree.header().setSectionResizeMode(
             0,
-            QtWidgets.QHeaderView.ResizeMode.ResizeToContents,
+            QtWidgets.QHeaderView.ResizeMode.Interactive,
         )
         metadata_tree.header().setSectionResizeMode(
             1,
             QtWidgets.QHeaderView.ResizeMode.Stretch,
         )
+        metadata_tree.setColumnWidth(0, min(240, max(120, dialog.width() // 3)))
         for field, value in data.metadata_rows:
             field_text = str(field)
             value_text = str(value)

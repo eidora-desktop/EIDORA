@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Match Discovery item previews to the selected Items row, using readable column names and the same linked values; keep values visible beside long field names.
+
 - Show linked/total media counts beside source status icons combined with the media type; tighten Metadata tabs while retaining complete scrolling labels.
 
 - Place media-source and Metadata-tab status icons after their labels; show a red question mark for unlinked media and retain linked-column tooltips.

@@ -102,6 +102,23 @@ class DiscoveryService:
         ).linked_assets_for_metadata_ids([int(metadata_id)])
         return assets.get(int(metadata_id))
 
+    def item_metadata_rows(self, project: "Project", metadata_id: int) -> tuple[tuple[str, str], ...]:
+        """Mirror the Items row, including its labels, order and linked values."""
+        from MetadataArea.service import MetadataService
+        from MetadataArea.values import display_value
+
+        metadata = MetadataService(MetadataRepository(
+            project.paths.metadata_database, project.paths.metadata_columns,
+        ))
+        row = metadata.fetch_row(metadata_id)
+        if row is None:
+            return ()
+        return tuple(
+            ("ID" if column.name == "id" else column.label,
+             str(row.id) if column.name == "id" else display_value(row.values.get(column.name, "")))
+            for column in metadata.list_columns()
+        )
+
     def item_media_sources(self, project: "Project", metadata_id: int) -> tuple[ItemMediaSource, ...]:
         """List all linked files with catalog labels, keeping the usual preview first."""
         repository = MediaRepository(project.paths.media / "media_index.db")

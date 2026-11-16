@@ -58,6 +58,11 @@ for longer values. Text wraps within a maximum 360 px section, including URLs
 and identifiers without spaces. Short tooltips remain compact; thumbnail size
 and placement are independent. Full metadata stays unchanged.
 
+Individual-item dialogs show the selected permanent item's metadata through the
+Items service: the same column labels, order, and resolved linked values, without
+Discovery-only mapping fields. The row is fetched by primary key. The field-name
+column starts at a bounded width and is resizable; tooltips retain full contents.
+
 Individual-item dialogs offer named media sources with separate image, video,
 audio, and read-only text views. The selector includes only file extensions
 in the common-format contract in `media_preview_service.py`, shared with the
