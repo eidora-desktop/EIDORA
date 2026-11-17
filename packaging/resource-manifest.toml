@@ -84,6 +84,7 @@ modules = [
   "EmbeddingsArea.runtime.process_runner",
   "EmbeddingsArea.runtime.package_validation",
   "FiguresArea.animation_gif_worker",
+  "FiguresArea.preview_worker",
   "av",
   "matplotlib.backends.backend_agg",
   "matplotlib.backends.backend_pdf",

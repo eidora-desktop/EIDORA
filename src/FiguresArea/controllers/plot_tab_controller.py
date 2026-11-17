@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Callable
+from concurrent.futures import Future
 import copy
-from contextlib import closing
 from dataclasses import dataclass, field
 import json
 import math
 from pathlib import Path
-import sqlite3
 from typing import Any, TYPE_CHECKING
 
 from shared.plot_fonts import initialize_plot_fonts
@@ -31,18 +29,18 @@ from FiguresArea.domain import (
     PlotCell,
 )
 from FiguresArea.controllers.figure_preview_adapter import FigurePreviewAdapter
+from FiguresArea.controllers.preview_memory import PreviewMemoryBudget
+from FiguresArea.cache_budget import FigureCacheBudgets
+from FiguresArea.controllers.preview_coordinator import FigurePreviewCoordinator
+from FiguresArea.composition_service import snapshot_composition, preview_needs_worker
+from FiguresArea.work_service import FigureWorkService
+from FiguresArea.snapshot_service import FigureSnapshotService
+from FiguresArea.transform_service import FigureTransformService, reanchor_pins
 from FiguresArea.controllers.transform_coordinator import FigureTransformCoordinator
 from FiguresArea.renderer import FigureLayoutMap, FigureMatplotlibRenderer
 from FiguresArea.template_settings import default_plot_settings
 from DiscoveryArea.presets_repository import PresetRepository
 from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
-from DiscoveryArea.transforms import (
-    TransformResult,
-    TransformSettings,
-    source_fingerprint,
-    transform_coordinates,
-)
-from DiscoveryArea.thumbnails.resolver import ThumbnailResolver
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
@@ -63,6 +61,8 @@ class _PlotCell:
     settings_button: QtWidgets.QToolButton | None = None
     preset_panel: QtWidgets.QFrame | None = None
     preset_combos: dict[str, QtWidgets.QWidget] = field(default_factory=dict)
+    overlay_signature: tuple | None = None
+    preset_signature: tuple | None = None
 
 
 @dataclass
@@ -76,8 +76,21 @@ class _PinDragState:
     point_data: tuple[float, float]
 
 
+@dataclass
+class _PendingPlotLoad:
+    future: Future
+    target: PlotCell
+    path: Path
+    overrides: dict | None = None
+    announce: bool = True
+    projection: bool = False
+    label: str | None = None
+
+
 class PlotTabController(QtCore.QObject):
     """Controller for one figure plot tab with one authoritative Matplotlib canvas."""
+
+    measurements_changed = QtCore.Signal()
 
     _ADD_BUTTON_SIZE = 28
     _GLOBAL_ADD_BUTTON_HEIGHT = 32
@@ -96,15 +109,31 @@ class PlotTabController(QtCore.QObject):
         state_changed_callback: Callable[[], None] | None = None,
         plot_edit_callback: Callable[[dict[str, Any]], None] | None = None,
         activity_manager: ActivityManager | None = None,
+        work_service: FigureWorkService | None = None,
+        defer_render: bool = False,
+        preview_memory: PreviewMemoryBudget | None = None,
+        cache_budgets: FigureCacheBudgets | None = None,
     ) -> None:
         super().__init__(parent)
+        self._cache_budgets = cache_budgets or FigureCacheBudgets()
         self._project = project
         self._project_root = project_root
+        self._snapshot_service = FigureSnapshotService(project, project_root, transform_cache=self._cache_budgets.transforms)
+        self._transform_service = FigureTransformService(self._snapshot_service, cache=self._cache_budgets.transforms)
         self._status_callback = status_callback
         self._selection_callback = selection_callback
         self._state_changed_callback = state_changed_callback
         self._plot_edit_callback = plot_edit_callback
         self._activity_manager = activity_manager
+        self._owns_work_service = work_service is None
+        self._work_service = work_service or FigureWorkService(project_root / "state" if project_root else None)
+        self._defer_render = defer_render
+        self._render_dirty = False
+        self._preview_memory = preview_memory or PreviewMemoryBudget()
+        self._disposed = False
+        self.measurement_revision = 0
+        self._preview_pending = False
+        self._preview_activity = None
         self._discovery_method_catalog = DiscoveryMethodCatalog()
         self._plot_settings = self._default_settings_for_figure_kind(figure_kind)
         self._composition = FigureComposition(settings=self._plot_settings)
@@ -112,6 +141,17 @@ class PlotTabController(QtCore.QObject):
         self._sync_parameter_elements()
         self._renderer = FigureMatplotlibRenderer()
         self._widget = load_ui("FiguresArea", "ui/plot_base_layout.ui", parent)
+        self._preview_coordinator = FigurePreviewCoordinator(
+            self._work_service, self._widget, image_base=lambda: self._preview.frame_id,
+        )
+        self._preview_coordinator.ready.connect(self._preview_ready)
+        self._preview_coordinator.published.connect(self._adopt_preview_datasets)
+        self._preview_coordinator.set_active(not defer_render)
+        self._preview_coordinator.failed.connect(self._preview_failed)
+        self._snapshot_jobs: dict[tuple[int, int], _PendingPlotLoad] = {}
+        self._snapshot_timer = QtCore.QTimer(self._widget)
+        self._snapshot_timer.setInterval(25)
+        self._snapshot_timer.timeout.connect(self._poll_snapshot_jobs)
         self._plot_viewport = require_child(self._widget, QtWidgets.QWidget, "plot_viewport")
         self._canvas_host = require_child(self._widget, QtWidgets.QWidget, "matplotlib_canvas_host")
         self._overlay = require_child(self._widget, QtWidgets.QWidget, "plot_interaction_overlay")
@@ -130,7 +170,7 @@ class PlotTabController(QtCore.QObject):
         self._transform_coordinator.failed.connect(self._figure_transform_failed)
         self._transform_coordinator.cancelled.connect(self._figure_transform_cancelled)
         self._pending_transform: dict[str, Any] | None = None
-        self._transform_cache: OrderedDict[tuple[object, ...], TransformResult] = OrderedDict()
+        self._transform_activity = None
         self._active_preset_control_cell: tuple[int, int] | None = None
         self._layout_map = FigureLayoutMap(canvas_size_px=(1, 1))
         self._preview_scale = 1.0
@@ -172,14 +212,28 @@ class PlotTabController(QtCore.QObject):
         return self._plot_area
 
     def set_project(self, project: Any | None) -> None:
-        self._transform_coordinator.cancel_pending()
+        self._cancel_snapshot_jobs()
+        self._preview_coordinator.cancel()
+        self._cancel_transform()
         self._pending_transform = None
         self._project = project
         self._project_root = project.root if project is not None else None
-        self._transform_cache.clear()
+        self._snapshot_service = FigureSnapshotService(project, self._project_root, transform_cache=self._cache_budgets.transforms)
+        self._transform_service = FigureTransformService(self._snapshot_service, cache=self._cache_budgets.transforms)
 
     def shutdown(self) -> None:
-        self._transform_coordinator.cancel_pending()
+        self._disposed = True
+        self._cancel_snapshot_jobs()
+        self._snapshot_timer.stop()
+        self._preview_coordinator.shutdown()
+        self._preview_memory.activate(self._preview)
+        self._preview.clear()
+        self._release_render_canvas()
+        self._finish_preview_activity()
+        if self._owns_work_service:
+            self._work_service.shutdown()
+        self._cancel_transform()
+        self._transform_coordinator.shutdown()
         self._pending_transform = None
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
@@ -300,6 +354,12 @@ class PlotTabController(QtCore.QObject):
     ) -> None:
         self._renderer.export(self._composition, path, progress_callback=progress_callback)
 
+    def export_figure_async(self, path: Path):
+        composition = snapshot_composition(self._composition)
+        if not preview_needs_worker(composition):
+            return None
+        return self._work_service.preview(composition, destination=path)
+
     def render_animation_frame(self, frame: SnapshotAnimationFrame) -> bool:
         """Render one animation frame into the authoritative preview canvas."""
 
@@ -321,29 +381,21 @@ class PlotTabController(QtCore.QObject):
     ) -> bool:
         """Render a generated slicer frame into the authoritative preview."""
 
-        try:
-            prepared = self._prepare_slicer_animation_plot_cell(
-                frame, Path(base_snapshot_path)
-            )
-        except ValueError as error:
-            self._show_status(str(error))
-            return False
-        plot_cell = self._composition.plot_cells.get((0, 0))
-        if plot_cell is None:
-            plot_cell = self._composition.add_plot_cell(0, 0)
-        self._apply_plot_overrides(prepared, frame.plot_overrides)
-        self._apply_prepared_snapshot(plot_cell, prepared)
-        self._update_subtitle_text_for_cell((0, 0))
-        self._redraw_figure()
-        return True
+        overrides = copy.deepcopy(frame.plot_overrides)
+        overrides.setdefault('state', {})['slicer_selection'] = {
+            'column': frame.column, 'values': list(frame.active_values)}
+        return self._render_snapshot(Path(base_snapshot_path), announce=False, plot_overrides=overrides, label=frame.label)
+
+    def export_animation_frame_async(self, frame, destination, base_path=None):
+        return self._work_service.export_frame(self._snapshot_service,
+            snapshot_composition(self._composition), copy.deepcopy(frame), base_path, Path(destination))
 
     def export_animation_frame_png(
         self, frame: SnapshotAnimationFrame, destination: Path
     ) -> None:
         """Render one full-quality animation frame without changing the preview."""
 
-        prepared = self._prepare_snapshot_plot_cell(Path(frame.snapshot_path))
-        self._apply_plot_overrides(prepared, frame.plot_overrides)
+        prepared = self._snapshot_service.prepare_with_overrides(Path(frame.snapshot_path), frame.plot_overrides)
         composition = copy.deepcopy(self._composition)
         plot_cell = composition.plot_cells.get((0, 0))
         if plot_cell is None:
@@ -368,7 +420,6 @@ class PlotTabController(QtCore.QObject):
         prepared = self._prepare_slicer_animation_plot_cell(
             frame, Path(base_snapshot_path)
         )
-        self._apply_plot_overrides(prepared, frame.plot_overrides)
         composition = copy.deepcopy(self._composition)
         plot_cell = composition.plot_cells.get((0, 0))
         if plot_cell is None:
@@ -385,10 +436,34 @@ class PlotTabController(QtCore.QObject):
     def figure_settings(self) -> FigurePlotSettings:
         return self._composition.settings
 
+    def figure_measurements(self):
+        return self._layout_map.plot_measurements
+
+    def figure_size_overrides(self):
+        from FiguresArea.measurements import size_override_payload
+        return size_override_payload(self._composition)
+
+    def restore_size_overrides(self, payload):
+        from FiguresArea.measurements import restore_size_overrides
+        restore_size_overrides(self._composition, payload)
+        self._redraw_figure()
+
+    def prepare_measurement_edit(self, values, selected_cell=None):
+        return self._work_service.prepare_measurements(self._composition, values, selected_cell)
+
+    def apply_measurement_overrides(self, overrides):
+        for key, values in overrides.items():
+            cell = self._composition.plot_cells.get(tuple(key))
+            if cell is not None:
+                cell.size_overrides = dict(values)
+        self._redraw_figure()
+
     def figure_composition(self) -> FigureComposition:
         return self._composition
 
     def apply_figure_composition(self, composition: FigureComposition) -> None:
+        from FiguresArea.page_layout import migrate_page_dimensions
+        composition = migrate_page_dimensions(composition)
         self._composition = composition
         self._plot_settings = composition.settings
         self._sync_composition_grid()
@@ -396,29 +471,66 @@ class PlotTabController(QtCore.QObject):
         self._redraw_figure(show_activity=False)
 
     def activate(self) -> None:
+        self._preview_coordinator.set_active(True)
+        # Presets can be saved or renamed while this view is inactive.
+        active = self._plot_cells.get(self._active_preset_control_cell)
+        if active is not None:
+            active.preset_signature = None
+        self._preview_memory.activate(self._preview)
+        self._defer_render = False
+        if self._render_dirty or (self._preview.source_size_px() == (0, 0) and not self._preview_pending):
+            self._redraw_figure(show_activity=False, notify_state=False)
         self._apply_preview_scale(force=True)
+
+    def deactivate(self) -> None:
+        self._preview_coordinator.set_active(False)
+        self._defer_render = True
+        if self._preview_pending:
+            self._render_dirty = True
+        # Let an in-flight publication deliver durable dataset references; its
+        # hidden image is discarded in _preview_ready without retaining pixels.
+        self._preview_pending = False
+        self._finish_preview_activity()
+        self._release_render_canvas()
+        self._preview_memory.deactivate(self._preview)
+
+    def _release_render_canvas(self) -> None:
+        if self._canvas is not None:
+            self._canvas.figure.clear()
+            self._canvas.setParent(None)
+            self._canvas.deleteLater()
+            self._canvas = None
 
     def apply_figure_settings(
         self,
         settings: FigurePlotSettings,
         *,
         progress_callback: Callable[[str, int], None] | None = None,
+        defer_legacy_migration: bool = False,
     ) -> None:
         if progress_callback is not None:
             progress_callback("Updating figure layout…", 10)
+        from FiguresArea.composition_service import clear_inherited_bands
+        settings = clear_inherited_bands(self._composition.settings, settings)
         self._plot_settings = settings
         self._composition.settings = settings
         self._sync_composition_grid()
         self._sync_parameter_elements()
+        if settings.layout_version < 2 and not defer_legacy_migration:
+            from FiguresArea.page_layout import migrate_page_dimensions
+            self._composition = migrate_page_dimensions(self._composition)
+            self._plot_settings = self._composition.settings
         if progress_callback is not None:
             progress_callback("Rendering figure preview…", 30)
         self._redraw_figure(show_activity=progress_callback is None)
-        if progress_callback is not None:
+        if progress_callback is not None and not self._preview_pending:
             progress_callback("Finalizing figure preview…", 90)
-        self._show_status("Applied figure settings.")
+        self._show_status(getattr(self, "_layout_error", None) or (
+            "Updating figure preview…" if self._preview_pending else "Applied figure settings."
+        ))
         if self._state_changed_callback is not None:
             self._state_changed_callback()
-        if progress_callback is not None:
+        if progress_callback is not None and not self._preview_pending:
             progress_callback("Figure settings applied", 100)
 
     def _sync_composition_grid(self) -> None:
@@ -440,6 +552,7 @@ class PlotTabController(QtCore.QObject):
             for cell in sorted(desired):
                 if cell not in self._plot_cells:
                     self._plot_cells[cell] = self._create_plot_overlay_cell(cell, is_main=cell == (0, 0))
+            self._plot_area = self._plot_cells[(0, 0)].drop_target
 
     def _sync_parameter_elements(self) -> None:
         settings = self._composition.settings
@@ -476,6 +589,8 @@ class PlotTabController(QtCore.QObject):
         desired_ids: set[str] = set()
         if settings.subtitle_show:
             for cell in sorted(self._composition.plot_cells):
+                if self._composition.plot_cells[cell].reserved_only:
+                    continue
                 element_id = f"{prefix}{cell[0]}_{cell[1]}"
                 desired_ids.add(element_id)
                 element = self._composition.figure_elements.get(element_id)
@@ -527,6 +642,8 @@ class PlotTabController(QtCore.QObject):
                 element.font_size = float(settings.legend_font_size)
             else:
                 for cell in sorted(self._composition.plot_cells):
+                    if self._composition.plot_cells[cell].reserved_only:
+                        continue
                     element_id = f"{prefix}{cell[0]}_{cell[1]}"
                     desired_ids.add(element_id)
                     element = self._composition.figure_elements.get(element_id)
@@ -581,6 +698,8 @@ class PlotTabController(QtCore.QObject):
         desired_ids: set[str] = set()
         if settings.subplot_caption_show:
             for cell in sorted(self._composition.plot_cells):
+                if self._composition.plot_cells[cell].reserved_only:
+                    continue
                 element_id = f"{prefix}{cell[0]}_{cell[1]}"
                 desired_ids.add(element_id)
                 element = self._composition.figure_elements.get(element_id)
@@ -615,6 +734,8 @@ class PlotTabController(QtCore.QObject):
                 self._remove_figure_element(element_id)
 
     def _apply_preview_scale(self, *, force: bool = False) -> None:
+        if self._defer_render or self._disposed:
+            return
         previous_scale = self._preview_scale
         self._preview_scale = self._preview_scale_for_viewport()
         if not force and abs(previous_scale - self._preview_scale) < 0.001:
@@ -639,11 +760,37 @@ class PlotTabController(QtCore.QObject):
         show_activity: bool = True,
         notify_state: bool = True,
     ) -> None:
+        if self._disposed:
+            return
+        self.measurement_revision += 1
+        self._layout_error = None
+        if notify_state and self._state_changed_callback is not None:
+            self._state_changed_callback()
+        if self._defer_render:
+            self._render_dirty = True
+            return
+        self._render_dirty = False
+        composition = snapshot_composition(self._composition)
+        if preview_needs_worker(composition):
+            self._preview_pending = True
+            self._preview_coordinator.submit(composition)
+            if self._activity_manager is not None and self._preview_activity is None:
+                self._preview_activity = self._activity_manager.progress("Rendering figure preview…")
+            self._show_status("Refreshing figure preview…")
+            return
+        self._preview_coordinator.cancel()
+        self._preview_pending = False
+        self._finish_preview_activity()
         if show_activity and self._activity_manager is not None:
             with self._activity_manager.busy("Refreshing plot…"):
-                self._redraw_figure(show_activity=False, notify_state=notify_state)
+                self._redraw_figure(show_activity=False, notify_state=False)
             return
-        result = self._renderer.build(self._composition)
+        try:
+            result = self._renderer.build(self._composition)
+        except ValueError as error:
+            self._layout_error = str(error)
+            self._show_status(self._layout_error)
+            return
         self._layout_map = result.layout_map
         self._preview_scale = self._preview_scale_for_viewport()
         if self._canvas is not None:
@@ -658,8 +805,53 @@ class PlotTabController(QtCore.QObject):
         self._update_preview_canvas()
         self._position_canvas_stack()
         self._sync_overlay_geometry()
-        if notify_state and self._state_changed_callback is not None:
-            self._state_changed_callback()
+        self.measurements_changed.emit()
+
+    def _adopt_preview_datasets(self, datasets) -> None:
+        if self._disposed:
+            return
+        for row, column, reference, count, data_key in datasets:
+            cell = self._composition.plot_cells.get((row, column))
+            if cell is not None and cell.data_key == data_key:
+                # The durable dataset now owns these values. Keep the GUI
+                # document small; workers load them lazily for future edits.
+                cell.data_ref, cell.point_count = reference, count
+                cell.coordinates, cell.metadata_ids, cell.metadata = [], [], {}
+                cell.data_sources = (cell.coordinates, cell.metadata_ids, cell.metadata)
+                cell.data_key = reference
+
+    def _preview_ready(self, result) -> None:
+        if self._disposed:
+            return
+        self._adopt_preview_datasets(result.get("datasets", []))
+        if self._defer_render:
+            return
+        self._release_render_canvas()
+        if not self._preview.apply_frame(result):
+            self._redraw_figure(show_activity=False, notify_state=False)
+            return
+        self._layout_map = result["layout"]
+        self._set_pin_hover_rect(None)
+        self._preview_scale = self._preview_scale_for_viewport()
+        self._update_preview_canvas()
+        self._position_canvas_stack()
+        self._sync_overlay_geometry()
+        self._preview_pending = False
+        self._finish_preview_activity()
+        self.measurements_changed.emit()
+        self._show_status("Figure preview updated.")
+
+    def _finish_preview_activity(self) -> None:
+        activity, self._preview_activity = self._preview_activity, None
+        if activity is not None:
+            activity.finish()
+
+    def _preview_failed(self, message: str) -> None:
+        self._preview_pending = False
+        if self._preview_activity is not None:
+            self._preview_activity.retain_failed(f"Figure preview failed: {message}")
+            self._preview_activity = None
+        self._show_status(f"Figure preview failed: {message}")
 
     def _update_preview_canvas(self) -> None:
         self._preview.update(
@@ -686,18 +878,25 @@ class PlotTabController(QtCore.QObject):
         self._sync_composition_grid()
         for cell_key, cell in self._plot_cells.items():
             rect = self._overlay_rect_from_canvas_rect(self._layout_map.plot_rects_px.get(cell_key, (0, 0, 1, 1)))
-            cell.block.setGeometry(*rect)
-            cell.drop_target.setGeometry(0, 0, rect[2], rect[3])
-            self._sync_drop_label(cell, cell_key)
-            self._position_settings_button(cell)
-            self._position_preset_controls(cell)
-            self._populate_preset_controls(cell)
-            cell.block.show()
-            cell.drop_target.show()
-            if cell.settings_button is not None:
-                cell.settings_button.raise_()
-            if cell.preset_panel is not None:
-                cell.preset_panel.raise_()
+            domain_cell = self._composition.plot_cells.get(cell_key)
+            occupied = bool(domain_cell and (domain_cell.snapshot_path or len(domain_cell.coordinates) or domain_cell.data_ref))
+            signature = (tuple(rect), occupied)
+            if signature != cell.overlay_signature:
+                cell.block.setGeometry(*rect)
+                cell.drop_target.setGeometry(0, 0, rect[2], rect[3])
+                self._sync_drop_label(cell, cell_key)
+                self._position_settings_button(cell)
+                self._position_preset_controls(cell)
+                cell.block.show()
+                cell.drop_target.show()
+                if cell.settings_button is not None:
+                    cell.settings_button.raise_()
+                if cell.preset_panel is not None:
+                    cell.preset_panel.raise_()
+                cell.overlay_signature = signature
+            if cell_key == self._active_preset_control_cell:
+                if self._populate_preset_controls(cell, refresh=False):
+                    self._position_preset_controls(cell)
         self._clear_all_plot_cell_add_buttons()
         self._sync_element_overlay_geometry()
         self._set_add_controls_visible(self._controls_visible)
@@ -871,7 +1070,7 @@ class PlotTabController(QtCore.QObject):
         label.setGeometry(0, 0, plot_cell.drop_target.width(), plot_cell.drop_target.height())
         domain_cell = self._composition.plot_cells.get(cell)
         is_empty = domain_cell is None or (
-            not bool(domain_cell.snapshot_path) and not bool(domain_cell.coordinates)
+            not bool(domain_cell.snapshot_path) and (not len(domain_cell.coordinates) and not domain_cell.data_ref)
         )
         label.setVisible(is_empty)
         label.raise_()
@@ -954,7 +1153,7 @@ class PlotTabController(QtCore.QObject):
         menu.addAction("Add Caption…", lambda checked=False, d=direction, c=source_cell: self._add_figure_element("caption", d, c))
         return menu
 
-    def _add_plot_adjacent(self, source_cell: tuple[int, int], direction: str) -> QtWidgets.QFrame:
+    def _add_plot_adjacent(self, source_cell: tuple[int, int], direction: str, *, redraw: bool = True) -> QtWidgets.QFrame:
         source = self._plot_cells.get(source_cell)
         if source is None:
             raise KeyError(f"Unknown source plot cell: {source_cell}")
@@ -970,7 +1169,29 @@ class PlotTabController(QtCore.QObject):
         plot_cell = self._create_plot_overlay_cell(target_cell)
         self._plot_cells[target_cell] = plot_cell
         self._composition.add_plot_cell(*target_cell)
-        self._redraw_figure()
+        from FiguresArea.composition_service import reserve_grid
+        shifted = target_cell[0] < 0 or target_cell[1] < 0
+        self._composition = reserve_grid(self._composition)
+        self._plot_settings = self._composition.settings
+        if shifted:
+            offset_row, offset_column = max(-target_cell[0], 0), max(-target_cell[1], 0)
+            self._snapshot_jobs = {(row + offset_row, column + offset_column): job
+                                   for (row, column), job in self._snapshot_jobs.items()}
+            if self._pending_transform is not None:
+                row, column = self._pending_transform['cell']
+                self._pending_transform['cell'] = (row + offset_row, column + offset_column)
+            self._active_preset_control_cell = self._active_settings_button_cell = None
+            for overlay_cell in self._plot_cells.values():
+                self._delete_overlay_cell(overlay_cell)
+            self._plot_cells.clear()
+        self._sync_composition_grid()
+        self._sync_parameter_elements()
+        if shifted:
+            target_cell = (max(target_cell[0], 0), max(target_cell[1], 0))
+            plot_cell = self._plot_cells[target_cell]
+        if redraw:
+            self._redraw_figure()
+        self.measurements_changed.emit()
         self._show_status(f"Added plot area at row {target_cell[0]}, column {target_cell[1]}.")
         return plot_cell.block
 
@@ -1123,7 +1344,7 @@ class PlotTabController(QtCore.QObject):
             source_cell, direction = self._add_button_drop_targets[widget]
             if direction not in self._valid_add_directions(source_cell):
                 return False
-            self._add_plot_adjacent(source_cell, direction)
+            self._add_plot_adjacent(source_cell, direction, redraw=False)
             target_cell = self._adjacent_cell(source_cell, direction)
             target = self._plot_cells.get(target_cell)
             if target is not None and self._render_snapshot(path, target=target.drop_target):
@@ -1131,13 +1352,17 @@ class PlotTabController(QtCore.QObject):
                 return True
         return super().eventFilter(widget, event)
 
-    def _populate_preset_controls(self, plot_cell: _PlotCell) -> None:
+    def _populate_preset_controls(self, plot_cell: _PlotCell, *, refresh: bool = True) -> bool:
         if not plot_cell.preset_combos:
-            return
+            return False
         domain_cell = self._composition.plot_cells.get((plot_cell.row, plot_cell.column))
         if domain_cell is None:
-            return
+            return False
         selected_paths = self._selected_preset_paths(domain_cell)
+        projection = self._safe_dict(domain_cell.render_state.get("snapshot_projection"))
+        signature = (tuple(selected_paths.items()), bool(domain_cell.snapshot_path), projection.get("coordinate_space"))
+        if not refresh and signature == plot_cell.preset_signature:
+            return False
         discovery_path = self._optional_path_text(selected_paths.get("discovery"))
         transformable = bool(
             discovery_path
@@ -1216,6 +1441,8 @@ class PlotTabController(QtCore.QObject):
                     combo.setCurrentIndex(0)
         finally:
             self._refreshing_preset_controls = False
+        plot_cell.preset_signature = signature
+        return True
 
     def _show_preset_controls_for_cell(self, cell: tuple[int, int]) -> None:
         self._active_preset_control_cell = cell
@@ -1288,7 +1515,7 @@ class PlotTabController(QtCore.QObject):
             return
         path = Path(str(value))
         if kind == "snapshot":
-            self._transform_coordinator.cancel_pending()
+            self._cancel_transform()
             self._pending_transform = None
             self._render_snapshot(path, target=plot_cell.drop_target)
             self._show_preset_controls_for_cell(cell)
@@ -1297,31 +1524,28 @@ class PlotTabController(QtCore.QObject):
         self._show_preset_controls_for_cell(cell)
 
     def _apply_component_preset(self, cell: tuple[int, int], kind: str, path: Path) -> bool:
+        self._cancel_snapshot_jobs(cell)
         plot_cell = self._composition.plot_cells.get(cell)
         if plot_cell is None:
             return False
         if kind == "transform":
             return self._start_figure_transform(cell, path)
-        self._transform_coordinator.cancel_pending()
+        self._cancel_transform()
         self._pending_transform = None
         selected_paths = self._selected_preset_paths(plot_cell)
         selected_paths["snapshot"] = None
         selected_paths[kind] = str(path)
-        plot_cell.snapshot_path = None
         if kind == "discovery":
-            coordinates, metadata_ids = self._load_discovery_coordinates(path)
-            if not coordinates:
-                self._show_status(f"Discovery '{path.stem}' has no plottable coordinates.")
+            if self._snapshot_service.projection_needs_background(path):
+                return self._queue_projection_change(cell, source=path)
+            try:
+                prepared = self._snapshot_service.prepare_projection(path)
+            except ValueError as error:
+                self._show_status(str(error))
                 return False
-            plot_cell.coordinates = list(coordinates)
-            plot_cell.metadata_ids = list(metadata_ids)
-            plot_cell.metadata = self._metadata_for_ids(metadata_ids)
-            selected_paths["transform"] = None
-            plot_cell.render_state.pop("transform", None)
-            plot_cell.render_state.pop("snapshot_projection", None)
-            self._reanchor_plot_pins(plot_cell)
+            self._apply_projection_data(plot_cell, prepared, selected_paths)
         else:
-            payload = self._payload_from_path(path)
+            payload = self._snapshot_service.payload_from_path(path)
             if payload is None:
                 self._show_status(f"Could not load {kind} preset '{path.stem}'.")
                 return False
@@ -1333,8 +1557,12 @@ class PlotTabController(QtCore.QObject):
                 plot_cell.render_state["filters"] = payload
             else:
                 return False
+        plot_cell.snapshot_path = None
         plot_cell.render_state["preset_paths"] = selected_paths
-        self._update_subtitle_text_for_cell(cell)
+        if kind == "discovery":
+            self._finish_loaded_plot(cell)
+        else:
+            self._update_subtitle_text_for_cell(cell)
         self._redraw_figure()
         self._show_status(f"Applied {kind} preset '{path.stem}'.")
         state_key = {
@@ -1354,136 +1582,58 @@ class PlotTabController(QtCore.QObject):
             )
         return True
 
-    def _start_figure_transform(self, cell: tuple[int, int], path: Path) -> bool:
-        plot_cell = self._composition.plot_cells.get(cell)
-        if plot_cell is None:
+    def _finish_transform_activity(self):
+        activity, self._transform_activity = self._transform_activity, None
+        if activity is not None:
+            activity.finish()
+
+    def _cancel_transform(self):
+        self._transform_coordinator.cancel_pending()
+        self._pending_transform = None
+        self._finish_transform_activity()
+
+    def _start_figure_transform(self, cell, path):
+        return self._queue_projection_change(cell, path)
+
+    def _queue_projection_change(self, cell, preset=None, source=None):
+        self._cancel_snapshot_jobs(cell)
+        self._cancel_transform()
+        target = self._composition.plot_cells.get(cell)
+        if target is None:
             return False
-        payload = self._payload_from_path(path)
-        if payload is None:
-            self._show_status(f"Could not load transformation preset '{path.stem}'.")
-            return False
-        try:
-            preset_version = int(payload.get("preset_version", 1))
-        except (TypeError, ValueError):
-            preset_version = -1
-        if preset_version not in {1, 2}:
-            self._show_status(f"Unsupported transformation preset '{path.stem}'.")
-            return False
-        selected_paths = self._selected_preset_paths(plot_cell)
-        source_path_text = selected_paths.get("discovery")
-        if not source_path_text:
-            self._show_status("Select a Projection before applying a Transformation.")
-            return False
-        if not self._projection_supports_arrangement_transform(
-            Path(source_path_text)
-        ):
-            self._show_status(
-                "Transformations are unavailable for this coordinate-truthful projection."
-            )
-            return False
-        coordinates, metadata_ids = self._load_discovery_coordinates(Path(source_path_text))
-        if not coordinates:
-            self._show_status("The selected Projection has no plottable coordinates.")
-            return False
-        try:
-            settings = TransformSettings.from_preset_dict(payload.get("transform"))
-        except (TypeError, ValueError, OverflowError) as exc:
-            self._show_status(f"Could not apply transformation preset '{path.stem}': {exc}")
-            return False
-        selected_paths["snapshot"] = None
-        selected_paths["transform"] = str(path)
-        projection_fingerprint = source_fingerprint(
-            np.asarray(coordinates, dtype=np.float32),
-            np.asarray(metadata_ids, dtype=np.int64),
-        )
-        cache_key = (
-            projection_fingerprint,
-            settings.snap_percent,
-            settings.grid_aspect_preset,
-            round(settings.minimum_spacing, 8),
-        )
-        cached = self._transform_cache.get(cache_key)
-        if cached is not None:
-            self._transform_coordinator.cancel_pending()
-            self._pending_transform = None
-            self._transform_cache.move_to_end(cache_key)
-            self._commit_figure_transform(
-                cell, path, selected_paths, settings, cached
-            )
-            return True
+        state = copy.deepcopy(target.render_state)
+        paths = self._selected_preset_paths(target)
+        if source is not None:
+            paths['discovery'] = str(source)
+        service = self._transform_service
         revision = self._transform_coordinator.submit(
-            np.asarray(coordinates, dtype=np.float32),
-            np.asarray(metadata_ids, dtype=np.int64),
-            settings,
-        )
-        self._pending_transform = {
-            "revision": revision,
-            "cell": cell,
-            "path": path,
-            "source": str(source_path_text),
-            "selected_paths": selected_paths,
-            "settings": settings,
-            "cache_key": cache_key,
-        }
-        self._show_status(f"Applying transformation preset '{path.stem}'…")
+            lambda cancelled: service.prepare(state, paths, preset, cancelled=cancelled))
+        self._pending_transform = {'revision': revision, 'cell': cell, 'target': target,
+                                   'state': state, 'preset': preset}
+        if self._activity_manager is not None:
+            self._transform_activity = self._activity_manager.progress('Preparing figure coordinates…')
+        self._show_status('Preparing figure coordinates…')
         return True
 
     @QtCore.Slot(int, object)
-    def _figure_transform_ready(self, revision: int, payload: object) -> None:
+    def _figure_transform_ready(self, revision, prepared):
         pending = self._pending_transform
-        if (
-            pending is None
-            or int(pending.get("revision", -1)) != revision
-            or not isinstance(payload, TransformResult)
-        ):
+        if pending is None or pending['revision'] != revision or not isinstance(prepared, PlotCell):
             return
-        cell = pending["cell"]
-        selected_paths = dict(pending["selected_paths"])
-        settings = pending["settings"]
-        path = Path(pending["path"])
-        cache_key = pending.get("cache_key")
-        if isinstance(cache_key, tuple):
-            self._transform_cache[cache_key] = payload
-            self._transform_cache.move_to_end(cache_key)
-            while len(self._transform_cache) > 8:
-                self._transform_cache.popitem(last=False)
         self._pending_transform = None
-        self._commit_figure_transform(cell, path, selected_paths, settings, payload)
-
-    def _commit_figure_transform(
-        self,
-        cell: tuple[int, int],
-        path: Path,
-        selected_paths: dict[str, str | None],
-        settings: TransformSettings,
-        payload: TransformResult,
-    ) -> None:
-        plot_cell = self._composition.plot_cells.get(cell)
-        if plot_cell is None:
+        self._finish_transform_activity()
+        cell, target = pending['cell'], pending['target']
+        if self._disposed or self._composition.plot_cells.get(cell) is not target or target.render_state != pending['state']:
             return
-        plot_cell.snapshot_path = None
-        plot_cell.coordinates = [tuple(map(float, point)) for point in payload.coordinates]
-        plot_cell.metadata_ids = [int(value) for value in payload.metadata_ids]
-        plot_cell.metadata = self._metadata_for_ids(plot_cell.metadata_ids)
-        plot_cell.render_state["transform"] = {
-            "preset_version": 2,
-            "transform": settings.to_preset_dict(),
-        }
-        plot_cell.render_state.pop("snapshot_projection", None)
-        plot_cell.render_state["preset_paths"] = selected_paths
-        self._reanchor_plot_pins(plot_cell)
-        self._update_subtitle_text_for_cell(cell)
+        prepared.snapshot_label = target.snapshot_label
+        self._apply_prepared_snapshot(target, prepared)
+        self._finish_loaded_plot(cell)
         self._redraw_figure()
-        self._show_status(f"Applied transformation preset '{path.stem}'.")
-        self._notify_plot_edit(
-            {
-                "kind": "render_state",
-                "values": {
-                    "transform": copy.deepcopy(plot_cell.render_state["transform"]),
-                    "preset_paths": copy.deepcopy(selected_paths),
-                },
-            }
-        )
+        self._show_status('Applied transformation.' if pending['preset'] else 'Restored Original projection coordinates.')
+        self._notify_plot_edit({'kind': 'render_state', 'values': {
+            'transform': copy.deepcopy(target.render_state.get('transform')),
+            'preset_paths': copy.deepcopy(target.render_state['preset_paths']),
+        }})
 
     @QtCore.Slot(int, str)
     def _figure_transform_failed(self, revision: int, message: str) -> None:
@@ -1491,6 +1641,9 @@ class PlotTabController(QtCore.QObject):
         if pending is None or int(pending.get("revision", -1)) != revision:
             return
         self._pending_transform = None
+        if self._transform_activity is not None:
+            self._transform_activity.retain_failed(f"Transformation failed: {message}")
+        self._finish_transform_activity()
         self._show_status(f"Transformation failed: {message}")
         cell = pending.get("cell")
         if isinstance(cell, tuple):
@@ -1501,6 +1654,7 @@ class PlotTabController(QtCore.QObject):
         pending = self._pending_transform
         if pending is not None and int(pending.get("revision", -1)) == revision:
             self._pending_transform = None
+            self._finish_transform_activity()
 
     def _selected_preset_paths(self, plot_cell: Any) -> dict[str, str | None]:
         state = self._safe_dict(plot_cell.render_state)
@@ -1548,8 +1702,21 @@ class PlotTabController(QtCore.QObject):
         target: QtWidgets.QFrame | None = None,
         announce: bool = True,
         plot_overrides: dict[str, Any] | None = None,
+        label: str | None = None,
         show_activity: bool = True,
     ) -> bool:
+        cell_key = self._cell_key_for_target(target or self._plot_area) or (0, 0)
+        self._cancel_transform()
+        self._cancel_snapshot_jobs(cell_key)
+        if self._snapshot_service.needs_background(snapshot_path) or "transform" in (plot_overrides or {}).get("state", {}):
+            future = self._work_service.prepare_snapshot(self._snapshot_service, snapshot_path, **({"overrides": copy.deepcopy(plot_overrides)} if plot_overrides is not None else {}))
+            self._snapshot_jobs[cell_key] = _PendingPlotLoad(
+                future, self._composition.plot_cells[cell_key], snapshot_path,
+                copy.deepcopy(plot_overrides), announce, label=label,
+            )
+            self._snapshot_timer.start()
+            self._show_status("Loading snapshot into figure…")
+            return True
         if show_activity and self._activity_manager is not None:
             with self._activity_manager.busy("Loading snapshot into figure…"):
                 return self._render_snapshot(
@@ -1557,10 +1724,11 @@ class PlotTabController(QtCore.QObject):
                     target=target,
                     announce=announce,
                     plot_overrides=plot_overrides,
+                    label=label,
                     show_activity=False,
                 )
         try:
-            prepared = self._prepare_snapshot_plot_cell(snapshot_path)
+            prepared = self._snapshot_service.prepare(snapshot_path)
         except ValueError as error:
             self._show_status(str(error))
             return False
@@ -1568,168 +1736,102 @@ class PlotTabController(QtCore.QObject):
         if cell_key is None:
             cell_key = (0, 0)
         self._apply_plot_overrides(prepared, plot_overrides)
+        if label is not None:
+            prepared.snapshot_label = label
         plot_cell = self._composition.plot_cells[cell_key]
         self._apply_prepared_snapshot(plot_cell, prepared)
-        self._update_subtitle_text_for_cell(cell_key)
+        self._finish_loaded_plot(cell_key)
         self._redraw_figure(show_activity=show_activity)
         if announce:
             self._show_status(f"Rendered snapshot '{snapshot_path.stem}'.")
         return True
 
-    def _prepare_snapshot_plot_cell(self, snapshot_path: Path) -> PlotCell:
-        """Resolve one snapshot into renderer-ready data for preview or export."""
+    def _finish_loaded_plot(self, cell) -> None:
+        self._sync_parameter_elements()
+        self._update_subtitle_text_for_cell(cell)
+        # Legacy animations have no stored composition. Their frame must supply
+        # its legend mappings and title before final-page dimensions are fixed.
+        if self._composition.settings.layout_version < 2:
+            from FiguresArea.page_layout import migrate_page_dimensions
+            self._composition = migrate_page_dimensions(self._composition)
+            self._plot_settings = self._composition.settings
 
-        payload = self._snapshot_payload(snapshot_path)
-        coordinates, metadata_ids = self._coordinates_for_snapshot_payload(payload)
-        if not coordinates:
-            raise ValueError(
-                f"Snapshot '{snapshot_path.stem}' has no plottable coordinates."
-            )
-        states = payload.get("states") if isinstance(payload.get("states"), dict) else {}
-        state = self._snapshot_render_state(payload)
-        if self._project is not None:
-            from DiscoveryArea.snapshot_provenance import SnapshotMethodsService
-            state["methods_report"] = SnapshotMethodsService().load(self._project, snapshot_path).to_payload()
-        state["pinboard"] = self._snapshot_pinboard_state(
-            states, metadata_ids=metadata_ids
-        )
-        state["figure_options"] = {
-            "pins_visible": self._default_snapshot_pins_visible(
-                self._safe_dict(state.get("layers")),
-                self._safe_dict(state.get("pinboard")),
-            )
-        }
-        state["preset_paths"] = self._snapshot_preset_paths(payload, snapshot_path)
-        return PlotCell(
-            row=0,
-            column=0,
-            snapshot_path=str(snapshot_path),
-            snapshot_label=self._snapshot_label(payload, snapshot_path),
-            coordinates=list(coordinates),
-            metadata_ids=list(metadata_ids),
-            metadata=self._metadata_for_ids(metadata_ids),
-            render_state=state,
-        )
+    def _cancel_snapshot_jobs(self, cell=None) -> None:
+        for key in list(self._snapshot_jobs):
+            if cell is None or cell == key:
+                self._snapshot_jobs.pop(key).future.cancel()
+
+    def _apply_projection_data(self, target, prepared, paths) -> None:
+        target.reserved_only = False
+        target.coordinates, target.metadata_ids, target.metadata = prepared.coordinates, prepared.metadata_ids, prepared.metadata
+        target.snapshot_path = None
+        paths["transform"] = None
+        target.render_state.pop("transform", None)
+        target.render_state.pop("snapshot_projection", None)
+        target.render_state["preset_paths"] = paths
+        self._reanchor_plot_pins(target)
+
+    def _poll_snapshot_jobs(self) -> None:
+        for key, job in list(self._snapshot_jobs.items()):
+            if not job.future.done():
+                continue
+            del self._snapshot_jobs[key]
+            if self._disposed or self._composition.plot_cells.get(key) is not job.target:
+                continue
+            try:
+                prepared = job.future.result()
+            except Exception as error:
+                if key not in self._layout_map.plot_rects_px:
+                    self._redraw_figure(show_activity=False)
+                self._show_status(f"Could not load plot: {error}")
+                continue
+            if job.label is not None:
+                prepared.snapshot_label = job.label
+            if job.projection:
+                paths = self._selected_preset_paths(job.target)
+                paths.update(snapshot=None, discovery=str(job.path))
+                self._apply_projection_data(job.target, prepared, paths)
+            else:
+                self._apply_prepared_snapshot(job.target, prepared)
+            self._finish_loaded_plot(key)
+            self._redraw_figure(show_activity=False)
+            if job.announce:
+                self._show_status(f"Loaded plot '{job.path.stem}'.")
+        if not self._snapshot_jobs:
+            self._snapshot_timer.stop()
 
     def _prepare_slicer_animation_plot_cell(
         self,
         frame: SlicerAnimationFrame,
         base_snapshot_path: Path,
     ) -> PlotCell:
-        prepared = self._prepare_snapshot_plot_cell(base_snapshot_path)
+        overrides = copy.deepcopy(frame.plot_overrides)
+        state = {"slicer_selection": {"column": frame.column, "values": list(frame.active_values)}}
+        if isinstance(overrides.get('state'), dict):
+            state.update(overrides['state'])
+        overrides['state'] = state
+        prepared = self._snapshot_service.prepare_with_overrides(base_snapshot_path, overrides)
         prepared.snapshot_label = frame.label
-        prepared.render_state["slicer_selection"] = {
-            "column": frame.column,
-            "values": list(frame.active_values),
-        }
         return prepared
 
     @staticmethod
     def _apply_prepared_snapshot(target: PlotCell, source: PlotCell) -> None:
+        target.reserved_only = False
         target.snapshot_path = source.snapshot_path
         target.snapshot_label = source.snapshot_label
-        target.coordinates = list(source.coordinates)
-        target.metadata_ids = list(source.metadata_ids)
-        target.metadata = dict(source.metadata)
+        target.coordinates = source.coordinates
+        target.metadata_ids = source.metadata_ids
+        target.metadata = source.metadata
         target.render_state = dict(source.render_state)
+        # Replacing data must also replace its identity. Direct frame exports
+        # do not pass through snapshot_composition's normal invalidation step.
+        target.data_ref = source.data_ref
+        target.data_key = source.data_key
+        target.data_sources = source.data_sources
+        target.point_count = source.point_count
 
-    def _apply_plot_overrides(
-        self, plot_cell: PlotCell, overrides: dict[str, Any] | None
-    ) -> None:
-        if not isinstance(overrides, dict):
-            return
-        state_overrides = overrides.get("state")
-        if isinstance(state_overrides, dict):
-            for key, value in state_overrides.items():
-                if key != "pinboard":
-                    plot_cell.render_state[str(key)] = copy.deepcopy(value)
-            if "transform" in state_overrides:
-                self._apply_transform_state_to_plot_cell(plot_cell)
-        pin_overrides = overrides.get("pins")
-        if not isinstance(pin_overrides, dict):
-            return
-        pinboard = plot_cell.render_state.get("pinboard")
-        if not isinstance(pinboard, dict):
-            return
-        annotations = pinboard.get("annotations")
-        if not isinstance(annotations, list):
-            return
-        updated: list[dict[str, Any]] = []
-        for annotation in annotations:
-            if not isinstance(annotation, dict):
-                continue
-            annotation_id = str(annotation.get("annotation_id") or "")
-            pin_override = pin_overrides.get(annotation_id)
-            if not isinstance(pin_override, dict):
-                updated.append(annotation)
-                continue
-            if bool(pin_override.get("removed", False)):
-                continue
-            merged = dict(annotation)
-            for key in ("box_anchor", "screen_offset"):
-                value = pin_override.get(key)
-                if isinstance(value, list) and len(value) == 2:
-                    merged[key] = [float(value[0]), float(value[1])]
-            updated.append(merged)
-        pinboard["annotations"] = updated
-
-    def _apply_transform_state_to_plot_cell(self, plot_cell: PlotCell) -> bool:
-        paths = self._safe_dict(plot_cell.render_state.get("preset_paths"))
-        source_text = self._optional_path_text(paths.get("discovery"))
-        if source_text is None:
-            return False
-        coordinates, metadata_ids = self._load_discovery_coordinates(Path(source_text))
-        if not coordinates:
-            return False
-        if not self._projection_supports_arrangement_transform(Path(source_text)):
-            plot_cell.coordinates = list(coordinates)
-            plot_cell.metadata_ids = list(metadata_ids)
-            plot_cell.metadata = self._metadata_for_ids(metadata_ids)
-            plot_cell.render_state.pop("transform", None)
-            plot_cell.render_state.pop("snapshot_projection", None)
-            self._reanchor_plot_pins(plot_cell)
-            return True
-        transform_state = plot_cell.render_state.get("transform")
-        if not isinstance(transform_state, dict):
-            plot_cell.coordinates = list(coordinates)
-            plot_cell.metadata_ids = list(metadata_ids)
-            plot_cell.metadata = self._metadata_for_ids(metadata_ids)
-            plot_cell.render_state.pop("snapshot_projection", None)
-            self._reanchor_plot_pins(plot_cell)
-            return True
-        try:
-            recipe = transform_state.get("transform", transform_state)
-            settings = TransformSettings.from_preset_dict(recipe)
-            projection_fingerprint = source_fingerprint(
-                np.asarray(coordinates, dtype=np.float32),
-                np.asarray(metadata_ids, dtype=np.int64),
-            )
-            cache_key = (
-                projection_fingerprint,
-                settings.snap_percent,
-                settings.grid_aspect_preset,
-                round(settings.minimum_spacing, 8),
-            )
-            result = self._transform_cache.get(cache_key)
-            if result is None:
-                result = transform_coordinates(
-                    np.asarray(coordinates, dtype=np.float32),
-                    np.asarray(metadata_ids, dtype=np.int64),
-                    settings,
-                )
-                self._transform_cache[cache_key] = result
-                while len(self._transform_cache) > 8:
-                    self._transform_cache.popitem(last=False)
-            else:
-                self._transform_cache.move_to_end(cache_key)
-        except (TypeError, ValueError, OverflowError):
-            return False
-        plot_cell.coordinates = [tuple(map(float, point)) for point in result.coordinates]
-        plot_cell.metadata_ids = [int(value) for value in result.metadata_ids]
-        plot_cell.metadata = self._metadata_for_ids(plot_cell.metadata_ids)
-        plot_cell.render_state.pop("snapshot_projection", None)
-        self._reanchor_plot_pins(plot_cell)
-        return True
+    def _apply_plot_overrides(self, plot_cell, overrides):
+        FigureTransformService(self._snapshot_service, cache=self._cache_budgets.transforms).apply_overrides(plot_cell, overrides)
 
     def _projection_supports_arrangement_transform(
         self, discovery_path: Path
@@ -1748,7 +1850,7 @@ class PlotTabController(QtCore.QObject):
         target = Path(discovery_path).resolve()
         presets_root = self._project_root / "presets" / "discovery"
         for preset_path in sorted(presets_root.glob("*.json")):
-            payload = self._payload_from_path(preset_path)
+            payload = self._snapshot_service.payload_from_path(preset_path)
             if payload is None:
                 continue
             value = payload.get("discovery_file")
@@ -1836,14 +1938,19 @@ class PlotTabController(QtCore.QObject):
         return True
 
     def _clear_plot_cell(self, cell: tuple[int, int]) -> bool:
+        self._cancel_snapshot_jobs(cell)
+        self._cancel_transform()
+        self._pending_transform = None
         plot_cell = self._composition.plot_cells.get(cell)
         if plot_cell is None:
             return False
         plot_cell.snapshot_path = None
         plot_cell.snapshot_label = None
-        plot_cell.coordinates.clear()
-        plot_cell.metadata_ids.clear()
-        plot_cell.metadata.clear()
+        plot_cell.coordinates = []
+        plot_cell.metadata_ids = []
+        plot_cell.metadata = {}
+        plot_cell.data_ref = None
+        plot_cell.point_count = 0
         plot_cell.render_state.clear()
         self._update_subtitle_text_for_cell(cell)
         self._redraw_figure()
@@ -1872,14 +1979,6 @@ class PlotTabController(QtCore.QObject):
             return plot_cell.snapshot_label
         return f"Plot {cell[0] + 1}, {cell[1] + 1}"
 
-    @staticmethod
-    def _snapshot_label(payload: dict[str, Any], snapshot_path: Path) -> str:
-        for key in ("label", "name"):
-            value = payload.get(key)
-            if value is not None and str(value).strip():
-                return str(value).strip()
-        return snapshot_path.stem
-
     def _add_figure_element(
         self,
         kind: FigureElementKind,
@@ -1907,6 +2006,7 @@ class PlotTabController(QtCore.QObject):
         )
         self._composition.figure_elements[element_id] = element
         if source_cell is not None:
+            self._composition.plot_cells[source_cell].reserved_only = False
             self._composition.plot_cells[source_cell].element_ids.append(element_id)
         self._redraw_figure()
         self._select_element(element_id)
@@ -1936,9 +2036,11 @@ class PlotTabController(QtCore.QObject):
                 zone.installEventFilter(self)
                 self._element_context_menu_targets[zone] = element_id
                 self._element_widgets[element_id] = zone
-            zone.setGeometry(*self._overlay_rect_from_canvas_rect(self._layout_map.element_rects_px.get(element_id, (0, 0, 1, 1))))
-            zone.show()
-            zone.raise_()
+            rect = QtCore.QRect(*self._overlay_rect_from_canvas_rect(self._layout_map.element_rects_px.get(element_id, (0, 0, 1, 1))))
+            if zone.geometry() != rect or zone.isHidden():
+                zone.setGeometry(rect)
+                zone.show()
+                zone.raise_()
         for element_id, zone in list(self._element_widgets.items()):
             element = self._composition.figure_elements.get(element_id)
             if element is not None and element.visible and element_id in self._layout_map.element_rects_px:
@@ -2140,6 +2242,10 @@ class PlotTabController(QtCore.QObject):
     def _handle_pin_interaction_event(self, widget: QtWidgets.QWidget, event: QtCore.QEvent) -> bool:
         if self._pin_drag is not None:
             return self._handle_pin_drag_event(widget, event)
+        if self._preview_pending:
+            # Keep preset controls usable, but do not edit pins using geometry
+            # from the previous camera/layout while its replacement is pending.
+            return False
         if event.type() not in {
             QtCore.QEvent.Type.ContextMenu,
             QtCore.QEvent.Type.MouseMove,
@@ -2431,327 +2537,12 @@ class PlotTabController(QtCore.QObject):
                 return candidate
         return None
 
-    def _snapshot_payload(self, snapshot_path: Path) -> dict[str, Any]:
-        try:
-            payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return payload if isinstance(payload, dict) else {}
-
-    def _coordinates_for_snapshot_payload(self, payload: dict[str, Any]) -> tuple[list[tuple[float, float]], list[int]]:
-        projection = payload.get("projection")
-        if isinstance(projection, dict):
-            coordinate_ref = str(projection.get("coordinates_ref") or "").strip()
-            if coordinate_ref:
-                coordinate_path = Path(coordinate_ref)
-                if not coordinate_path.is_absolute() and self._project_root is not None:
-                    coordinate_path = (self._project_root / coordinate_path).resolve()
-                coordinates, metadata_ids = self._load_arrangement_coordinates(coordinate_path)
-                if coordinates:
-                    return coordinates, metadata_ids
-        arrangement_ref = str(payload.get("arrangement_ref") or "").strip()
-        if arrangement_ref:
-            arrangement_path = Path(arrangement_ref)
-            if not arrangement_path.is_absolute() and self._project_root is not None:
-                arrangement_path = (self._project_root / arrangement_path).resolve()
-            coordinates, metadata_ids = self._load_arrangement_coordinates(arrangement_path)
-            if coordinates:
-                return coordinates, metadata_ids
-        discovery_ref = str(payload.get("discovery_ref") or "").strip()
-        if not discovery_ref:
-            return [], []
-        discovery_path = Path(discovery_ref)
-        if not discovery_path.is_absolute() and self._project_root is not None:
-            discovery_path = (self._project_root / discovery_path).resolve()
-        return self._load_discovery_coordinates(discovery_path)
-
-    def _apply_original_projection(self, cell: tuple[int, int]) -> bool:
-        self._transform_coordinator.cancel_pending()
-        self._pending_transform = None
-        plot_cell = self._composition.plot_cells.get(cell)
-        if plot_cell is None:
-            return False
-        selected_paths = self._selected_preset_paths(plot_cell)
-        source_path_text = selected_paths.get("discovery")
-        if not source_path_text:
-            self._show_status("Select a Projection before restoring Original coordinates.")
-            return False
-        coordinates, metadata_ids = self._load_discovery_coordinates(Path(source_path_text))
-        if not coordinates:
-            self._show_status("The selected Projection has no plottable coordinates.")
-            return False
-        plot_cell.snapshot_path = None
-        plot_cell.coordinates = list(coordinates)
-        plot_cell.metadata_ids = list(metadata_ids)
-        plot_cell.metadata = self._metadata_for_ids(metadata_ids)
-        plot_cell.render_state.pop("transform", None)
-        plot_cell.render_state.pop("snapshot_projection", None)
-        selected_paths["snapshot"] = None
-        selected_paths["transform"] = None
-        plot_cell.render_state["preset_paths"] = selected_paths
-        self._reanchor_plot_pins(plot_cell)
-        self._update_subtitle_text_for_cell(cell)
-        self._redraw_figure()
-        self._show_status("Restored Original projection coordinates.")
-        self._notify_plot_edit(
-            {
-                "kind": "render_state",
-                "values": {"transform": None, "preset_paths": copy.deepcopy(selected_paths)},
-            }
-        )
-        return True
+    def _apply_original_projection(self, cell):
+        return self._queue_projection_change(cell)
 
     @staticmethod
-    def _reanchor_plot_pins(plot_cell: PlotCell) -> None:
-        pinboard = plot_cell.render_state.get("pinboard")
-        if not isinstance(pinboard, dict):
-            return
-        annotations = pinboard.get("annotations")
-        if not isinstance(annotations, list):
-            return
-        point_by_id = {
-            int(metadata_id): [float(point[0]), float(point[1])]
-            for metadata_id, point in zip(
-                plot_cell.metadata_ids, plot_cell.coordinates, strict=False
-            )
-        }
-        for annotation in annotations:
-            if not isinstance(annotation, dict):
-                continue
-            try:
-                point = point_by_id[int(annotation.get("metadata_id"))]
-            except (TypeError, ValueError, KeyError):
-                continue
-            annotation["point"] = point
-            annotation.pop("box_anchor", None)
-
-    @staticmethod
-    def _load_arrangement_coordinates(path: Path) -> tuple[list[tuple[float, float]], list[int]]:
-        try:
-            with np.load(path, allow_pickle=False) as payload:
-                coordinates = np.asarray(payload["coordinates"], dtype=np.float32)
-                metadata_ids = np.asarray(payload["metadata_ids"], dtype=np.int64).reshape(-1)
-        except (OSError, ValueError, KeyError):
-            return [], []
-        if coordinates.ndim != 2 or coordinates.shape[1] < 2 or coordinates.shape[0] != metadata_ids.shape[0]:
-            return [], []
-        return [tuple(map(float, point[:2])) for point in coordinates], [int(value) for value in metadata_ids]
-
-    @staticmethod
-    def _load_discovery_coordinates(discovery_path: Path) -> tuple[list[tuple[float, float]], list[int]]:
-        if not discovery_path.exists():
-            return [], []
-        try:
-            with closing(sqlite3.connect(discovery_path)) as connection:
-                try:
-                    rows = connection.execute("SELECT metadata_id, x, y FROM coordinates ORDER BY metadata_id").fetchall()
-                    has_metadata_ids = True
-                except sqlite3.Error:
-                    rows = connection.execute("SELECT x, y FROM coordinates ORDER BY rowid").fetchall()
-                    has_metadata_ids = False
-        except sqlite3.Error:
-            return [], []
-        coordinates: list[tuple[float, float]] = []
-        metadata_ids: list[int] = []
-        for row in rows:
-            try:
-                if has_metadata_ids:
-                    metadata_ids.append(int(row[0]))
-                    coordinates.append((float(row[1]), float(row[2])))
-                else:
-                    metadata_ids.append(len(metadata_ids))
-                    coordinates.append((float(row[0]), float(row[1])))
-            except (TypeError, ValueError, IndexError):
-                continue
-        return coordinates, metadata_ids
-
-    def _snapshot_render_state(self, payload: dict[str, Any]) -> dict[str, Any]:
-        states = payload.get("states") if isinstance(payload.get("states"), dict) else {}
-        refs = payload.get("refs") if isinstance(payload.get("refs"), dict) else {}
-        appearance = self._payload_from_ref(refs.get("appearance")) or self._safe_dict(states.get("appearance"))
-        filters = self._payload_from_ref(refs.get("filters")) or self._safe_dict(states.get("filters"))
-        camera_payload = self._payload_from_ref(refs.get("camera"))
-        camera = (
-            self._safe_dict(camera_payload.get("camera"))
-            if isinstance(camera_payload, dict)
-            else self._safe_dict(states.get("camera"))
-        )
-        layers = self._safe_dict(states.get("layers"))
-        pinboard = self._snapshot_pinboard_state(states, metadata_ids=[])
-        state = {
-            "appearance": appearance,
-            "filters": filters,
-            "camera": camera,
-            "layers": layers,
-            "pinboard": pinboard,
-            "figure_options": {"pins_visible": self._default_snapshot_pins_visible(layers, pinboard)},
-        }
-        projection = payload.get("projection")
-        if isinstance(projection, dict):
-            state["snapshot_projection"] = copy.deepcopy(projection)
-        return state
-
-    def _snapshot_pinboard_state(self, states: dict[str, Any], *, metadata_ids: list[int]) -> dict[str, Any]:
-        pinboard = self._safe_dict(states.get("pinboard"))
-        annotations = self._normalized_snapshot_pin_annotations(pinboard.get("annotations"))
-        if metadata_ids:
-            annotations = self._pins_with_resolved_thumbnails(
-                annotations,
-                pinboard=pinboard,
-                metadata_ids=metadata_ids,
-            )
-        pinboard["annotations"] = annotations
-        return pinboard
-
-    @staticmethod
-    def _default_snapshot_pins_visible(layers: dict[str, Any], pinboard: dict[str, Any]) -> bool:
-        if "pins_visible" in layers:
-            return bool(layers.get("pins_visible"))
-        layer_state = pinboard.get("layer_state")
-        if isinstance(layer_state, dict) and "pins_visible" in layer_state:
-            return bool(layer_state.get("pins_visible"))
-        return True
-
-    @staticmethod
-    def _normalized_snapshot_pin_annotations(value: object) -> list[dict[str, Any]]:
-        if not isinstance(value, list):
-            return []
-        output: list[dict[str, Any]] = []
-        for entry in value:
-            if not isinstance(entry, dict) or not bool(entry.get("visible", True)):
-                continue
-            annotation_id = str(entry.get("annotation_id") or "").strip()
-            if not annotation_id:
-                continue
-            try:
-                metadata_id = int(entry.get("metadata_id"))
-            except (TypeError, ValueError):
-                continue
-            point = entry.get("point")
-            box_anchor = entry.get("box_anchor")
-            offset = entry.get("screen_offset", [48.0, -36.0])
-            if not (isinstance(point, (list, tuple)) and len(point) >= 2):
-                continue
-            if not (isinstance(offset, (list, tuple)) and len(offset) >= 2):
-                offset = [48.0, -36.0]
-            try:
-                point_values = [float(point[0]), float(point[1])]
-                offset_values = [float(offset[0]), float(offset[1])]
-            except (TypeError, ValueError):
-                continue
-            box_anchor_values = None
-            if isinstance(box_anchor, (list, tuple)) and len(box_anchor) >= 2:
-                try:
-                    box_anchor_values = [float(box_anchor[0]), float(box_anchor[1])]
-                except (TypeError, ValueError):
-                    box_anchor_values = None
-            lines = entry.get("lines")
-            payload = {
-                "annotation_id": annotation_id,
-                "metadata_id": metadata_id,
-                "point": point_values,
-                "screen_offset": offset_values,
-                "visible": True,
-                "created_at": str(entry.get("created_at") or ""),
-                "lines": [str(line) for line in lines] if isinstance(lines, list) else [],
-            }
-            if box_anchor_values is not None:
-                payload["box_anchor"] = box_anchor_values
-            output.append(payload)
-        return output
-
-    def _pins_with_resolved_thumbnails(
-        self,
-        annotations: list[dict[str, Any]],
-        *,
-        pinboard: dict[str, Any],
-        metadata_ids: list[int],
-    ) -> list[dict[str, Any]]:
-        if self._project is None or not annotations:
-            return annotations
-        style = self._safe_dict(pinboard.get("style"))
-        if not bool(style.get("thumbnail_visible", False)):
-            return annotations
-        variant_id = str(pinboard.get("thumbnail_variant_id") or "none").strip()
-        if not variant_id or variant_id == "none":
-            return annotations
-        try:
-            thumbnail_size = int(style.get("thumbnail_size", 96))
-        except (TypeError, ValueError):
-            thumbnail_size = 96
-        resolver = ThumbnailResolver(self._project)
-        wanted = {int(value) for value in metadata_ids}
-        resolved: list[dict[str, Any]] = []
-        for annotation in annotations:
-            if int(annotation["metadata_id"]) not in wanted:
-                resolved.append(annotation)
-                continue
-            ref = resolver.resolve(int(annotation["metadata_id"]), variant_id=variant_id, target_px=thumbnail_size)
-            if ref is not None:
-                annotation = dict(annotation)
-                annotation["thumbnail_path"] = str(ref.path)
-            resolved.append(annotation)
-        return resolved
-
-    def _payload_from_ref(self, value: object) -> dict[str, Any] | None:
-        text = str(value or "").strip()
-        if not text:
-            return None
-        path = Path(text)
-        if not path.is_absolute() and self._project_root is not None:
-            path = (self._project_root / path).resolve()
-        return self._payload_from_path(path)
-
-    def _payload_from_path(self, path: Path) -> dict[str, Any] | None:
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return None
-        return payload if isinstance(payload, dict) else None
-
-    def _snapshot_preset_paths(self, payload: dict[str, Any], snapshot_path: Path) -> dict[str, str | None]:
-        refs = payload.get("refs") if isinstance(payload.get("refs"), dict) else {}
-        return {
-            "snapshot": str(snapshot_path),
-            "discovery": self._resolved_path_text(payload.get("discovery_ref")),
-            "transform": self._resolved_path_text(refs.get("transform")),
-            "camera": self._resolved_path_text(refs.get("camera")),
-            "appearance": self._resolved_path_text(refs.get("appearance")),
-            "filter": self._resolved_path_text(refs.get("filters")),
-        }
-
-    def _resolved_path_text(self, value: object) -> str | None:
-        text = str(value or "").strip()
-        if not text:
-            return None
-        path = Path(text)
-        if not path.is_absolute() and self._project_root is not None:
-            path = (self._project_root / path).resolve()
-        return str(path)
-
-    def _metadata_for_ids(self, metadata_ids: list[int]) -> dict[int, dict[str, str]]:
-        if self._project_root is None or not metadata_ids:
-            return {}
-        database = self._project_root / "metadata" / "metadata.db"
-        if not database.exists():
-            return {}
-        wanted = set(int(value) for value in metadata_ids)
-        metadata: dict[int, dict[str, str]] = {}
-        try:
-            with closing(sqlite3.connect(database)) as connection:
-                connection.row_factory = sqlite3.Row
-                rows = connection.execute("SELECT * FROM metadata").fetchall()
-        except sqlite3.Error:
-            return {}
-        for row in rows:
-            try:
-                metadata_id = int(row["id"])
-            except (KeyError, TypeError, ValueError, IndexError):
-                continue
-            if metadata_id not in wanted:
-                continue
-            metadata[metadata_id] = {key: "" if row[key] is None else str(row[key]) for key in row.keys()}
-        return metadata
+    def _reanchor_plot_pins(plot_cell):
+        reanchor_pins(plot_cell)
 
     @staticmethod
     def _safe_dict(value: object) -> dict[str, Any]:

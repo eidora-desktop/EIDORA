@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 import copy
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -13,6 +13,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from FiguresArea.animation_export_service import GifAnimationExportService
 from FiguresArea.animation_preview_cache import AnimationPreviewCache
+from FiguresArea.cache_budget import FigureCacheBudgets
 from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
 from DiscoveryArea.presets_repository import PresetRepository
 from FiguresArea.animation_service import AnimationSequenceService
@@ -23,6 +24,7 @@ from FiguresArea.controllers.plot_tab_controller import PlotTabController
 from FiguresArea.domain import (
     AnimationFrame,
     AnimationTimelineState,
+    FigureElement,
     FigurePlotSettings,
     SlicerAnimationFrame,
     SnapshotAnimationFrame,
@@ -34,6 +36,25 @@ from shared.qt.widgets import add_widget_to_container, require_child
 if TYPE_CHECKING:
     from project.domain import Project
     from shared.qt.activity import ActivityManager, ActivityToken
+
+
+@dataclass
+class _ThumbnailRender:
+    future: Any
+    frame: AnimationFrame
+    directory: TemporaryDirectory
+    destination: Path
+
+    @property
+    def staged_path(self) -> Path:
+        return Path(self.directory.name) / "frame.png"
+
+    def cancel(self) -> None:
+        # A running Agg export cannot be interrupted. Keep its staging directory
+        # until it finishes, then remove it without retaining any Qt controller.
+        directory = self.directory
+        self.future.add_done_callback(lambda _: directory.cleanup())
+        self.future.cancel()
 
 
 class _TimelineItemDelegate(QtWidgets.QStyledItemDelegate):
@@ -64,6 +85,9 @@ class AnimationTabController(QtCore.QObject):
         selection_callback: Callable[[str], None] | None = None,
         state_changed_callback: Callable[[], None] | None = None,
         activity_manager: ActivityManager | None = None,
+        work_service=None,
+        preview_memory=None,
+        cache_budgets=None,
     ) -> None:
         super().__init__(parent)
         self._project = project
@@ -74,11 +98,13 @@ class AnimationTabController(QtCore.QObject):
         self._restoring = False
         self._state = AnimationTimelineState()
         self._playback_direction = 1
-        self._preview_cache = AnimationPreviewCache()
+        self._cache_budgets = cache_budgets or FigureCacheBudgets()
+        self._preview_cache = AnimationPreviewCache(cache=self._cache_budgets.animation)
         self._thumbnail_directory = TemporaryDirectory(
             prefix="eidora-animation-thumbnails-"
         )
         self._thumbnail_generation_queue: list[str] = []
+        self._thumbnail_batch_template = None
         self._refreshing_all_thumbnails = False
         self._thumbnail_activity: ActivityToken | None = None
         self._thumbnail_progress_completed = 0
@@ -145,6 +171,9 @@ class AnimationTabController(QtCore.QObject):
             state_changed_callback=self._handle_plot_state_changed,
             plot_edit_callback=self._handle_plot_edit,
             activity_manager=activity_manager,
+            work_service=work_service,
+            preview_memory=preview_memory,
+            cache_budgets=self._cache_budgets,
         )
         add_widget_to_container(plot_host, self._plot.widget)
         self._preview_stack.setCurrentWidget(self._plot_preview_page)
@@ -208,6 +237,7 @@ class AnimationTabController(QtCore.QObject):
 
         self._playback_timer = QtCore.QTimer(self._widget)
         self._playback_timer.timeout.connect(self._advance_playback)
+        self._thumbnail_future = None
         self._thumbnail_generation_timer = QtCore.QTimer(self._widget)
         self._thumbnail_generation_timer.setSingleShot(True)
         self._thumbnail_generation_timer.timeout.connect(
@@ -258,6 +288,38 @@ class AnimationTabController(QtCore.QObject):
     def plot_controller(self) -> PlotTabController:
         return self._plot
 
+    def activate(self) -> None:
+        self._plot.activate()
+
+    def deactivate(self) -> None:
+        self._plot.deactivate()
+
+    @property
+    def measurements_changed(self):
+        return self._plot.measurements_changed
+
+    @property
+    def measurement_revision(self):
+        return self._plot.measurement_revision
+
+    def figure_measurements(self):
+        return self._plot.figure_measurements()
+
+    def figure_size_overrides(self):
+        return self._plot.figure_size_overrides()
+
+    def restore_size_overrides(self, payload):
+        self._plot.restore_size_overrides(payload)
+
+    def prepare_measurement_edit(self, values, selected_cell=None):
+        self._pause()
+        return self._plot.prepare_measurement_edit(values, selected_cell)
+
+    def apply_measurement_overrides(self, overrides):
+        self._plot.apply_measurement_overrides(overrides)
+        self._state.thumbnails_dirty = True
+        self._update_control_states()
+
     def figure_settings(self) -> FigurePlotSettings:
         return self._plot.figure_settings()
 
@@ -268,7 +330,7 @@ class AnimationTabController(QtCore.QObject):
         progress_callback: Callable[[str, int], None] | None = None,
     ) -> None:
         self._plot.apply_figure_settings(
-            settings, progress_callback=progress_callback
+            settings, progress_callback=progress_callback, defer_legacy_migration=settings.layout_version < 2
         )
 
     def export_figure(
@@ -303,7 +365,7 @@ class AnimationTabController(QtCore.QObject):
             interval_ms=int(self._speed.value()),
             repeat_style=self._state.repeat_style,
             source_dimensions=self._plot.plot_canvas_size_px(),
-            render_frame=self._export_frame_png,
+            render_frame=self._export_frame_png_async,
             suggested_stem=title,
         )
         return result is not None
@@ -335,8 +397,9 @@ class AnimationTabController(QtCore.QObject):
         self._refresh_slicer_presets()
 
     def shutdown(self) -> None:
-        self._playback_timer.stop()
         self._cancel_thumbnail_generation()
+        self._plot.shutdown()
+        self._playback_timer.stop()
         self._set_preview_animation_note_visible(False)
         self._preview_cache.close()
         self._thumbnail_directory.cleanup()
@@ -408,6 +471,9 @@ class AnimationTabController(QtCore.QObject):
         self._notify_state_changed()
         self._show_status(f"Loaded animation base snapshot: {path.stem}")
         return True
+
+    def _export_frame_png_async(self, frame, destination):
+        return self._plot.export_animation_frame_async(frame, destination, self._base_snapshot_path())
 
     def _export_frame_png(self, frame: AnimationFrame, destination: Path) -> None:
         if isinstance(frame, SnapshotAnimationFrame):
@@ -551,7 +617,7 @@ class AnimationTabController(QtCore.QObject):
 
     def _reset_preview_cache(self) -> None:
         self._preview_cache.close()
-        self._preview_cache = AnimationPreviewCache()
+        self._preview_cache = AnimationPreviewCache(cache=self._cache_budgets.animation)
         self._thumbnail_directory.cleanup()
         self._thumbnail_directory = TemporaryDirectory(
             prefix="eidora-animation-thumbnails-"
@@ -608,6 +674,7 @@ class AnimationTabController(QtCore.QObject):
 
     def animation_state_payload(self) -> dict[str, Any]:
         return {
+            "plot_sizes": self.figure_size_overrides(),
             "frames": [self._frame_payload(frame) for frame in self._state.frames],
             "base_snapshot_path": (
                 self._stored_path(self._state.base_snapshot_path)
@@ -635,6 +702,7 @@ class AnimationTabController(QtCore.QObject):
         missing_base_snapshot = False
         try:
             self._pause()
+            self.restore_size_overrides(payload.get("plot_sizes"))
             self._cancel_thumbnail_generation()
             self._reset_preview_cache()
             self._list.clear()
@@ -1114,6 +1182,10 @@ class AnimationTabController(QtCore.QObject):
 
     def _cancel_thumbnail_generation(self) -> None:
         self._thumbnail_generation_timer.stop()
+        self._thumbnail_batch_template = None
+        if self._thumbnail_future is not None:
+            self._thumbnail_future.cancel()
+            self._thumbnail_future = None
         self._thumbnail_generation_queue.clear()
         self._refreshing_all_thumbnails = False
         self._finish_thumbnail_activity()
@@ -1132,27 +1204,40 @@ class AnimationTabController(QtCore.QObject):
         self._update_control_states()
 
     def _generate_next_thumbnail(self) -> None:
-        if not self._thumbnail_generation_queue:
+        if not self._thumbnail_generation_queue and self._thumbnail_future is None:
             self._finish_thumbnail_generation()
             self._update_control_states()
             return
-        frame_id = self._thumbnail_generation_queue.pop(0)
+        template = self._thumbnail_template()
+        if self._thumbnail_batch_template is None:
+            self._thumbnail_batch_template = template
+        elif template != self._thumbnail_batch_template:
+            self._cancel_thumbnail_generation()
+            self._state.thumbnails_dirty = True
+            self._update_control_states()
+            return
+        frame_id = self._thumbnail_future.frame.frame_id if self._thumbnail_future else self._thumbnail_generation_queue.pop(0)
         frame = AnimationSequenceService.frame_by_id(self._state.frames, frame_id)
-        base_snapshot = self._base_snapshot_path()
+        if frame is None and self._thumbnail_future is not None:
+            self._thumbnail_future.cancel()
+            self._thumbnail_future = None
         if frame is not None:
             destination = self._rendered_thumbnail_path(frame.frame_id)
+            completed = None
             try:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                if isinstance(frame, SnapshotAnimationFrame):
-                    self._plot.export_animation_frame_png(frame, destination)
-                elif base_snapshot is not None:
-                    self._plot.export_slicer_animation_frame_png(
-                        frame, base_snapshot, destination
-                    )
-                else:
-                    raise ValueError(
-                        "Drop a base snapshot before updating slicer thumbnails."
-                    )
+                if self._thumbnail_future is None:
+                    self._thumbnail_future = self._start_thumbnail_render(frame, destination)
+                if not self._thumbnail_future.future.done():
+                    self._thumbnail_generation_timer.start(25)
+                    return
+                completed, self._thumbnail_future = self._thumbnail_future, None
+                completed.future.result()
+                if frame != completed.frame:
+                    if frame_id not in self._thumbnail_generation_queue:
+                        self._thumbnail_generation_queue.insert(0, frame_id)
+                    self._thumbnail_generation_timer.start(0)
+                    return
+                completed.staged_path.replace(completed.destination)
                 self._preview_cache.register_source(frame.frame_id, destination)
                 self._refresh_timeline_icon(frame.frame_id)
             except Exception as error:  # noqa: BLE001 - restore batch UI for renderer/cache failures
@@ -1167,13 +1252,38 @@ class AnimationTabController(QtCore.QObject):
                 self._timeline_progress.setValue(
                     self._thumbnail_progress_completed
                 )
+            finally:
+                if completed is not None:
+                    completed.directory.cleanup()
         if self._thumbnail_generation_queue:
             self._thumbnail_generation_timer.start(0)
         else:
             self._finish_thumbnail_generation()
             self._update_control_states()
 
+    def _start_thumbnail_render(self, frame: AnimationFrame, destination: Path) -> _ThumbnailRender:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        directory = TemporaryDirectory(prefix=".eidora-thumbnail-", dir=destination.parent)
+        try:
+            captured_frame = copy.deepcopy(frame)
+            future = self._export_frame_png_async(captured_frame, Path(directory.name) / "frame.png")
+            return _ThumbnailRender(future, captured_frame, directory, destination)
+        except Exception:
+            directory.cleanup()
+            raise
+
+    def _thumbnail_template(self) -> tuple:
+        # Capture only small page settings/elements, never point or metadata arrays.
+        # Automatic plot titles are resolved separately for each exported frame;
+        # selecting another timeline item must not invalidate an entire refresh.
+        elements = {
+            key: replace(element, text="" if key == "plot_title_settings_0_0" and element.auto_text else element.text)
+            for key, element in self._plot.figure_composition().figure_elements.items()
+        }
+        return self.figure_settings(), elements, self.figure_size_overrides()
+
     def _finish_thumbnail_generation(self) -> None:
+        self._thumbnail_batch_template = None
         if self._refreshing_all_thumbnails:
             self._refreshing_all_thumbnails = False
             self._state.thumbnails_dirty = False
@@ -1201,7 +1311,7 @@ class AnimationTabController(QtCore.QObject):
     def _sync_thumbnail_activity_total(self) -> None:
         total = self._thumbnail_progress_completed + len(
             self._thumbnail_generation_queue
-        )
+        ) + int(self._thumbnail_future is not None)
         self._thumbnail_progress_total = total
         self._timeline_progress.setMaximum(max(1, total))
         self._timeline_progress.setValue(self._thumbnail_progress_completed)
@@ -1298,6 +1408,7 @@ class AnimationTabController(QtCore.QObject):
         )
         generating_thumbnails = bool(
             self._thumbnail_generation_queue
+            or self._thumbnail_future is not None
             or self._thumbnail_generation_timer.isActive()
         )
         play_enabled = navigation_enabled and not generating_thumbnails and not (

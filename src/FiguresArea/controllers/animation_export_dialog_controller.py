@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -50,8 +50,12 @@ class AnimationExportDialogController(QtCore.QObject):
         self._interval_ms = 150
         self._repeat_style: AnimationRepeatStyle = "from_start"
         self._source_dimensions = (2, 2)
-        self._render_frame: Callable[[AnimationFrame, Path], None] | None = None
+        self._render_frame: Callable[[AnimationFrame, Path], Any] | None = None
         self._result: AnimationExportResult | None = None
+        self._render_future = None
+        self._render_poll = QtCore.QTimer(self)
+        self._render_poll.setSingleShot(True)
+        self._render_poll.timeout.connect(self._render_next_frame)
         self._render_index = 0
         self._running = False
         self._stopping = False
@@ -64,7 +68,7 @@ class AnimationExportDialogController(QtCore.QObject):
         interval_ms: int,
         repeat_style: AnimationRepeatStyle,
         source_dimensions: tuple[int, int],
-        render_frame: Callable[[AnimationFrame, Path], None],
+        render_frame: Callable[[AnimationFrame, Path], Any],
         suggested_stem: str,
     ) -> AnimationExportResult | None:
         widget = load_ui("FiguresArea", "ui/animation_export_dialog.ui", None)
@@ -241,7 +245,14 @@ class AnimationExportDialogController(QtCore.QObject):
         frame = self._frames[self._render_index]
         path = workspace.render_path(self._render_index)
         try:
-            render_frame(frame, path)
+            if self._render_future is None:
+                self._render_future = render_frame(frame, path)
+            if self._render_future is not None:
+                if not self._render_future.done():
+                    self._render_poll.start(25)
+                    return
+                future, self._render_future = self._render_future, None
+                future.result()
         except Exception as error:  # noqa: BLE001 - renderer errors belong in the dialog
             self._fail(f"Could not render '{frame.label}': {error}")
             return
@@ -385,6 +396,7 @@ class AnimationExportDialogController(QtCore.QObject):
         self._show_configuration_error(message)
 
     def _return_to_configuration(self) -> None:
+        self._cancel_frame_render()
         self._running = False
         self._stopping = False
         if self._kill_timer is not None:
@@ -398,7 +410,14 @@ class AnimationExportDialogController(QtCore.QObject):
         self._finish_status_activity()
         self._set_export_running(False)
 
+    def _cancel_frame_render(self) -> None:
+        self._render_poll.stop()
+        if self._render_future is not None:
+            self._render_future.cancel()
+            self._render_future = None
+
     def _dispose_active_work(self) -> None:
+        self._cancel_frame_render()
         self._running = False
         if self._kill_timer is not None:
             self._kill_timer.stop()

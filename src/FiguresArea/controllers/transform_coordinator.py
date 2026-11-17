@@ -1,49 +1,9 @@
-from __future__ import annotations
-
+"""Latest-only transformation jobs; workers never own Qt objects."""
+from concurrent.futures import ThreadPoolExecutor
 import threading
 
-import numpy as np
 from PySide6 import QtCore
-
-from DiscoveryArea.transforms import (
-    TransformCancelled,
-    TransformSettings,
-    transform_coordinates,
-)
-
-
-class _Signals(QtCore.QObject):
-    ready = QtCore.Signal(int, object)
-    failed = QtCore.Signal(int, str)
-    cancelled = QtCore.Signal(int)
-
-
-class _Task(QtCore.QRunnable):
-    def __init__(self, revision: int, coordinates, metadata_ids, settings, event) -> None:
-        super().__init__()
-        self.setAutoDelete(False)
-        self.revision = revision
-        self.coordinates = np.asarray(coordinates, dtype=np.float32)
-        self.metadata_ids = np.asarray(metadata_ids, dtype=np.int64)
-        self.settings = settings
-        self.event = event
-        self.signals = _Signals()
-
-    @QtCore.Slot()
-    def run(self) -> None:
-        try:
-            result = transform_coordinates(
-                self.coordinates,
-                self.metadata_ids,
-                self.settings,
-                cancelled=self.event.is_set,
-            )
-        except TransformCancelled:
-            self.signals.cancelled.emit(self.revision)
-        except Exception as exc:
-            self.signals.failed.emit(self.revision, f"{type(exc).__name__}: {exc}")
-        else:
-            self.signals.ready.emit(self.revision, result)
+from DiscoveryArea.transforms import TransformCancelled
 
 
 class FigureTransformCoordinator(QtCore.QObject):
@@ -51,48 +11,50 @@ class FigureTransformCoordinator(QtCore.QObject):
     failed = QtCore.Signal(int, str)
     cancelled = QtCore.Signal(int)
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None):
         super().__init__(parent)
         self._revision = 0
-        self._tasks: dict[int, _Task] = {}
-        self._events: dict[int, threading.Event] = {}
+        self._jobs = []
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='figure-transform')
+        self._timer = QtCore.QTimer(self)
+        self._timer.setInterval(25)
+        self._timer.timeout.connect(self._poll)
 
-    def submit(self, coordinates, metadata_ids, settings: TransformSettings) -> int:
+    def submit(self, operation):
         self.cancel_pending()
-        revision = self._revision
         event = threading.Event()
-        task = _Task(revision, coordinates, metadata_ids, settings, event)
-        task.signals.ready.connect(self._ready)
-        task.signals.failed.connect(self._failed)
-        task.signals.cancelled.connect(self._cancelled)
-        self._tasks[revision] = task
-        self._events[revision] = event
-        QtCore.QThreadPool.globalInstance().start(task)
-        return revision
+        future = self._executor.submit(operation, event.is_set)
+        self._jobs.append((self._revision, event, future))
+        self._timer.start()
+        return self._revision
 
-    def cancel_pending(self) -> None:
+    def cancel_pending(self):
         self._revision += 1
-        for event in self._events.values():
+        for _, event, future in self._jobs:
             event.set()
+            future.cancel()
 
-    @QtCore.Slot(int, object)
-    def _ready(self, revision: int, result: object) -> None:
-        self._forget(revision)
-        if revision == self._revision:
-            self.ready.emit(revision, result)
+    def _poll(self):
+        for job in list(self._jobs):
+            revision, _, future = job
+            if not future.done():
+                continue
+            self._jobs.remove(job)
+            if revision != self._revision:
+                continue
+            try:
+                result = future.result()
+            except TransformCancelled:
+                self.cancelled.emit(revision)
+            except Exception as error:
+                self.failed.emit(revision, f'{type(error).__name__}: {error}')
+            else:
+                self.ready.emit(revision, result)
+        if not self._jobs:
+            self._timer.stop()
 
-    @QtCore.Slot(int, str)
-    def _failed(self, revision: int, message: str) -> None:
-        self._forget(revision)
-        if revision == self._revision:
-            self.failed.emit(revision, message)
-
-    @QtCore.Slot(int)
-    def _cancelled(self, revision: int) -> None:
-        self._forget(revision)
-        if revision == self._revision:
-            self.cancelled.emit(revision)
-
-    def _forget(self, revision: int) -> None:
-        self._tasks.pop(revision, None)
-        self._events.pop(revision, None)
+    def shutdown(self):
+        self.cancel_pending()
+        self._timer.stop()
+        self._executor.shutdown(wait=True, cancel_futures=True)
+        self._jobs.clear()

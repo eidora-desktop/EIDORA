@@ -4,19 +4,57 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Simplify footer activity feedback to a single-line process description and adjacent progress bar, removing the redundant activity-summary box.
+
+- Rename static and animation tabs through their right-click menu or by double-clicking the tab label. Save names automatically and use them for export filename suggestions.
+
+- Treat static and animation tabs as the saved figure collection. The × button now confirms permanent deletion with Cancel selected by default; remaining figures continue to autosave and reopen with the project.
+
+- Preserve legacy animation dimensions after loading the selected frame and keep gaps in saved plot grids blank. Refresh local legend changes in partial previews and update grid controls after adjacent plot insertion without discarding pending edits.
+
+- Start new Journal figures at 1600 × 1200 px, Presentation figures at 1920 × 1080 px, and Animation figures at 800 × 600 px, with coordinated margins, spacing and text sizes. Preserve snapshot point sizing and all existing saved settings, including legacy fallback values.
+
+- Use pixels for all figure dimensions, spacing, fonts and line widths, with no DPI or unit selector. Show actual output measurements as the layout changes. Apply exact output sizes to one plot or all plots, show mixed values explicitly, and preserve full precision through resizing, saved figures, presets and animation exports.
+
+- Make figure width and height the exact final export dimensions, reserve empty grid cells, and scale each plot proportionally with its annotations. Preserve saved figures through measured layout conversion, keep shared text at its chosen size, and retain plots when expanding the grid above or to the left.
+
+- Prepare and render all animation timeline thumbnails in the shared background worker, keeping the GUI responsive for large snapshot and slicer frames. Publish only current completed images, preserve previous thumbnails on cancellation or failure, and retain full-resolution appearance and export quality.
+
+- Replace cached dataset identities when loading snapshot data so direct animation-frame exports cannot reuse another frame's axis bounds.
+
 - Simplify the thumbnail footer to “Creating thumbnails” with the same progress state as the Assets panel.
 
+- Prioritize visible figure previews across the workspace, supersede queued stale draws, and deliver completion directly through the GUI event loop. Hidden previews still publish durable datasets, and exports retain their full-quality rendering and reliable queue order.
+
 - Fix stalled thumbnail input resolution on large collections with indexed, cancellable lookups; show live thumbnail preparation/progress in the footer, clear stale activity labels, finish footer cancellation for queued jobs, and omit video frame settings from image jobs.
+
+- Speed up figure tab switching with losslessly compressed point-layer caches inside the existing memory budget. Reuse exact rendered pixels across more tabs while preserving full-resolution previews, overlapping annotations and vector exports.
+
+- Update figure controls only when their geometry or visible preset selection changes, and share transformation and decoded-animation cache budgets across tabs. Preserve full-resolution previews, document data and export quality.
 
 - Close Run Model immediately and prepare inputs in the embedding card with pause/cancel support. After successful embedding completion, run optional default thumbnails as a separate Assets job with aspect-preserving previews, tracked in the footer without changing workspaces.
 
 - Simplify the batch selector by removing its explanatory paragraph; Auto now prefers faster batches when the throughput gap exceeds 2%, matching High's tolerance.
 
+- Redraw only affected figure-preview regions on the retained canvas, including overlapping plot annotations, with full redraws for changed layouts and unsupported cases. Preserve exact preview appearance and full-quality exports without another page-sized image cache.
+
 - Offer Auto, High, Low and fixed batches of 4, 8, 16, 32 or 64 for embedding runs. Tune High through larger CoreML batches, retain mild thermal throughput, remove fixed per-batch waits, and reduce soft memory pressure gradually while keeping critical safety pauses and recovery.
+
+- Transfer only changed figure-preview pixel regions with explicit frame validation, and cap inactive-tab preview images at a shared 64 MiB while regenerating evicted views on activation. Preserve full-resolution appearance and vector export quality.
 
 - Recover embedding batch sizes gradually after temporary resource pressure clears, preserving measured preferences and resuming interrupted Auto comparisons without weakening memory, thermal, disk or allocation-failure limits. Report temporary reductions and recovery with resource readings.
 
+- Reuse the preview Figure, canvas and unchanged plot Axes between figure edits, rebuilding changed plots and invalidating changed layouts while preserving raster-cache budgets, preview pixels and full-quality vector exports.
+
+- Prepare figure metadata directly as immutable encoded columns, reuse those arrays for persistence, and load metadata once after frame transformations select their final points; preserve frozen snapshot appearance and full-quality exports.
+
+- Bound figure preview-image transfers and assemble immutable pixels once, preventing repeated full-page receive-buffer growth in the GUI process while preserving preview pixels and export quality.
+
 - Guard embedding runs with memory, available thermal and disk checks; compare Auto batches of 8, 16 and 32 over longer measurement windows, retaining measured speeds and selection reasons in the run report. Support fixed CoreML batches up to 32 and checkpoint at 4,096 items or 10 seconds. Preserve readable reasons for resumable safety pauses.
+
+- Reclaim retired Matplotlib figures and canvas buffers after each render-worker reply, including failures and exports, while preserving reusable plot caches and full-quality output.
+
+- Move figure transformation preparation, Original-coordinate restoration and transformed animation frames off the GUI thread; use bounded coordinate batches and pin lookups, cancel obsolete work, and preserve preview/export quality.
 
 - Default embedding runs to automatic batch tuning with a saved manual override in Advanced settings & parameters; show live batch size, counts and speed directly above the progress bar.
 
@@ -38,9 +76,13 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Match Media Sources action buttons to Models with standard pushbuttons and a 4-pixel gap; label model options “...”.
 
+- Reduce figure worker memory with lazy encoded metadata columns, shared category mapping, and raw preview-image transfer without redundant full-page copies. Preserve existing preview pixels and export quality.
+
 - Compact Media Sources to two-line rows, with source details above the path and Link/status beside the top-right options button.
 
 - Show vector counts and saved embedding file sizes on Embeddings cards, with exact byte counts in tooltips.
+
+- Reuse cached figure plots before loading their datasets, and share one decoded dataset across repeated subplots even when it exceeds the cache budget.
 
 - Put source actions in a row options button, move Link to a natural-size left control with a smaller linked icon and Items-column tooltip, and show linked counts beside the media type.
 
@@ -71,6 +113,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 - Simplify the Help pop-up: place About EIDORA first, separate the remaining help options, and keep update checks in About instead of a duplicate pop-up action.
 
 - Add a media source selector to Discovery’s individual item dialog, using Media Sources names and allowing image, video, and audio previews across directly linked and inherited media.
+
+- Keep large figure editing responsive with cached subplot point layers, background previews/loading/export, lazy tab restoration, and compact shared figure datasets. Preserve full-resolution previews and vector export quality; migrate large saved figures without blocking the GUI.
 
 - Add Help → Diagnostics... with editable reports for manual submission to mail@eidora.org, bounded session logs, crash/freeze stack capture, and recovery guidance for common storage and access failures. Keep sharing information above the report and put the user's problem description before technical details.
 

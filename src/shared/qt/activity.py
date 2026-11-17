@@ -12,57 +12,6 @@ from shared.qt.icons import apply_icon_color
 from shared.qt.background_processes import BackgroundProcessManager
 
 
-class _ActivityPresenter:
-    def __init__(self, manager: "ActivityManager", button: QtWidgets.QToolButton) -> None:
-        self._manager = manager
-        self.button = button
-        self.bar = manager._progress_bar
-        self.rows: dict[int, QtWidgets.QWidget] = {}
-
-    def refresh_rows(self) -> None:
-        for row in self.rows.values():
-            row.deleteLater()
-        self.rows = {}
-        for activity_id, record in self._manager._activities.items():
-            if record.kind != "progress":
-                continue
-            row = QtWidgets.QWidget(self._manager.indicator)
-            layout = QtWidgets.QHBoxLayout(row)
-            layout.setContentsMargins(0, 0, 0, 0)
-            bar = QtWidgets.QProgressBar(row)
-            bar.setObjectName("progress_job")
-            if record.total > 0:
-                bar.setRange(0, record.total)
-                bar.setValue(record.value)
-            else:
-                bar.setRange(0, 0)
-            layout.addWidget(bar)
-            self.rows[activity_id] = row
-
-    def refresh_summary(self) -> None:
-        records = list(self._manager.processes.records.values())
-        visible_activities = [record for record in self._manager._activities.values() if record.visible]
-        if len(records) == 1 and records[0].footer_label and not visible_activities:
-            self.button.hide()
-            return
-        running = sum(record.state == "running" for record in records) + len(visible_activities)
-        queued = sum(record.state == "queued" for record in records)
-        paused = sum(record.state == "paused" for record in records)
-        if not records and len(visible_activities) == 1:
-            self.button.setText(f"{visible_activities[0].message} ▴")
-            self.button.show()
-            return
-        parts = []
-        if running:
-            parts.append(f"{running} running")
-        if queued:
-            parts.append(f"{queued} queued")
-        if paused:
-            parts.append(f"{paused} paused")
-        self.button.setText(" · ".join(parts) + (" ▴" if parts else ""))
-        self.button.setVisible(bool(parts))
-
-
 ActivityKind = Literal["busy", "progress"]
 
 
@@ -154,6 +103,8 @@ class ActivityManager(QtCore.QObject):
         layout.setSpacing(6)
         self._label = QtWidgets.QLabel(self.indicator)
         self._label.setObjectName("label_global_activity")
+        self._label.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        self._label.setWordWrap(False)
         self._label.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignRight
             | QtCore.Qt.AlignmentFlag.AlignVCenter
@@ -176,10 +127,6 @@ class ActivityManager(QtCore.QObject):
         self._cancel_button.clicked.connect(self._cancel_visible_activity)
         self._cancel_button.hide()
         layout.addWidget(self._cancel_button)
-        self._process_button = QtWidgets.QToolButton(self.indicator)
-        self._process_button.setObjectName("button_activities")
-        self._process_button.hide()
-        layout.addWidget(self._process_button)
         # Keep transient activity controls within the status bar's normal line
         # height. Without this bound, showing the indicator briefly increases
         # the status bar and shifts the entire workspace by a few pixels.
@@ -193,7 +140,6 @@ class ActivityManager(QtCore.QObject):
         status_bar.messageChanged.connect(self._clear_retained_activities)
         self.indicator.hide()
         self.processes = BackgroundProcessManager(changed=self._background_processes_changed)
-        self.presenter = _ActivityPresenter(self, self._process_button)
 
     @property
     def records(self):
@@ -384,9 +330,6 @@ class ActivityManager(QtCore.QObject):
         self._refresh_indicator()
 
     def _refresh_indicator(self) -> None:
-        if hasattr(self, "presenter"):
-            self.presenter.refresh_rows()
-            self.presenter.refresh_summary()
         visible = [
             (activity_id, record)
             for activity_id, record in self._activities.items()
@@ -398,7 +341,8 @@ class ActivityManager(QtCore.QObject):
             records = list(self.processes.records.values()) if hasattr(self, "processes") else []
             if records:
                 record = next((item for item in reversed(records) if item.state == "running"), records[-1])
-                self._label.setText(record.footer_label or f"{record.panel}: {record.message or record.title}")
+                message = record.footer_label or f"{record.panel}: {record.message or record.title}"
+                self._label.setText(" ".join(message.split()))
                 if record.footer_label or record.progress >= 0:
                     busy = record.progress < 0 and record.state == "running" and not record.cancelled
                     self._progress_bar.setRange(0, 0 if busy else 100)
@@ -414,7 +358,7 @@ class ActivityManager(QtCore.QObject):
                 self.indicator.hide()
             return
         _activity_id, record = visible[-1]
-        self._label.setText(record.message)
+        self._label.setText(" ".join(record.message.split()))
         if record.kind == "progress":
             if record.total > 0:
                 self._progress_bar.setRange(0, record.total)

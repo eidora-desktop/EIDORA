@@ -7,8 +7,12 @@ from typing import TYPE_CHECKING
 from PySide6 import QtCore, QtWidgets
 
 from FiguresArea.controllers.figure_settings_panel_controller import FigureSettingsPanelController
+from FiguresArea.controllers.preview_memory import PreviewMemoryBudget
+from FiguresArea.cache_budget import FigureCacheBudgets
 from FiguresArea.controllers.snapshot_sources_panel_controller import SnapshotSourcesPanelController
 from FiguresArea.repository import FigureTabsRepository
+from FiguresArea.composition_service import snapshot_composition
+from FiguresArea.work_service import FigureWorkService
 from DiscoveryArea.presets_repository import PresetRepository
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
@@ -40,13 +44,24 @@ class FiguresAreaController:
         self._plot_tabs: dict[
             QtWidgets.QWidget, PlotTabController | AnimationTabController
         ] = {}
-        self._closed_figure_tabs: list[dict[str, object]] = []
         self._restoring_project_state = False
         self._restored_project_root: Path | None = None
+        self._work_service: FigureWorkService | None = None
+        self._preview_memory = PreviewMemoryBudget()
+        self._cache_budgets = FigureCacheBudgets()
+        self._save_future = None
+        self._load_future = None
+        self._disposed = False
         self._state_save_timer = QtCore.QTimer(self._widget)
         self._state_save_timer.setSingleShot(True)
         self._state_save_timer.setInterval(250)
-        self._state_save_timer.timeout.connect(self._save_project_tab_state)
+        self._state_save_timer.timeout.connect(lambda: self._save_project_tab_state(wait=False))
+        self._save_poll_timer = QtCore.QTimer(self._widget)
+        self._save_poll_timer.setInterval(100)
+        self._save_poll_timer.timeout.connect(self._check_save_result)
+        self._load_poll_timer = QtCore.QTimer(self._widget)
+        self._load_poll_timer.setInterval(50)
+        self._load_poll_timer.timeout.connect(self._check_load_result)
         self._load_panels()
         connect_placeholder_buttons(self._widget, self._placeholder_action)
         self._configure_figure_tabs()
@@ -70,7 +85,15 @@ class FiguresAreaController:
         project_changed = self._project is None or self._project.root != incoming_root
         self._project = project
         if project_changed:
+            self._load_poll_timer.stop()
+            if self._load_future is not None:
+                self._load_future.cancel()
+                self._load_future = None
             self._clear_figure_tabs()
+            if self._work_service is not None:
+                self._work_service.shutdown()
+            self._cache_budgets.clear()
+            self._work_service = FigureWorkService(project.paths.state, cleanup_on_close=True) if project is not None else None
             self._restored_project_root = None
         for plot_tab in self._plot_tabs.values():
             plot_tab.set_project(project)
@@ -82,20 +105,24 @@ class FiguresAreaController:
             label.setText(project.name if project is not None else "No project loaded")
 
     def shutdown(self) -> None:
+        if self._disposed:
+            return
         self._save_project_tab_state()
+        self._disposed = True
+        self._save_poll_timer.stop()
+        self._load_poll_timer.stop()
         for plot in self._plot_tabs.values():
             shutdown = getattr(plot, "shutdown", None)
             if callable(shutdown):
                 shutdown()
         for panel in self._panels:
             panel.shutdown()
+        if self._work_service is not None:
+            self._work_service.shutdown()
+        self._cache_budgets.clear()
 
     def activate(self) -> None:
         self._ensure_project_state_loaded()
-        for plot in self._plot_tabs.values():
-            activate = getattr(plot, "activate", None)
-            if callable(activate):
-                activate()
         self._sync_settings_panel_with_current_tab()
 
     def refresh_snapshots(self) -> None:
@@ -137,13 +164,16 @@ class FiguresAreaController:
     def _configure_figure_tabs(self) -> None:
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
         tabs.setTabsClosable(True)
-        tabs.tabCloseRequested.connect(self._close_figure_tab)
+        tabs.tabCloseRequested.connect(self._delete_figure_tab)
+        tabs.tabBarDoubleClicked.connect(self._rename_figure_tab)
+        tabs.tabBar().setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        tabs.tabBar().customContextMenuRequested.connect(self._show_figure_tab_menu)
         tabs.currentChanged.connect(lambda _index: self._sync_settings_panel_with_current_tab())
         self._hide_add_tab_close_button(tabs)
 
     def _configure_plot_option_buttons(self) -> None:
         specs = [
-            ("button_create_journal_plot", "journal", "journal", "Journal / print"),
+            ("button_create_journal_plot", "journal", "journal", "Journal / publication"),
             (
                 "button_create_presentation_plot",
                 "presentation",
@@ -173,6 +203,9 @@ class FiguresAreaController:
 
     def _create_figure_tab(self, figure_kind: str, title_prefix: str) -> None:
         self._ensure_project_state_loaded()
+        if self._load_future is not None:
+            self._show_status("Saved figures are still loading…")
+            return
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
         title = f"{title_prefix} {self._next_figure_number(tabs)}"
         self._add_figure_tab(figure_kind, title)
@@ -208,23 +241,27 @@ class FiguresAreaController:
             "selection_callback": self._show_figure_settings_for_selection,
             "state_changed_callback": self._schedule_project_tab_state_save,
             "activity_manager": self._activity_manager,
+            "work_service": self._work_service,
+            "preview_memory": self._preview_memory,
+            "cache_budgets": self._cache_budgets,
         }
         if controller_type is PlotTabController:
             controller_kwargs["figure_kind"] = normalized_kind
+            controller_kwargs["defer_render"] = self._restoring_project_state
         plot = controller_type(**controller_kwargs)
-        if settings is not None:
+        restored_composition = None
+        if isinstance(plot, PlotTabController):
+            restored_composition = FigureTabsRepository.composition_from_payload(
+                composition, settings=FigureTabsRepository.settings_from_payload(settings, figure_kind=normalized_kind),
+            )
+        if restored_composition is not None:
+            plot.apply_figure_composition(restored_composition)
+        elif settings is not None:
             plot.apply_figure_settings(
                 FigureTabsRepository.settings_from_payload(
                     settings, figure_kind=normalized_kind
                 )
             )
-        if isinstance(plot, PlotTabController):
-            restored_composition = FigureTabsRepository.composition_from_payload(
-                composition,
-                settings=plot.figure_settings(),
-            )
-            if restored_composition is not None:
-                plot.apply_figure_composition(restored_composition)
         page = plot.widget
         page.setObjectName(f"page_figure_{normalized_kind}_{len(self._plot_tabs) + 1}")
         page.setProperty("figureKind", normalized_kind)
@@ -240,9 +277,66 @@ class FiguresAreaController:
         tabs.setCurrentIndex(index)
         self._hide_add_tab_close_button(tabs)
         self._sync_settings_panel_with_current_tab()
-        self._save_project_tab_state()
+        self._save_project_tab_state(wait=False)
 
-    def _close_figure_tab(self, index: int) -> None:
+    def _show_figure_tab_menu(self, position: QtCore.QPoint) -> None:
+        tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
+        tab_bar = tabs.tabBar()
+        page = tabs.widget(tab_bar.tabAt(position))
+        if page not in self._plot_tabs:
+            return
+        menu = QtWidgets.QMenu()
+        rename_action = menu.addAction("Rename…")
+        chosen = menu.exec(tab_bar.mapToGlobal(position))
+        if chosen is rename_action and not self._disposed and page in self._plot_tabs:
+            self._rename_figure_tab(tabs.indexOf(page))
+
+    def _rename_figure_tab(self, index: int) -> None:
+        tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
+        page = tabs.widget(index)
+        if self._disposed or page not in self._plot_tabs:
+            return
+        dialog = QtWidgets.QInputDialog()
+        dialog.setWindowTitle("Rename Figure")
+        dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        dialog.setLabelText("Figure name:")
+        dialog.setTextValue(tabs.tabText(index))
+        dialog.setOkButtonText("Rename")
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        if self._disposed or page not in self._plot_tabs:
+            return
+        title = dialog.textValue().strip()
+        if not title:
+            self._show_status("Figure name cannot be empty.")
+            return
+        index = tabs.indexOf(page)
+        if title == tabs.tabText(index):
+            return
+        tabs.setTabText(index, title)
+        page.setProperty("figureTitle", title)
+        self._hide_add_tab_close_button(tabs)
+        self._save_project_tab_state(wait=False)
+
+    def _confirm_delete_figure(self, title: str) -> bool:
+        dialog = QtWidgets.QMessageBox()
+        dialog.setWindowTitle("Delete Figure")
+        dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        dialog.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        dialog.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        dialog.setText(f'Delete “{title}” from this project?')
+        dialog.setInformativeText(
+            "This permanently deletes the figure and its saved settings. This cannot be undone.\n\n"
+            "Source snapshots, project data and exported files will be kept."
+        )
+        delete_button = dialog.addButton("Delete Figure", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = dialog.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(cancel_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec()
+        return dialog.clickedButton() is delete_button
+
+    def _delete_figure_tab(self, index: int) -> None:
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
         if index < 0 or index >= tabs.count():
             return
@@ -250,9 +344,12 @@ class FiguresAreaController:
         if page is None or page.objectName() == "page_add_figure":
             self._hide_add_tab_close_button(tabs)
             return
-        record = self._figure_tab_record(tabs, index)
-        if record is not None:
-            self._closed_figure_tabs.append(record)
+        if not self._confirm_delete_figure(tabs.tabText(index)):
+            return
+        # The modal event loop may have processed a project change or shutdown.
+        if self._disposed or page not in self._plot_tabs:
+            return
+        index = tabs.indexOf(page)
         tabs.removeTab(index)
         plot = self._plot_tabs.pop(page, None)
         shutdown = getattr(plot, "shutdown", None)
@@ -261,7 +358,7 @@ class FiguresAreaController:
         page.deleteLater()
         self._hide_add_tab_close_button(tabs)
         self._sync_settings_panel_with_current_tab()
-        self._save_project_tab_state()
+        self._save_project_tab_state(wait=False)
 
     def _clear_figure_tabs(self) -> None:
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
@@ -275,13 +372,12 @@ class FiguresAreaController:
                 tabs.removeTab(index)
             page.deleteLater()
         self._plot_tabs.clear()
-        self._closed_figure_tabs.clear()
         self._hide_add_tab_close_button(tabs)
 
-    def _save_project_tab_state(self) -> None:
+    def _save_project_tab_state(self, *, wait: bool = True) -> None:
         self._state_save_timer.stop()
         if (
-            self._project is None
+            self._disposed or self._project is None
             or self._restoring_project_state
             or self._restored_project_root != self._project.root
         ):
@@ -299,12 +395,28 @@ class FiguresAreaController:
             record = self._figure_tab_record(tabs, index)
             if record is not None:
                 payload.append(record)
-        # A closed view remains a project document and is restored on reopening.
-        payload.extend(self._closed_figure_tabs)
         try:
-            FigureTabsRepository(self._project.paths.state).save(payload, current_index)
+            if self._save_future is not None:
+                self._save_future.cancel()
+            self._save_future = self._work_service.save(payload, current_index)
+            if wait:
+                self._save_future.result()
+                self._save_future = None
+            else:
+                self._save_poll_timer.start()
         except (OSError, TypeError, ValueError):
             self._show_status("Failed to save figure tabs.")
+
+    def _check_save_result(self) -> None:
+        if self._save_future is None:
+            self._save_poll_timer.stop()
+        elif self._save_future.done():
+            future, self._save_future = self._save_future, None
+            self._save_poll_timer.stop()
+            try:
+                future.result()
+            except Exception as error:
+                self._show_status(f"Failed to save figure tabs: {error}")
 
     def _figure_tab_record(
         self, tabs: QtWidgets.QTabWidget, index: int
@@ -325,9 +437,7 @@ class FiguresAreaController:
             "settings": settings,
         }
         if isinstance(plot, PlotTabController):
-            record["composition"] = FigureTabsRepository.composition_payload(
-                plot.figure_composition()
-            )
+            record["composition"] = snapshot_composition(plot.figure_composition())
         return record
 
     def _schedule_project_tab_state_save(self) -> None:
@@ -340,17 +450,37 @@ class FiguresAreaController:
         self._state_save_timer.start()
 
     def _ensure_project_state_loaded(self) -> None:
-        if self._project is None or self._restored_project_root == self._project.root:
+        if self._project is None or self._restored_project_root == self._project.root or self._load_future is not None:
             return
         self._clear_figure_tabs()
+        manifest = self._project.paths.state / "figures_area_state.json"
+        if manifest.exists() and manifest.stat().st_size > 128 * 1024:
+            self._load_future = self._work_service.load()
+            self._load_poll_timer.start()
+            self._show_status("Loading saved figures…")
+            return
         self._restore_project_tab_state()
         self._restored_project_root = self._project.root
 
-    def _restore_project_tab_state(self) -> None:
+    def _check_load_result(self) -> None:
+        if self._load_future is None or not self._load_future.done():
+            return
+        future, self._load_future = self._load_future, None
+        self._load_poll_timer.stop()
+        try:
+            loaded = future.result()
+        except Exception as error:
+            self._show_status(f"Failed to load saved figures: {error}")
+            return
+        if not self._disposed and self._project is not None:
+            self._restore_project_tab_state(loaded)
+            self._restored_project_root = self._project.root
+
+    def _restore_project_tab_state(self, loaded=None) -> None:
         if self._project is None:
             return
         try:
-            records, current_index = FigureTabsRepository(self._project.paths.state).load()
+            records, current_index = loaded if loaded is not None else FigureTabsRepository(self._project.paths.state).load()
         except OSError:
             self._show_status("Failed to restore figure tabs.")
             return
@@ -378,20 +508,26 @@ class FiguresAreaController:
 
     @staticmethod
     def _hide_add_tab_close_button(tabs: QtWidgets.QTabWidget) -> None:
+        tab_bar = tabs.tabBar()
         for index in range(tabs.count()):
-            if tabs.widget(index).objectName() != "page_add_figure":
-                continue
-            tab_bar = tabs.tabBar()
-            tab_bar.setTabButton(index, QtWidgets.QTabBar.ButtonPosition.LeftSide, None)
-            tab_bar.setTabButton(index, QtWidgets.QTabBar.ButtonPosition.RightSide, None)
-            break
+            for side in (QtWidgets.QTabBar.ButtonPosition.LeftSide, QtWidgets.QTabBar.ButtonPosition.RightSide):
+                if tabs.widget(index).objectName() == "page_add_figure":
+                    tab_bar.setTabButton(index, side, None)
+                else:
+                    button = tab_bar.tabButton(index, side)
+                    if button is not None:
+                        button.setToolTip("Delete Figure…")
+                        button.setAccessibleName(f"Delete Figure: {tabs.tabText(index)}")
 
     def _next_figure_number(self, tabs: QtWidgets.QTabWidget) -> int:
         count = 0
         for index in range(tabs.count()):
             if tabs.widget(index).objectName() != "page_add_figure":
                 count += 1
-        return count + len(self._closed_figure_tabs) + 1
+        number = count + 1
+        while any(tabs.tabText(index).endswith(f" {number}") for index in range(tabs.count())):
+            number += 1
+        return number
 
     def _show_status(self, message: str) -> None:
         if self._status_callback is not None:
@@ -407,6 +543,11 @@ class FiguresAreaController:
         tabs = self._widget.findChild(QtWidgets.QTabWidget, "tabs_figures")
         page = tabs.currentWidget() if tabs is not None else None
         plot_tab = self._plot_tabs.get(page) if page is not None else None
+        if not self._restoring_project_state:
+            for candidate in self._plot_tabs.values():
+                method = getattr(candidate, "activate" if candidate is plot_tab else "deactivate", None)
+                if callable(method):
+                    method()
         figure_kind = str(page.property("figureKind") or "") if page is not None else ""
         if figure_kind in {"animation", "journal", "presentation"}:
             self._figure_settings_panel.set_active_plot_tab(plot_tab)

@@ -8,6 +8,8 @@ from typing import Protocol
 from PySide6 import QtCore, QtWidgets
 
 from FiguresArea.domain import FigurePlotSettings
+from FiguresArea.measurements import LOCAL_SIZES, FONT_SIZES, PIXEL_SIZES, pixels_per_unit, scaled_sizes
+from FiguresArea.controllers.measurement_controls import MeasurementSpinBox
 from shared.plot_fonts import BUNDLED_FONT_FAMILIES, initialize_plot_fonts
 from shared.qt.panel_controller import UiPanelController
 
@@ -51,6 +53,17 @@ class FigureSettingsPanelController(UiPanelController):
 
     def _wire(self) -> None:
         self._active_plot_tab: FigureSettingsTarget | None = None
+        self._changed_setting_keys = set()
+        self._measurement_completion = None
+        self._measurement_future = None
+        self._measurement_target = None
+        self._measurement_activity = None
+        self._measurement_timer = QtCore.QTimer(self._widget)
+        self._measurement_timer.setInterval(25)
+        self._measurement_timer.timeout.connect(self._poll_measurements)
+        self._measurement_scope = self._widget.findChild(QtWidgets.QComboBox, "combo_measurement_plot")
+        self._measurement_scope.addItem("All plots", None)
+        self._measurement_scope.currentIndexChanged.connect(self._measurement_scope_changed)
         self._available_fonts = BUNDLED_FONT_FAMILIES
         self._figure_setting_widgets: dict[str, QtWidgets.QWidget] = {}
         self._save_preset_callback: Callable[[str, dict], bool] | None = None
@@ -59,6 +72,11 @@ class FigureSettingsPanelController(UiPanelController):
         self._menu_load_recent: QtWidgets.QMenu | None = None
         self._settings_unapplied = False
         self._operation: str | None = None
+        self._export_future = None
+        self._export_activity = None
+        self._export_timer = QtCore.QTimer(self._widget)
+        self._export_timer.setInterval(50)
+        self._export_timer.timeout.connect(self._poll_export)
         self._wire_page_buttons()
         self._populate_figure_settings_tree()
         self._configure_options_menu()
@@ -107,7 +125,16 @@ class FigureSettingsPanelController(UiPanelController):
         self._show_settings_page("panel_figure_page")
 
     def set_active_plot_tab(self, plot_tab: FigureSettingsTarget | None) -> None:
+        if self._active_plot_tab is not None:
+            signal = getattr(self._active_plot_tab, 'measurements_changed', None)
+            if signal is not None:
+                signal.disconnect(self._refresh_measurements)
+        self._cancel_measurement_edit()
         self._active_plot_tab = plot_tab
+        if plot_tab is not None:
+            signal = getattr(plot_tab, 'measurements_changed', None)
+            if signal is not None:
+                signal.connect(self._refresh_measurements)
         if plot_tab is not None:
             self._available_fonts = initialize_plot_fonts()
         self._sync_figure_settings_from_active_tab()
@@ -188,15 +215,20 @@ class FigureSettingsPanelController(UiPanelController):
         self._figure_setting_widgets.clear()
 
         figure_item = self._add_group_item(tree, "Main Figure")
-        self._add_double_spin(tree, figure_item, "width_mm", "width", suffix=" mm", minimum=1.0, maximum=1000.0)
-        self._add_double_spin(tree, figure_item, "height_mm", "height", suffix=" mm", minimum=1.0, maximum=1000.0)
-        self._add_double_spin(tree, figure_item, "margin_mm", "margin", suffix=" mm", minimum=0.0, maximum=1000.0, step=0.1)
-        self._add_spin(tree, figure_item, "export_dpi", "resolution", suffix=" dpi", minimum=36, maximum=1200)
+        self._add_double_spin(tree, figure_item, "width_mm", "final width", suffix=" px", minimum=1.0, maximum=24000.0)
+        self._add_double_spin(tree, figure_item, "height_mm", "final height", suffix=" px", minimum=1.0, maximum=24000.0)
+        for key in ("width_mm", "height_mm"):
+            self._figure_setting_widgets[key].setToolTip(
+                "Exact exported figure size, including margins, titles, captions and legends. Plots scale proportionally to fit."
+            )
+        self._add_double_spin(tree, figure_item, "margin_mm", "margin", suffix=" px", minimum=0.0, maximum=1000.0, step=0.1)
 
         subplot_item = self._add_group_item(tree, "Subplots")
         self._add_spin(tree, subplot_item, "rows", "rows", minimum=1, maximum=24)
         self._add_spin(tree, subplot_item, "columns", "columns", minimum=1, maximum=24)
-        self._add_double_spin(tree, subplot_item, "subplot_margin_mm", "spacing", suffix=" mm", minimum=0.0, maximum=1000.0, step=0.1)
+        for key in ("rows", "columns"):
+            self._figure_setting_widgets[key].setToolTip("Reserve all grid cells, including empty ones, inside the final figure.")
+        self._add_double_spin(tree, subplot_item, "subplot_margin_mm", "spacing", suffix=" px", minimum=0.0, maximum=1000.0, step=0.1)
 
         plot_item = self._add_group_item(tree, "Axes")
         self._add_double_spin(tree, plot_item, "axis_box_line_width", "box width", minimum=0.0, maximum=1000.0, step=0.1)
@@ -208,9 +240,9 @@ class FigureSettingsPanelController(UiPanelController):
             [("off", "none"), ("lines", "guidelines"), ("map", "map")],
         )
         self._add_double_spin(tree, plot_item, "grid_line_width", "grid width", minimum=0.0, maximum=1000.0, step=0.1)
-        self._add_double_spin(tree, plot_item, "grid_cell_size_mm", "grid cell size", suffix=" mm", minimum=0.5, maximum=1000.0)
+        self._add_double_spin(tree, plot_item, "grid_cell_size_mm", "grid cell size", suffix=" px", minimum=0.01, maximum=1000.0)
         self._add_spin(tree, plot_item, "tick_label_size", "label size", minimum=1, maximum=200)
-        self._add_double_spin(tree, plot_item, "tick_label_margin_pt", "label margin", suffix=" pt", minimum=0.0, maximum=200.0, step=0.1)
+        self._add_double_spin(tree, plot_item, "tick_label_margin_pt", "label margin", suffix=" px", minimum=0.0, maximum=200.0, step=0.1)
 
         appearance_item = self._add_group_item(tree, "Appearance")
         self._add_double_spin(
@@ -262,7 +294,7 @@ class FigureSettingsPanelController(UiPanelController):
         self._add_double_spin(tree, legend_item, "legend_marker_size", "marker size", minimum=0.1, maximum=200.0, step=0.5)
         self._add_spin(tree, legend_item, "legend_columns", "columns", minimum=1, maximum=24)
         self._add_check_box(tree, legend_item, "legend_frame", "frame")
-        self._add_double_spin(tree, legend_item, "legend_margin_mm", "margin", suffix=" mm", minimum=0.0, maximum=1000.0, step=0.1)
+        self._add_double_spin(tree, legend_item, "legend_margin_mm", "margin", suffix=" px", minimum=0.0, maximum=1000.0, step=0.1)
         pins_item = self._add_group_item(tree, "Pins")
         self._add_check_box(tree, pins_item, "pins_visible", "show")
         self._add_double_spin(
@@ -318,7 +350,7 @@ class FigureSettingsPanelController(UiPanelController):
         )
         self._add_spin(tree, subplot_caption_item, "subplot_caption_size", "size", minimum=1, maximum=200)
         self._add_double_spin(tree, subplot_caption_item, "subplot_caption_line_spacing", "line spacing", minimum=0.1, maximum=10.0, step=0.1)
-        self._add_double_spin(tree, subplot_caption_item, "caption_margin_mm", "margin", suffix=" mm", minimum=0.0, maximum=1000.0, step=0.1)
+        self._add_double_spin(tree, subplot_caption_item, "caption_margin_mm", "margin", suffix=" px", minimum=0.0, maximum=1000.0, step=0.1)
         tree.expandAll()
         tree.resizeColumnToContents(0)
         self._sync_figure_settings_from_active_tab()
@@ -347,7 +379,7 @@ class FigureSettingsPanelController(UiPanelController):
             "alignment",
             [("left", "left"), ("center", "center"), ("right", "right")],
         )
-        self._add_double_spin(tree, main_title_item, "main_title_margin_mm", "margin", suffix=" mm", minimum=-1000.0, maximum=1000.0, step=0.1)
+        self._add_double_spin(tree, main_title_item, "main_title_margin_mm", "margin", suffix=" px", minimum=-1000.0, maximum=1000.0, step=0.1)
         self._add_combo_box(
             tree,
             main_title_item,
@@ -373,7 +405,7 @@ class FigureSettingsPanelController(UiPanelController):
             "alignment",
             [("left", "left"), ("center", "center"), ("right", "right")],
         )
-        self._add_double_spin(tree, subtitle_item, "subtitle_margin_mm", "margin", suffix=" mm", minimum=-1000.0, maximum=1000.0, step=0.1)
+        self._add_double_spin(tree, subtitle_item, "subtitle_margin_mm", "margin", suffix=" px", minimum=-1000.0, maximum=1000.0, step=0.1)
         self._add_combo_box(
             tree,
             subtitle_item,
@@ -409,12 +441,16 @@ class FigureSettingsPanelController(UiPanelController):
         step: float = 1.0,
     ) -> None:
         item = QtWidgets.QTreeWidgetItem(parent, [label, ""])
-        spin = QtWidgets.QDoubleSpinBox(tree)
+        spin = MeasurementSpinBox(tree) if key in LOCAL_SIZES else QtWidgets.QDoubleSpinBox(tree)
         spin.setObjectName(f"spin_figure_{key}")
         spin.setRange(minimum, maximum)
-        spin.setDecimals(1)
+        spin.setDecimals(0 if key in {"width_mm", "height_mm"} else 2)
         spin.setSingleStep(step)
+        if not suffix and (key in FONT_SIZES or key in {'axis_box_line_width', 'grid_line_width', 'legend_marker_size', 'pin_line_width'}):
+            suffix = ' px'
         spin.setSuffix(suffix)
+        if key in LOCAL_SIZES:
+            spin.setToolTip('Actual exported size. Layout changes update this value; editing sets the size in the current layout.')
         tree.setItemWidget(item, 1, spin)
         self._figure_setting_widgets[key] = spin
 
@@ -429,6 +465,9 @@ class FigureSettingsPanelController(UiPanelController):
         minimum: int,
         maximum: int,
     ) -> None:
+        if key in FONT_SIZES:
+            self._add_double_spin(tree, parent, key, label, suffix=' px', minimum=1.0, maximum=maximum, step=0.5)
+            return
         item = QtWidgets.QTreeWidgetItem(parent, [label, ""])
         spin = QtWidgets.QSpinBox(tree)
         spin.setObjectName(f"spin_figure_{key}")
@@ -472,6 +511,7 @@ class FigureSettingsPanelController(UiPanelController):
         self._figure_setting_widgets[key] = combo
 
     def _sync_figure_settings_from_active_tab(self) -> None:
+        self._changed_setting_keys.clear()
         if self._active_plot_tab is None:
             settings = FigurePlotSettings()
         else:
@@ -481,7 +521,6 @@ class FigureSettingsPanelController(UiPanelController):
         self._set_widget_value("rows", settings.rows)
         self._set_widget_value("columns", settings.columns)
         self._set_widget_value("margin_mm", settings.margin_mm)
-        self._set_widget_value("export_dpi", settings.export_dpi)
         self._set_widget_value("axis_box_line_width", settings.axis_box_line_width)
         self._set_widget_value("grid_mode", settings.grid_mode)
         self._set_widget_value("grid_line_width", settings.grid_line_width)
@@ -531,15 +570,26 @@ class FigureSettingsPanelController(UiPanelController):
         self._set_widget_value("tick_label_margin_pt", settings.tick_label_margin_pt)
         self._set_widget_value("point_size_factor_percent", settings.point_size_factor_percent)
         self._update_dynamic_setting_states()
+        self._refresh_measurements()
         self._settings_unapplied = False
         self._refresh_action_buttons()
 
-    def _set_widget_value(self, key: str, value: object) -> None:
+    def _set_widget_value(self, key: str, value: object, *, output_pixels: bool = False) -> None:
         widget = self._figure_setting_widgets.get(key)
         if widget is None:
             return
         previous = widget.blockSignals(True)
         try:
+            if key in PIXEL_SIZES and not output_pixels:
+                settings = self._active_plot_tab.figure_settings() if self._active_plot_tab is not None else FigurePlotSettings()
+                value = float(value) * pixels_per_unit(settings, key)
+                if key in {'width_mm', 'height_mm'}:
+                    # Match the raster buffer for older fractional-pixel pages.
+                    import math
+                    value = math.floor(value + 1e-9)
+                if key in FONT_SIZES:
+                    widget.setMinimum(pixels_per_unit(settings, key))
+                widget.setMaximum(max(widget.maximum(), value))
             if isinstance(widget, QtWidgets.QDoubleSpinBox):
                 widget.setValue(float(value))
             elif isinstance(widget, QtWidgets.QSpinBox):
@@ -561,6 +611,92 @@ class FigureSettingsPanelController(UiPanelController):
         finally:
             widget.blockSignals(previous)
 
+    def _selected_measurement_cell(self):
+        value = self._measurement_scope.currentData()
+        return tuple(map(int, value.split(','))) if isinstance(value, str) else None
+
+    def _measurement_scope_changed(self, *_args):
+        # Scoped size drafts belong to the previously selected plot. Keep page
+        # edits, but discard unsubmitted sizes when changing their target.
+        settings = self._active_plot_tab.figure_settings() if self._active_plot_tab is not None else FigurePlotSettings()
+        self._changed_setting_keys.difference_update(scaled_sizes(settings))
+        self._refresh_measurements()
+        self._settings_unapplied = bool(self._changed_setting_keys)
+        self._refresh_action_buttons()
+
+    def _refresh_measurements(self):
+        getter = getattr(self._active_plot_tab, 'figure_measurements', None)
+        measurements = getter() if getter is not None else {}
+        scope = self._measurement_scope
+        selected = scope.currentData()
+        keys = sorted(measurements)
+        if [scope.itemData(index) for index in range(1, scope.count())] != [f'{row},{column}' for row, column in keys]:
+            blocked = scope.blockSignals(True)
+            scope.clear()
+            scope.addItem('All plots', None)
+            for row, column in keys:
+                scope.addItem(f'Plot {row + 1}, {column + 1}', f'{row},{column}')
+            index = scope.findData(selected)
+            scope.setCurrentIndex(max(index, 0))
+            scope.blockSignals(blocked)
+        selected = self._selected_measurement_cell()
+        if selected is not None:
+            measurements = {tuple(selected): measurements[tuple(selected)]} if tuple(selected) in measurements else {}
+        settings = self._active_plot_tab.figure_settings() if self._active_plot_tab is not None else FigurePlotSettings()
+        # Adjacent insertion and completed legacy migration can change settings
+        # outside this panel. Refresh only controls without a pending user edit.
+        for key in {'rows', 'columns', 'width_mm', 'height_mm'} - self._changed_setting_keys:
+            self._set_widget_value(key, getattr(settings, key))
+        self._update_dynamic_setting_states()
+        for key in scaled_sizes(settings) - self._changed_setting_keys:
+            widget = self._figure_setting_widgets.get(key)
+            values = [value[key] for value in measurements.values() if key in value]
+            if key == 'caption_margin_mm' and selected is None and settings.main_caption_show:
+                values.append(settings.caption_margin_mm * pixels_per_unit(settings, key))
+            if isinstance(widget, MeasurementSpinBox) and values:
+                rounded = {round(value, widget.decimals()) for value in values}
+                blocked = widget.blockSignals(True)
+                widget.setRange(min(widget.minimum(), min(values)), max(widget.maximum(), max(values)))
+                widget.set_measurement(values[0], mixed=len(rounded) > 1)
+                widget.blockSignals(blocked)
+        scope.setEnabled(bool(keys) and self._operation is None)
+
+    def _cancel_measurement_edit(self):
+        self._measurement_timer.stop()
+        if self._measurement_future is not None:
+            self._measurement_future.cancel()
+        self._measurement_future = None
+        self._measurement_target = None
+        self._measurement_completion = None
+        if self._measurement_activity is not None:
+            self._measurement_activity.finish()
+            self._measurement_activity = None
+        if getattr(self, '_operation', None) == 'apply':
+            self._operation = None
+
+    def _poll_measurements(self):
+        future = self._measurement_future
+        if future is None or not future.done():
+            return
+        target = self._measurement_target
+        completion = None
+        try:
+            result = future.result()
+            if target is not self._active_plot_tab or getattr(target, 'measurement_revision', None) != self._measurement_revision:
+                self._show_status('The figure changed while applying measurements. Apply again to use the current layout.')
+                return
+            target.apply_measurement_overrides(result)
+            self._sync_figure_settings_from_active_tab()
+            completion = self._measurement_completion
+        except Exception as error:
+            self._show_status(f'Could not apply measurements: {error}')
+        finally:
+            self._cancel_measurement_edit()
+            self._refresh_measurements()
+            self._refresh_action_buttons()
+        if completion is not None:
+            completion()
+
     def _update_font_tooltip(self, combo: QtWidgets.QComboBox) -> None:
         family = combo.currentData()
         combo.setToolTip(
@@ -568,7 +704,7 @@ class FigureSettingsPanelController(UiPanelController):
             if family and family not in self._available_fonts else ""
         )
 
-    def _apply_figure_settings(self) -> bool:
+    def _apply_figure_settings(self, *, measurement_values=None) -> bool:
         if self._active_plot_tab is None:
             return False
         self._operation = "apply"
@@ -593,24 +729,36 @@ class FigureSettingsPanelController(UiPanelController):
                 self._active_plot_tab.apply_figure_settings(
                     settings, progress_callback=report_progress
                 )
-            self._settings_unapplied = False
+            local = scaled_sizes(settings)
+            edits = {key: self._double_value(key) for key in self._changed_setting_keys & local}
+            if measurement_values is not None:
+                edits.update({key: value for key, value in measurement_values.items() if key in local})
+            if edits and hasattr(self._active_plot_tab, 'prepare_measurement_edit'):
+                self._measurement_target = self._active_plot_tab
+                self._measurement_revision = getattr(self._measurement_target, 'measurement_revision', None)
+                self._measurement_future = self._measurement_target.prepare_measurement_edit(edits, self._selected_measurement_cell())
+                self._measurement_activity = activity
+                self._measurement_timer.start()
+            else:
+                self._sync_figure_settings_from_active_tab()
             return True
         finally:
-            if activity is not None:
-                activity.finish()
-            self._operation = None
+            if self._measurement_future is None:
+                if activity is not None:
+                    activity.finish()
+                self._operation = None
             self._refresh_action_buttons()
 
     def _settings_from_widget_values(self) -> FigurePlotSettings:
         current = self._active_plot_tab.figure_settings() if self._active_plot_tab is not None else FigurePlotSettings()
-        return replace(
+        proposed = replace(
             current,
             width_mm=self._double_value("width_mm"),
             height_mm=self._double_value("height_mm"),
             rows=self._int_value("rows"),
             columns=self._int_value("columns"),
             margin_mm=self._double_value("margin_mm"),
-            export_dpi=self._int_value("export_dpi"),
+            export_dpi=current.export_dpi,
             axis_box_line_width=self._double_value("axis_box_line_width"),
             show_axis=self._double_value("axis_box_line_width") > 0.0,
             grid_mode=self._combo_value("grid_mode"),
@@ -661,8 +809,29 @@ class FigureSettingsPanelController(UiPanelController):
             point_size_factor_percent=self._double_value("point_size_factor_percent"),
         )
 
+        local = scaled_sizes(proposed) if hasattr(self._active_plot_tab, 'prepare_measurement_edit') else set()
+        # The editor rounds for display only. Untouched values retain all their
+        # saved precision, including measurements temporarily shown as Mixed.
+        values = {field.name: (getattr(proposed, field.name) / pixels_per_unit(current, field.name)
+                               if field.name in PIXEL_SIZES else getattr(proposed, field.name))
+                  for field in fields(proposed)
+                  if field.name in self._changed_setting_keys and field.name not in local}
+        if 'axis_box_line_width' in values:
+            values['show_axis'] = values['axis_box_line_width'] > 0
+        if 'caption_margin_mm' in self._changed_setting_keys and self._measurement_scope.currentData() is None:
+            values['caption_margin_mm'] = proposed.caption_margin_mm / pixels_per_unit(current, 'caption_margin_mm')
+        return replace(current, **values)
+
     def figure_settings_preset_payload(self) -> dict:
-        return {"plot_settings": asdict(self._settings_from_widget_values())}
+        settings = self._settings_from_widget_values()
+        payload = {"plot_settings": asdict(settings)}
+        getter = getattr(self._active_plot_tab, 'figure_size_overrides', None)
+        if getter is not None:
+            payload['plot_sizes'] = getter()
+            edits = {key: self._double_value(key) for key in self._changed_setting_keys & scaled_sizes(settings)}
+            if edits:
+                payload['measurements'] = {'values': edits, 'cell': self._selected_measurement_cell(), 'units': 'px'}
+        return payload
 
     def apply_figure_settings_preset_payload(self, payload: dict) -> bool:
         if self._active_plot_tab is None or not isinstance(payload, dict):
@@ -674,9 +843,32 @@ class FigureSettingsPanelController(UiPanelController):
         values = {key: value for key, value in settings_payload.items() if key in field_names}
         if not values:
             return False
-        settings = replace(self._active_plot_tab.figure_settings(), **values)
+        from FiguresArea.repository import FigureTabsRepository
+        values.setdefault("layout_version", 1)
+        settings = FigureTabsRepository.settings_from_payload(
+            {**asdict(self._active_plot_tab.figure_settings()), **values}, figure_kind="plot",
+        )
         self._active_plot_tab.apply_figure_settings(settings)
+        restore = getattr(self._active_plot_tab, 'restore_size_overrides', None)
+        if restore is not None:
+            restore(payload.get('plot_sizes'))
         self._sync_figure_settings_from_active_tab()
+        measurements = payload.get('measurements')
+        if isinstance(measurements, dict) and hasattr(self._active_plot_tab, 'prepare_measurement_edit'):
+            from FiguresArea.measurements import validated_sizes
+            cell = measurements.get('cell')
+            index = self._measurement_scope.findData(f'{cell[0]},{cell[1]}' if isinstance(cell, (tuple, list)) and len(cell) == 2 else None)
+            self._measurement_scope.setCurrentIndex(max(index, 0))
+            converted = {}
+            for key, value in validated_sizes(measurements.get('values')).items():
+                if measurements.get('units') != 'px':
+                    # Earlier presets recorded mm/pt, including pin widths in pt.
+                    value *= (max(settings.export_dpi, 36) / 72.0 if key == 'pin_line_width'
+                              else pixels_per_unit(settings, key))
+                converted[key] = value
+                self._set_widget_value(key, value, output_pixels=True)
+                self._changed_setting_keys.add(key)
+            self._apply_figure_settings(measurement_values=converted)
         return True
 
     def _save_current_preset(self) -> None:
@@ -701,6 +893,11 @@ class FigureSettingsPanelController(UiPanelController):
             self._show_status(f"Loaded figure settings preset: {label}")
 
     def _export_figure(self) -> None:
+        if self._active_plot_tab is not None and hasattr(self._active_plot_tab, 'prepare_measurement_edit'):
+            if self._changed_setting_keys & scaled_sizes(self._settings_from_widget_values()):
+                self._measurement_completion = self._export_figure
+                self._apply_figure_settings()
+                return
         if self._active_plot_tab is None:
             QtWidgets.QMessageBox.information(
                 self._widget,
@@ -758,7 +955,16 @@ class FigureSettingsPanelController(UiPanelController):
                             message, round(value * 0.45)
                         ),
                     )
-                self._settings_unapplied = False
+                self._sync_figure_settings_from_active_tab()
+            export_async = getattr(self._active_plot_tab, "export_figure_async", None)
+            if callable(export_async):
+                self._export_future = export_async(destination)
+                if self._export_future is not None:
+                    self._export_activity = activity
+                    if activity is not None:
+                        activity.update(message="Exporting figure…", value=0, total=0)
+                    self._export_timer.start()
+                    return
             if activity is None:
                 self._active_plot_tab.export_figure(destination)
             else:
@@ -783,27 +989,66 @@ class FigureSettingsPanelController(UiPanelController):
         else:
             self._show_status(f"Exported figure to {destination}")
         finally:
+            if self._export_future is None:
+                if activity is not None:
+                    activity.finish()
+                self._operation = None
+                self._refresh_action_buttons()
+
+    def _poll_export(self) -> None:
+        if self._export_future is None or not self._export_future.done():
+            return
+        future, self._export_future = self._export_future, None
+        activity, self._export_activity = self._export_activity, None
+        self._export_timer.stop()
+        try:
+            result = future.result()
+            self._show_status(f"Exported figure to {result['export']}")
+        except Exception as error:
+            if activity is not None:
+                activity.retain_failed(f"Figure export failed: {error}")
+            self._show_status(f"Figure export failed: {error}")
+        finally:
             if activity is not None:
                 activity.finish()
             self._operation = None
             self._refresh_action_buttons()
 
-    def _wire_parameter_change_tracking(self) -> None:
-        for widget in self._figure_setting_widgets.values():
-            if isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
-                widget.valueChanged.connect(self._mark_settings_unapplied)
-            elif isinstance(widget, QtWidgets.QCheckBox):
-                widget.toggled.connect(self._mark_settings_unapplied)
-            elif isinstance(widget, QtWidgets.QComboBox):
-                widget.currentIndexChanged.connect(self._mark_settings_unapplied)
+    def shutdown(self) -> None:
+        self._cancel_measurement_edit()
+        self._export_timer.stop()
+        if self._export_future is not None:
+            self._export_future.cancel()
+            self._export_future = None
+        if self._export_activity is not None:
+            self._export_activity.finish()
+            self._export_activity = None
 
-    def _mark_settings_unapplied(self, *_args: object) -> None:
+    def _wire_parameter_change_tracking(self) -> None:
+        for key, widget in self._figure_setting_widgets.items():
+            changed = lambda *_args, name=key: self._mark_settings_unapplied(name)
+            if isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
+                widget.valueChanged.connect(changed)
+                if isinstance(widget, MeasurementSpinBox):
+                    widget.mixedEdited.connect(changed)
+            elif isinstance(widget, QtWidgets.QCheckBox):
+                widget.toggled.connect(changed)
+            elif isinstance(widget, QtWidgets.QComboBox):
+                widget.currentIndexChanged.connect(changed)
+
+    def _mark_settings_unapplied(self, key: str) -> None:
+        self._changed_setting_keys.add(key)
         if self._active_plot_tab is not None:
             self._settings_unapplied = True
             self._refresh_action_buttons()
 
     def _refresh_action_buttons(self) -> None:
         has_plot = self._active_plot_tab is not None
+        for name in ('tree_figure_parameters', 'tree_title_parameters', 'tree_legend_parameters', 'tree_caption_parameters'):
+            tree = self._widget.findChild(QtWidgets.QTreeWidget, name)
+            if tree is not None:
+                tree.setEnabled(has_plot and self._operation is None)
+        self._measurement_scope.setEnabled(has_plot and self._operation is None)
         apply_button = self._widget.findChild(
             QtWidgets.QPushButton, "button_apply_figure_settings"
         )
@@ -918,7 +1163,7 @@ class FigureSettingsPanelController(UiPanelController):
 
     def _int_value(self, key: str) -> int:
         widget = self._figure_setting_widgets[key]
-        return int(widget.value()) if isinstance(widget, QtWidgets.QSpinBox) else 0
+        return float(widget.value()) if key in FONT_SIZES else (int(widget.value()) if isinstance(widget, QtWidgets.QSpinBox) else 0)
 
     def _checked_value(self, key: str) -> bool:
         widget = self._figure_setting_widgets[key]

@@ -119,3 +119,38 @@ from its chosen folder again.
 data. `application_storage/service.py` owns inspection, verified copying, and
 cleanup. MainWindow's Designer forms and controllers own interaction and
 background progress. Model downloads always record ownership receipts.
+
+
+## Figure documents
+
+`state/figures_area_state.json` version 7 stores editable figure compositions.
+Figure settings distinguish fixed final-page dimensions from the plot design
+dimensions used for proportional scaling. Rows and columns reserve empty cells.
+Older per-plot layouts are converted using measured decoration bounds, retaining
+their original appearance and final size; converted spacing constraints remain
+until the corresponding decorations are edited. This measurement does not load
+external point datasets. Each plot cell may store `size_overrides` in original
+design units. Missing legacy grid cells carry `reserved_only: true`, preserving
+blank space until a plot is loaded there. Legacy animations retain their old
+settings until the selected frame loads and supplies its decoration measurements.
+The editor derives its displayed pixel values from the rendered
+scale without rounding saved values. Presets and animation settings include the
+same per-cell overrides as `plot_sizes`; presets may also carry pending pixel
+`measurements` with `units: "px"` to resolve when applied. Earlier pending edits
+without this marker are converted from mm/points. The established internal mm,
+point and resolution fields remain readable and retain their precision; the UI
+provides only pixels and no DPI control. Missing saved fields use the historical
+profile defaults, independently of the starting profiles for new figures.
+Large frozen datasets live in `state/figure_data/<sha256>.npz`, with numeric
+coordinates and permanent IDs plus dictionary-encoded metadata columns with UTF-8
+JSON values (no pickled objects). Older row-JSON datasets remain readable. Encoding
+reduces decoded memory; compressed file size depends on metadata cardinality.
+Matching data is shared between plot cells. These artifacts belong to the project,
+not a disposable global cache, and travel with project relocation and bundles.
+Small datasets remain inline. Older state versions remain readable and large
+inline data migrates atomically before the compact manifest is published.
+Tabs are the saved figure collection, including animations. The × button deletes
+the document after confirmation; remaining tabs autosave and reopen with the project.
+Existing saved records load directly as tabs. Source snapshots and exports remain
+untouched. Unreferenced generated figure data is
+removed only after all workspace readers and writers stop, with a valid manifest.
