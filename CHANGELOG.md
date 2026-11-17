@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Simplify footer activity feedback to a single-line process description and adjacent progress bar, removing the redundant activity-summary box.
+
 - Rename static and animation tabs through their right-click menu or by double-clicking the tab label. Save names automatically and use them for export filename suggestions.
 
 - Treat static and animation tabs as the saved figure collection. The × button now confirms permanent deletion with Cancel selected by default; remaining figures continue to autosave and reopen with the project.
