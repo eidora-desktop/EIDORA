@@ -812,6 +812,7 @@ class DiscoveryService:
         filter_preset_snapshot: dict[str, object] | None = None,
         progress_callback=None,
         status_callback=None,
+        output_slug: str | None = None,
     ) -> DiscoveryOption:
         definition = self._method_catalog.get(method_id)
         if definition is None:
@@ -886,6 +887,7 @@ class DiscoveryService:
             ),
             progress_callback=progress_callback,
             status_callback=status_callback,
+            output_slug=output_slug,
         )
 
     def create_discovery_from_custom_coordinates(
@@ -900,6 +902,7 @@ class DiscoveryService:
         y_column: str = "y",
         progress_callback=None,
         status_callback=None,
+        output_slug: str | None = None,
     ) -> DiscoveryOption:
         _emit_status(status_callback, "Loading and validating coordinate data...")
         if progress_callback is not None:
@@ -944,6 +947,7 @@ class DiscoveryService:
             provenance=provenance,
             progress_callback=progress_callback,
             status_callback=status_callback,
+            output_slug=output_slug,
         )
 
     def import_discovery_data(
@@ -1342,6 +1346,7 @@ class DiscoveryService:
         provenance: dict[str, object] | None = None,
         progress_callback=None,
         status_callback=None,
+        output_slug: str | None = None,
     ) -> DiscoveryOption:
         coordinates = np.asarray(coordinates, dtype=np.float32)
         metadata_ids = np.asarray(metadata_ids, dtype=np.int64)
@@ -1374,6 +1379,7 @@ class DiscoveryService:
             source=source,
             provenance=stored_provenance,
             description=description,
+            slug_override=output_slug,
         )
         if progress_callback is not None:
             progress_callback(92)

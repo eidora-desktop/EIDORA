@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 
 from PySide6 import QtCore
+from shared.qt.background_tasks import BackgroundTasks
 
 from DiscoveryArea.canvas.thumbnail_planner import (
     ThumbnailPlanCancelled,
@@ -11,45 +12,23 @@ from DiscoveryArea.canvas.thumbnail_planner import (
 )
 
 
-class _PlanSignals(QtCore.QObject):
-    finished = QtCore.Signal(int, object)
-    failed = QtCore.Signal(int, str)
-    cancelled = QtCore.Signal(int)
-
-
-class _PlanTask(QtCore.QRunnable):
+class _PlanTask:
     def __init__(
         self,
         request: ThumbnailPlanRequest,
         cancelled: threading.Event,
     ) -> None:
-        super().__init__()
-        self.setAutoDelete(False)
         self.request = request
         self.cancelled = cancelled
-        self.signals = _PlanSignals()
 
-    @QtCore.Slot()
-    def run(self) -> None:
-        revision = int(self.request.request_revision)
-        try:
-            plan = build_thumbnail_viewport_plan(
-                self.request,
-                cancelled=self.cancelled.is_set,
-            )
-        except ThumbnailPlanCancelled:
-            self.signals.cancelled.emit(revision)
-            return
-        except Exception as exc:
-            self.signals.failed.emit(
-                revision,
-                f"{type(exc).__name__}: {exc}",
-            )
-            return
+    def run(self, _progress):
         if self.cancelled.is_set():
-            self.signals.cancelled.emit(revision)
-        else:
-            self.signals.finished.emit(revision, plan)
+            return None
+        try:
+            plan = build_thumbnail_viewport_plan(self.request, cancelled=self.cancelled.is_set)
+        except ThumbnailPlanCancelled:
+            return None
+        return None if self.cancelled.is_set() else plan
 
 
 class ThumbnailPlanCoordinator(QtCore.QObject):
@@ -62,8 +41,10 @@ class ThumbnailPlanCoordinator(QtCore.QObject):
     def __init__(self, parent: QtCore.QObject | None = None) -> None:
         super().__init__(parent)
         self._revision = 0
-        self._tasks: dict[int, _PlanTask] = {}
         self._cancel_events: dict[int, threading.Event] = {}
+        self._runner = BackgroundTasks(self)
+        self._runner.finished.connect(self._completed)
+        self._runner.failed.connect(self._on_failed)
 
     @property
     def current_revision(self) -> int:
@@ -81,12 +62,8 @@ class ThumbnailPlanCoordinator(QtCore.QObject):
             )
         cancelled = threading.Event()
         task = _PlanTask(request, cancelled)
-        task.signals.finished.connect(self._on_finished)
-        task.signals.failed.connect(self._on_failed)
-        task.signals.cancelled.connect(self._on_cancelled)
         self._cancel_events[revision] = cancelled
-        self._tasks[revision] = task
-        QtCore.QThreadPool.globalInstance().start(task)
+        self._runner.submit(revision, task.run)
 
     def cancel_pending(self) -> None:
         self._revision += 1
@@ -114,5 +91,15 @@ class ThumbnailPlanCoordinator(QtCore.QObject):
         self._forget(revision)
 
     def _forget(self, revision: int) -> None:
-        self._tasks.pop(int(revision), None)
         self._cancel_events.pop(int(revision), None)
+
+    def _completed(self, revision: int, result: object) -> None:
+        if result is None:
+            self._on_cancelled(revision)
+        else:
+            self._on_finished(revision, result)
+
+    def shutdown(self) -> None:
+        self.cancel_pending()
+        self._runner.shutdown()
+        self._cancel_events.clear()

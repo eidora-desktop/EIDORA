@@ -239,7 +239,7 @@ class PlotTabController(QtCore.QObject):
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         if obj is self._plot_viewport:
             if event.type() == QtCore.QEvent.Type.Resize:
-                QtCore.QTimer.singleShot(0, self._apply_preview_scale)
+                QtCore.QTimer.singleShot(0, self._widget, self._apply_preview_scale)
                 return False
             if event.type() == QtCore.QEvent.Type.Enter:
                 self._set_add_controls_visible(True)
@@ -281,7 +281,7 @@ class PlotTabController(QtCore.QObject):
                 self._show_settings_button_for_cell(cell)
                 return False
             if event.type() == QtCore.QEvent.Type.Leave:
-                QtCore.QTimer.singleShot(0, lambda c=cell: self._hide_plot_cell_controls_if_not_hovered(c))
+                QtCore.QTimer.singleShot(0, self._widget, lambda c=cell: self._hide_plot_cell_controls_if_not_hovered(c))
                 return False
         if isinstance(obj, QtWidgets.QWidget) and obj in self._preset_control_targets:
             cell = self._preset_control_targets[obj]
@@ -289,7 +289,7 @@ class PlotTabController(QtCore.QObject):
                 self._show_settings_button_for_cell(cell)
                 return False
             if event.type() == QtCore.QEvent.Type.Leave:
-                QtCore.QTimer.singleShot(0, lambda c=cell: self._hide_plot_cell_controls_if_not_hovered(c))
+                QtCore.QTimer.singleShot(0, self._widget, lambda c=cell: self._hide_plot_cell_controls_if_not_hovered(c))
                 return False
         if isinstance(obj, QtWidgets.QWidget) and obj in self._context_menu_targets:
             if self._handle_pin_interaction_event(obj, event):
@@ -306,7 +306,7 @@ class PlotTabController(QtCore.QObject):
             if event.type() == QtCore.QEvent.Type.Leave:
                 obj.unsetCursor()
                 self._set_pin_hover_rect(None)
-                QtCore.QTimer.singleShot(0, lambda c=self._context_menu_targets[obj]: self._hide_plot_cell_controls_if_not_hovered(c))
+                QtCore.QTimer.singleShot(0, self._widget, lambda c=self._context_menu_targets[obj]: self._hide_plot_cell_controls_if_not_hovered(c))
                 return False
         if isinstance(obj, QtWidgets.QWidget) and obj in self._add_button_drop_targets:
             if event.type() == QtCore.QEvent.Type.Enter:
@@ -1481,6 +1481,8 @@ class PlotTabController(QtCore.QObject):
                 button.raise_()
 
     def _hide_plot_cell_controls_if_not_hovered(self, cell: tuple[int, int]) -> None:
+        if self._disposed:
+            return
         plot_cell = self._plot_cells.get(cell)
         if plot_cell is None:
             return

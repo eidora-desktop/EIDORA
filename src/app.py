@@ -45,6 +45,10 @@ def main(argv: list[str] | None = None) -> int:
         application_arguments = sys.argv if argv is None else [sys.argv[0], *arguments]
         app = QtWidgets.QApplication(application_arguments)
 
+    from shared.qt.garbage_collection import install_gui_garbage_collection
+
+    install_gui_garbage_collection(app)
+
     # QStandardPaths uses these values for AppDataLocation.  Set them before
     # services/controllers can resolve model or project storage paths so the
     # location is independent of whether EIDORA was launched by Python, an IDE,

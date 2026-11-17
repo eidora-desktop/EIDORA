@@ -1,6 +1,7 @@
 """Vector Data cards combining embedding work, outputs, and clustering."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
@@ -13,6 +14,7 @@ from shared.qt.widgets import require_child
 
 _ACTIVE = {"queued", "running", "cancelling"}
 _RECOVERABLE = {EmbeddingRunState.PAUSED, EmbeddingRunState.INTERRUPTED, EmbeddingRunState.FAILED}
+LOGGER = logging.getLogger(__name__)
 
 
 class VectorDataPanelController(UiPanelController):
@@ -46,6 +48,8 @@ class VectorDataPanelController(UiPanelController):
     def set_metadata_changed_callback(self, callback): self._metadata_changed = callback
 
     def set_project(self, project):
+        if project != self._project:
+            self._clear_cards()
         super().set_project(project)
         self.refresh()
 
@@ -67,8 +71,18 @@ class VectorDataPanelController(UiPanelController):
                 if run.state != EmbeddingRunState.DRAFT or self._coordinator.state("embedding", run.id)
             ]
             runs.sort(key=lambda run: self._sort_key(run, datasets.get(run.id)))
+            details = {}
+            for run in runs:
+                records = list(self._session.clusters.list_cluster_results(run.id)) if run.id in datasets else []
+                records.sort(key=lambda value: str(value.get("created_at", "")), reverse=True)
+                details[run.id] = records, self._model_label(run.selected_model_id)
         except Exception as exc:  # noqa: BLE001
-            self._clear_cards(); self._render_empty(f"Vector data could not be loaded: {exc}"); return
+            message = f"Vector data refresh failed; displayed results may be out of date: {exc}"
+            if self._cards:
+                self._show_status(message)
+            else:
+                self._render_empty(message)
+            return
         if not runs:
             self._clear_cards(); self._render_empty("No vector data yet. Select a model on the left and click Run, or import an existing dataset."); return
         self._remove_empty()
@@ -79,9 +93,8 @@ class VectorDataPanelController(UiPanelController):
             card = self._cards.get(run.id) or self._create_card(run.id)
             self._place_card(run.id, position)
             dataset = datasets.get(run.id)
-            records = list(self._session.clusters.list_cluster_results(run.id)) if dataset else []
-            records.sort(key=lambda value: str(value.get("created_at", "")), reverse=True)
-            card.update(run, dataset, records, self._model_label(run.selected_model_id), lambda key=run.id: self._info_rows(key))
+            records, model_label = details[run.id]
+            card.update(run, dataset, records, model_label, lambda key=run.id: self._info_rows(key))
             self._resize_card(run.id)
 
     def select_output(self, kind, identity):
@@ -218,6 +231,8 @@ class VectorDataPanelController(UiPanelController):
         rename.setEnabled(not active); remove.setEnabled(not active)
         if remove_groups: remove_groups.setEnabled(not active)
         selected = menu.exec(anchor.mapToGlobal(QtCore.QPoint(0, anchor.height())))
+        if selected is None or not selected.isEnabled():
+            return
         if selected == cancel: self._coordinator.cancel("clustering", identity)
         elif selected == show and self._show_groups: self._show_groups(record.get("group_set_id"))
         elif selected == retry: self.open_clustering(str(record["run_id"]), identity, True)
@@ -368,10 +383,14 @@ class VectorDataPanelController(UiPanelController):
             controller = EmbeddingImportDialogController(self._session.service, [Path(source) for source in group], process_manager=getattr(self._activity_manager,"processes",None))
             if not controller.exec():
                 break
-            self.refresh()
-            self.select_output("embedding", controller.imported_run_id)
-            if self._metadata_changed:
-                self._metadata_changed()
+            try:
+                self.refresh()
+                self.select_output("embedding", controller.imported_run_id)
+                if self._metadata_changed:
+                    self._metadata_changed()
+            except Exception as exc:
+                LOGGER.exception("Vectors were imported, but the display could not be refreshed")
+                self._show_status(f"Embeddings imported; display refresh failed: {exc}")
 
     @QtCore.Slot(str, str, int, str)
     def _progress(self, kind, identity, value, detail):

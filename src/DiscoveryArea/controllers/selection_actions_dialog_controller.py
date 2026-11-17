@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 import sys
+import logging
 from typing import Protocol
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -147,13 +148,19 @@ class _NeighborCard(QtWidgets.QToolButton):
         painter.end()
 
 
-class SelectionActionsDialogController:
+class SelectionActionsDialogController(QtCore.QObject):
     DETAIL_THUMBNAIL_SIZE = 768
     _NEIGHBOR_GRID_COLUMNS = 3
     _NEIGHBOR_INITIAL_COUNT = 12
     _NEIGHBOR_BATCH_COUNT = 9
 
     def __init__(self) -> None:
+        super().__init__()
+        self._connections = []
+        self._event_loop: QtCore.QEventLoop | None = None
+        self._grid_fill_timer = QtCore.QTimer(self)
+        self._grid_fill_timer.setSingleShot(True)
+        self._grid_fill_timer.timeout.connect(self._ensure_neighbor_grid_scrollable)
         self._data: SelectionActionsDialogData | None = None
         self._request_thumbnail: ThumbnailRequester | None = None
         self._request_neighbors: NeighborRequester | None = None
@@ -205,70 +212,85 @@ class SelectionActionsDialogController:
         dialog = load_ui("DiscoveryArea", "ui/selection_actions_dialog.ui", None)
         if not isinstance(dialog, QtWidgets.QDialog):
             return None
-        dialog.setWindowTitle(f"Selected item: {int(data.metadata_id)}")
-        self._data, self._request_thumbnail = data, request_thumbnail
-        self._request_neighbors = request_neighbors
-        self._cancel_neighbors = cancel_neighbors
-        self._save_neighbor_group = save_neighbor_group
-        self._highlight_neighbor = highlight_neighbor
         self._dialog = dialog
-        self._neighbor_query_id = int(data.metadata_id)
-        dialog.setWindowFlag(QtCore.Qt.WindowType.Tool, True)
-        dialog.setWindowModality(QtCore.Qt.WindowModality.NonModal)
-        stack = require_child(dialog, QtWidgets.QStackedWidget, "stack_selection_actions")
-        group = QtWidgets.QButtonGroup(dialog)
-        group.setExclusive(True)
-        for index, name in enumerate(("button_metadata_page", "button_nearest_neighbors_page")):
-            button = require_child(dialog, QtWidgets.QAbstractButton, name)
-            group.addButton(button, index)
-            button.clicked.connect(lambda checked=False, page=index: stack.setCurrentIndex(page))
-        group.button(0).setChecked(True)
-        stack.setCurrentIndex(0)
-        self._populate_metadata(dialog, data)
-        self._populate_nearest_neighbors(dialog, data)
-        stack.currentChanged.connect(self._handle_page_changed)
-        if self._highlight_neighbor is not None:
-            self._highlight_neighbor(None)
-        chosen: list[SelectionActionsResult] = []
-        self._configure_pin_menu(dialog, data, set_pin_scope)
-        open_metadata_button = require_child(
-            dialog,
-            QtWidgets.QPushButton,
-            "button_open_metadata",
-        )
+        dialog.installEventFilter(self)
+        try:
+            dialog.setWindowTitle(f"Selected item: {int(data.metadata_id)}")
+            self._data, self._request_thumbnail = data, request_thumbnail
+            self._request_neighbors = request_neighbors
+            self._cancel_neighbors = cancel_neighbors
+            self._save_neighbor_group = save_neighbor_group
+            self._highlight_neighbor = highlight_neighbor
+            self._neighbor_query_id = int(data.metadata_id)
+            dialog.setWindowFlag(QtCore.Qt.WindowType.Tool, True)
+            dialog.setWindowModality(QtCore.Qt.WindowModality.NonModal)
+            stack = require_child(dialog, QtWidgets.QStackedWidget, "stack_selection_actions")
+            group = QtWidgets.QButtonGroup(dialog)
+            group.setExclusive(True)
+            for index, name in enumerate(("button_metadata_page", "button_nearest_neighbors_page")):
+                button = require_child(dialog, QtWidgets.QAbstractButton, name)
+                group.addButton(button, index)
+                self._connect(button.clicked, lambda checked=False, page=index: stack.setCurrentIndex(page))
+            group.button(0).setChecked(True)
+            stack.setCurrentIndex(0)
+            self._populate_metadata(dialog, data)
+            self._populate_nearest_neighbors(dialog, data)
+            self._connect(stack.currentChanged, self._handle_page_changed)
+            if self._highlight_neighbor is not None:
+                self._highlight_neighbor(None)
+            chosen: list[SelectionActionsResult] = []
+            self._configure_pin_menu(dialog, data, set_pin_scope)
+            open_metadata_button = require_child(
+                dialog,
+                QtWidgets.QPushButton,
+                "button_open_metadata",
+            )
 
-        def open_metadata() -> None:
-            chosen.append(SelectionActionsResult("metadata"))
-            dialog.accept()
+            def open_metadata() -> None:
+                chosen.append(SelectionActionsResult("metadata"))
+                dialog.accept()
 
-        open_metadata_button.clicked.connect(open_metadata)
-        for names in (
-            ("button_cancel_metadata",),
-            ("button_cancel_neighbors", "button_cancel_nn"),
-        ):
-            button_box = None
-            for name in names:
-                button_box = dialog.findChild(QtWidgets.QDialogButtonBox, name)
-                if button_box is not None:
-                    break
-            if button_box is None:
-                raise RuntimeError(
-                    f"{dialog.objectName()} is missing {names[0]!r}"
-                )
-            button_box.rejected.connect(dialog.reject)
-        self._position_default(dialog, global_pos)
-        event_loop = QtCore.QEventLoop()
-        dialog.finished.connect(event_loop.quit)
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
-        if dialog_shown is not None:
-            dialog_shown()
-        if dialog.isVisible():
-            event_loop.exec()
-        accepted = dialog.result() == QtWidgets.QDialog.DialogCode.Accepted
-        self.close()
-        return chosen[0] if accepted and chosen else None
+            self._connect(open_metadata_button.clicked, open_metadata)
+            for names in (
+                ("button_cancel_metadata",),
+                ("button_cancel_neighbors", "button_cancel_nn"),
+            ):
+                button_box = None
+                for name in names:
+                    button_box = dialog.findChild(QtWidgets.QDialogButtonBox, name)
+                    if button_box is not None:
+                        break
+                if button_box is None:
+                    raise RuntimeError(
+                        f"{dialog.objectName()} is missing {names[0]!r}"
+                    )
+                self._connect(button_box.rejected, dialog.reject)
+            self._position_default(dialog, global_pos)
+            event_loop = QtCore.QEventLoop()
+            self._event_loop = event_loop
+            self._connect(dialog.finished, event_loop.quit)
+            dialog.show()
+            dialog.raise_()
+            dialog.activateWindow()
+            if dialog_shown is not None:
+                dialog_shown()
+            if self._dialog is dialog and dialog.isVisible():
+                event_loop.exec()
+            accepted = self._dialog is dialog and dialog.result() == QtWidgets.QDialog.DialogCode.Accepted
+            return chosen[0] if accepted and chosen else None
+        finally:
+            self.close()
+
+    def _connect(self, signal, callback) -> None:
+        signal.connect(callback)
+        self._connections.append((signal, callback))
+
+    def eventFilter(self, obj, event) -> bool:
+        # hide() does not emit QDialog.finished; it must still end this session.
+        if obj is self._dialog and event.type() == QtCore.QEvent.Type.Hide:
+            if self._event_loop is not None:
+                self._event_loop.quit()
+        return False
 
     def _configure_pin_menu(
         self,
@@ -327,13 +349,22 @@ class SelectionActionsDialogController:
             current_scope = scope
             show_scope(current_scope)
 
-        collection_wide.triggered.connect(lambda: change_scope("project"))
-        projection_exclusive.triggered.connect(
-            lambda: change_scope("projection")
-        )
-        remove_pin.triggered.connect(lambda: change_scope(""))
+        self._connect(collection_wide.triggered, lambda: change_scope("project"))
+        self._connect(projection_exclusive.triggered, lambda: change_scope("projection"))
+        self._connect(remove_pin.triggered, lambda: change_scope(""))
 
     def close(self) -> None:
+        dialog, self._dialog = self._dialog, None
+        event_loop, self._event_loop = self._event_loop, None
+        if event_loop is not None:
+            event_loop.quit()
+        self._grid_fill_timer.stop()
+        for signal, callback in reversed(self._connections):
+            try:
+                signal.disconnect(callback)
+            except (RuntimeError, TypeError):
+                pass
+        self._connections.clear()
         if self._text_preview is not None:
             self._text_preview.close()
             self._text_preview = None
@@ -344,13 +375,15 @@ class SelectionActionsDialogController:
         self._source_asset_id = ""
         self._request_thumbnail = None
         self._request_neighbors = None
-        if self._cancel_neighbors is not None:
-            self._cancel_neighbors()
-        self._cancel_neighbors = None
+        cancel, self._cancel_neighbors = self._cancel_neighbors, None
+        highlight, self._highlight_neighbor = self._highlight_neighbor, None
         self._save_neighbor_group = None
-        if self._highlight_neighbor is not None:
-            self._highlight_neighbor(None)
-        self._highlight_neighbor = None
+        for callback, args in ((cancel, ()), (highlight, (None,))):
+            if callback is not None:
+                try:
+                    callback(*args)
+                except Exception:
+                    logging.getLogger(__name__).exception("Item dialog cleanup callback failed")
         self._metadata_label = None
         self._source_video_status_label = None
         self._source_file_button = None
@@ -370,6 +403,10 @@ class SelectionActionsDialogController:
         self._neighbor_default_group_label = ""
         self._neighbor_item_count_by_embedding.clear()
         self._rendered_neighbor_count = 0
+        if dialog is not None:
+            dialog.removeEventFilter(self)
+            dialog.reject()
+            dialog.deleteLater()
 
     def apply_thumbnail(self, payload: DecodedThumbnail | ThumbnailDecodeFailure) -> bool:
         handled = False
@@ -453,27 +490,25 @@ class SelectionActionsDialogController:
             selected = 1
         thumbnail.setCurrentIndex(max(0, selected))
 
-        embeddings.currentIndexChanged.connect(self._mark_neighbor_search_dirty)
-        metric.currentIndexChanged.connect(self._configure_neighbor_radius_for_metric)
-        metric.currentIndexChanged.connect(self._mark_neighbor_search_dirty)
-        require_child(
+        self._connect(embeddings.currentIndexChanged, self._mark_neighbor_search_dirty)
+        self._connect(metric.currentIndexChanged, self._configure_neighbor_radius_for_metric)
+        self._connect(metric.currentIndexChanged, self._mark_neighbor_search_dirty)
+        self._connect(require_child(
             dialog,
             QtWidgets.QCheckBox,
             "checkbox_neighbors_visible_only",
-        ).toggled.connect(self._mark_neighbor_search_dirty)
-        thumbnail.currentIndexChanged.connect(self._refresh_neighbor_thumbnails)
+        ).toggled, self._mark_neighbor_search_dirty)
+        self._connect(thumbnail.currentIndexChanged, self._refresh_neighbor_thumbnails)
         scroll = require_child(
             dialog,
             QtWidgets.QScrollArea,
             "scroll_neighbor_results",
         )
-        scroll.verticalScrollBar().valueChanged.connect(self._load_neighbor_scroll_margin)
-        scroll.verticalScrollBar().rangeChanged.connect(
-            self._schedule_neighbor_grid_fill
-        )
+        self._connect(scroll.verticalScrollBar().valueChanged, self._load_neighbor_scroll_margin)
+        self._connect(scroll.verticalScrollBar().rangeChanged, self._schedule_neighbor_grid_fill)
         save_button = require_child(dialog, QtWidgets.QPushButton, "button_save_nn_group")
         save_button.setEnabled(False)
-        save_button.clicked.connect(self._save_current_neighbor_group)
+        self._connect(save_button.clicked, self._save_current_neighbor_group)
         top_k_radio = require_child(
             dialog,
             QtWidgets.QRadioButton,
@@ -494,14 +529,14 @@ class SelectionActionsDialogController:
             QtWidgets.QDoubleSpinBox,
             "spin_save_radius",
         )
-        top_k_radio.toggled.connect(self._update_neighbor_save_controls)
-        radius_radio.toggled.connect(self._update_neighbor_save_controls)
-        top_k_spin.valueChanged.connect(self._update_neighbor_group_default)
-        top_k_spin.valueChanged.connect(self._reset_neighbor_save_button)
-        radius_spin.valueChanged.connect(self._update_neighbor_group_default)
-        radius_spin.valueChanged.connect(self._reset_neighbor_save_button)
+        self._connect(top_k_radio.toggled, self._update_neighbor_save_controls)
+        self._connect(radius_radio.toggled, self._update_neighbor_save_controls)
+        self._connect(top_k_spin.valueChanged, self._update_neighbor_group_default)
+        self._connect(top_k_spin.valueChanged, self._reset_neighbor_save_button)
+        self._connect(radius_spin.valueChanged, self._update_neighbor_group_default)
+        self._connect(radius_spin.valueChanged, self._reset_neighbor_save_button)
         group_edit = require_child(dialog, QtWidgets.QLineEdit, "line_nn_group")
-        group_edit.textChanged.connect(self._reset_neighbor_save_button)
+        self._connect(group_edit.textChanged, self._reset_neighbor_save_button)
         self._configure_neighbor_radius_for_metric()
         self._update_neighbor_save_controls()
 
@@ -655,8 +690,10 @@ class SelectionActionsDialogController:
             )
             card.clicked.connect(
                 lambda _checked=False, metadata_id=match.metadata_id: QtCore.QTimer.singleShot(
-                    0,
-                    lambda target=metadata_id: self._activate_canvas_item(target),
+                    0, self._dialog,
+                    lambda target=metadata_id, dialog=self._dialog: (
+                        self._activate_canvas_item(target) if self._dialog is dialog else None
+                    ),
                 )
             )
             target = f"neighbor:{rank}:{match.metadata_id}"
@@ -683,7 +720,7 @@ class SelectionActionsDialogController:
         )
 
     def _schedule_neighbor_grid_fill(self, *_args: object) -> None:
-        QtCore.QTimer.singleShot(0, self._ensure_neighbor_grid_scrollable)
+        self._grid_fill_timer.start(0)
 
     def _ensure_neighbor_grid_scrollable(self) -> None:
         if self._dialog is None or self._neighbor_results is None:
@@ -1018,12 +1055,12 @@ class SelectionActionsDialogController:
             QtWidgets.QPushButton,
             "button_show_file",
         )
-        self._source_file_button.clicked.connect(self._reveal_source_file)
-        self._source_video_button.clicked.connect(self._toggle_source_video)
+        self._connect(self._source_file_button.clicked, self._reveal_source_file)
+        self._connect(self._source_video_button.clicked, self._toggle_source_video)
         self._source_video_slider.setRange(0, 1000)
-        self._source_video_slider.sliderPressed.connect(self._handle_source_video_seek_started)
-        self._source_video_slider.sliderMoved.connect(self._handle_source_video_seek_preview)
-        self._source_video_slider.sliderReleased.connect(self._handle_source_video_seek_finished)
+        self._connect(self._source_video_slider.sliderPressed, self._handle_source_video_seek_started)
+        self._connect(self._source_video_slider.sliderMoved, self._handle_source_video_seek_preview)
+        self._connect(self._source_video_slider.sliderReleased, self._handle_source_video_seek_finished)
         combo = require_child(dialog, QtWidgets.QComboBox, "combo_media_source")
         source_counts = Counter(source.source_id for source in data.media_sources)
         for source in data.media_sources:
@@ -1039,7 +1076,7 @@ class SelectionActionsDialogController:
             self._set_media_source(0)
         else:
             self._update_source_controls()
-        combo.currentIndexChanged.connect(self._set_media_source)
+        self._connect(combo.currentIndexChanged, self._set_media_source)
         metadata_tree = dialog.findChild(
             QtWidgets.QTreeWidget,
             "tree_metadata_excerpt",
@@ -1262,13 +1299,11 @@ class SelectionActionsDialogController:
         audio_output.setVolume(0.8)
         player = QtMultimedia.QMediaPlayer(self._dialog)
         player.setAudioOutput(audio_output)
-        player.positionChanged.connect(self._handle_source_video_position)
-        player.durationChanged.connect(self._handle_source_video_duration)
-        player.playbackStateChanged.connect(
-            self._handle_source_video_playback_state
-        )
-        player.mediaStatusChanged.connect(self._handle_source_video_media_status)
-        player.errorOccurred.connect(self._handle_source_video_player_error)
+        self._connect(player.positionChanged, self._handle_source_video_position)
+        self._connect(player.durationChanged, self._handle_source_video_duration)
+        self._connect(player.playbackStateChanged, self._handle_source_video_playback_state)
+        self._connect(player.mediaStatusChanged, self._handle_source_video_media_status)
+        self._connect(player.errorOccurred, self._handle_source_video_player_error)
         self._source_video_player = player
         self._source_video_audio_output = audio_output
         return self._ensure_source_video_output()
@@ -1298,7 +1333,7 @@ class SelectionActionsDialogController:
         )
         layout.addWidget(video_widget)
         self._source_video_player.setVideoOutput(video_widget)
-        video_widget.videoSink().videoFrameChanged.connect(self._handle_source_video_frame)
+        self._connect(video_widget.videoSink().videoFrameChanged, self._handle_source_video_frame)
         self._source_video_widget = video_widget
         return True
 

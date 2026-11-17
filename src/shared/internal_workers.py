@@ -45,6 +45,9 @@ def dispatch_internal_worker(argv: Sequence[str]) -> int:
         return 2
 
     name, worker_args = args[0], args[1:]
+    if name == "discovery" and worker_args and worker_args[-1].startswith("--parent="):
+        pid, created = worker_args.pop().removeprefix("--parent=").split(":")
+        _watch_parent(int(pid), float(created))
     if name == "media-playback-audit":
         from shared.media_playback_probe import main
 
@@ -74,6 +77,31 @@ def dispatch_internal_worker(argv: Sequence[str]) -> int:
 
         return main(worker_args)
     return _run_native_probe(worker_args)
+
+
+def _watch_parent(pid: int, created: float) -> None:
+    """Stop native projection work if its application exits, including force quit.
+
+    Start before importing numerical libraries. psutil waits on a process handle
+    on Windows; creation time also prevents attaching to a reused process ID.
+    """
+    import os
+    import threading
+    import psutil
+
+    try:
+        parent = psutil.Process(pid)
+        if parent.create_time() != created:
+            os._exit(1)
+    except psutil.NoSuchProcess:
+        os._exit(1)
+
+    def wait() -> None:
+        parent.wait()
+        # Native compute cannot be interrupted safely through Python exceptions.
+        os._exit(1)
+
+    threading.Thread(target=wait, name="projection-parent", daemon=True).start()
 
 
 def _run_native_probe(argv: Sequence[str]) -> int:

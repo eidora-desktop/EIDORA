@@ -85,35 +85,31 @@ class DiscoveryRepository:
         return [option for _created_at, option in options]
 
     def load_coordinates(self, discovery_file: Path, metadata_ids: np.ndarray) -> DiscoveryDataset:
-        if not discovery_file.exists():
-            return self.empty()
-        try:
-            with closing(sqlite3.connect(discovery_file)) as connection, connection:
-                try:
-                    cursor = connection.execute(
-                        "SELECT metadata_id, x, y FROM coordinates ORDER BY metadata_id"
-                    )
-                    rows = cursor.fetchall()
-                    if not rows:
-                        return self.empty()
-                    row_metadata = np.asarray([row[0] for row in rows], dtype=np.int64)
-                    coordinates = np.asarray([[row[1], row[2]] for row in rows], dtype=np.float32)
-                    return DiscoveryDataset(coordinates=coordinates, metadata_ids=row_metadata)
-                except sqlite3.Error:
-                    cursor = connection.execute("SELECT x, y FROM coordinates ORDER BY rowid")
-                    rows = cursor.fetchall()
-        except sqlite3.Error:
-            return self.empty()
+        from shared.persistence.sqlite import connect_read_only
 
+        # A lock or damaged file is a read failure, not an empty projection.
+        # Inspect the schema explicitly to support legacy row-order coordinates.
+        with closing(connect_read_only(discovery_file)) as connection:
+            connection.execute("PRAGMA busy_timeout = 0")
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(coordinates)")}
+            if "metadata_id" in columns:
+                rows = connection.execute(
+                    "SELECT metadata_id, x, y FROM coordinates ORDER BY metadata_id"
+                ).fetchall()
+                if not rows:
+                    return self.empty()
+                return DiscoveryDataset(
+                    coordinates=np.asarray([[row[1], row[2]] for row in rows], dtype=np.float32),
+                    metadata_ids=np.asarray([row[0] for row in rows], dtype=np.int64),
+                )
+            rows = connection.execute("SELECT x, y FROM coordinates ORDER BY rowid").fetchall()
         if not rows:
             return self.empty()
-
         coordinates = np.asarray(rows, dtype=np.float32)
-        coordinates = coordinates[:, :2] if coordinates.ndim == 2 else np.empty((0, 2), dtype=np.float32)
-        if metadata_ids.size != len(coordinates):
-            row_metadata = np.arange(len(coordinates), dtype=np.int64)
-        else:
-            row_metadata = metadata_ids[: len(coordinates)].copy()
+        row_metadata = (
+            metadata_ids.copy() if metadata_ids.size == len(coordinates)
+            else np.arange(len(coordinates), dtype=np.int64)
+        )
         return DiscoveryDataset(coordinates=coordinates, metadata_ids=row_metadata)
 
     def save_discovery(

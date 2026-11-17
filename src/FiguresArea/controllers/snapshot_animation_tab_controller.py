@@ -96,6 +96,7 @@ class AnimationTabController(QtCore.QObject):
         self._state_changed_callback = state_changed_callback
         self._activity_manager = activity_manager
         self._restoring = False
+        self._disposed = False
         self._state = AnimationTimelineState()
         self._playback_direction = 1
         self._cache_budgets = cache_budgets or FigureCacheBudgets()
@@ -255,7 +256,7 @@ class AnimationTabController(QtCore.QObject):
         self._list_viewport.installEventFilter(self)
         self._proxy_preview_host.installEventFilter(self)
         self._list.currentItemChanged.connect(self._show_current_item)
-        self._list.model().rowsMoved.connect(lambda *_args: QtCore.QTimer.singleShot(0, self._sync_order))
+        self._list.model().rowsMoved.connect(lambda *_args: QtCore.QTimer.singleShot(0, self._widget, self._sync_order))
         self._play.toggled.connect(self._set_playing)
         self._previous.clicked.connect(lambda: self._move_selection(-1))
         self._next.clicked.connect(lambda: self._move_selection(1))
@@ -276,7 +277,7 @@ class AnimationTabController(QtCore.QObject):
         self._update_play_icon()
         self._update_slicer_import_state()
         self._update_control_states()
-        QtCore.QTimer.singleShot(0, self._position_apply_changes_button)
+        QtCore.QTimer.singleShot(0, self._widget, self._position_apply_changes_button)
         self.set_project(project)
         apply_icon_color(self._widget)
 
@@ -397,6 +398,7 @@ class AnimationTabController(QtCore.QObject):
         self._refresh_slicer_presets()
 
     def shutdown(self) -> None:
+        self._disposed = True
         self._cancel_thumbnail_generation()
         self._plot.shutdown()
         self._playback_timer.stop()
@@ -800,7 +802,7 @@ class AnimationTabController(QtCore.QObject):
         self._list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self._list.horizontalScrollBar().rangeChanged.connect(
             lambda _minimum, _maximum: QtCore.QTimer.singleShot(
-                0, self._update_timeline_height
+                0, self._widget, self._update_timeline_height
             )
         )
 
@@ -888,6 +890,8 @@ class AnimationTabController(QtCore.QObject):
             self._notify_state_changed()
 
     def _sync_order(self) -> None:
+        if self._disposed:
+            return
         current_id = self._state.current_frame_id
         frame_ids = [
             str(self._list.item(row).data(QtCore.Qt.ItemDataRole.UserRole) or "")
@@ -1074,6 +1078,8 @@ class AnimationTabController(QtCore.QObject):
         self._update_timeline_height()
 
     def _update_timeline_height(self) -> None:
+        if self._disposed:
+            return
         horizontal_scrollbar = self._list.horizontalScrollBar()
         scrollbar_visible = horizontal_scrollbar.maximum() > horizontal_scrollbar.minimum()
         scrollbar_height = (
@@ -1450,6 +1456,8 @@ class AnimationTabController(QtCore.QObject):
         apply_icon_color(self._play)
 
     def _position_apply_changes_button(self) -> None:
+        if self._disposed:
+            return
         button = self._apply_changes_to_all
         button.adjustSize()
         margin = 12

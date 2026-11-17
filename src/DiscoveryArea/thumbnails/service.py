@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -56,6 +57,8 @@ class ThumbnailSourceBatch:
 class ThumbnailService:
     """Async thumbnail decode/cache service without Qt dependencies."""
 
+    MAX_SOURCE_ENTRIES = 10000
+
     def __init__(
         self,
         resolver: ThumbnailResolver,
@@ -67,11 +70,16 @@ class ThumbnailService:
         self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="discovery-thumb")
         self._callbacks: list[Callable[[DecodedThumbnail | ThumbnailDecodeFailure | None], None]] = []
         self._source_callbacks: list[Callable[[ThumbnailSourceBatch], None]] = []
-        self._source_cache: dict[tuple[str, int, int], ThumbnailRef | None] = {}
+        self._source_cache: OrderedDict[tuple[str, int, int], ThumbnailRef | None] = OrderedDict()
         self._source_cache_token: tuple[object, ...] | None = None
         self._in_flight: dict[tuple[str, int | None, int], list[DecodeRequest]] = {}
         self._in_flight_lock = threading.Lock()
         self._resolver_lock = threading.Lock()
+        self._source_lock = threading.Lock()
+        self._source_pending = None
+        self._source_running = False
+        self._source_generation = 0
+        self._closed = False
 
     def subscribe_thumbnail_ready(
         self,
@@ -158,7 +166,8 @@ class ThumbnailService:
         flight_key = (str(ref.path), ref.mtime_ns, target_px)
         with self._in_flight_lock:
             if flight_key in self._in_flight:
-                self._in_flight[flight_key].append(request)
+                if request not in self._in_flight[flight_key]:
+                    self._in_flight[flight_key].append(request)
                 return ref
             self._in_flight[flight_key] = [request]
         self._executor.submit(
@@ -191,21 +200,40 @@ class ThumbnailService:
                 )
             )
             return
-        self._executor.submit(
-            self._resolve_sources_and_publish,
-            int(revision),
-            requested,
-            variant_id,
-            max(1, int(target_px)),
-        )
+        # Each request describes all unresolved sources in the current plan, so queued plans
+        # can be replaced without losing sources still needed by the viewport.
+        with self._source_lock:
+            if self._closed:
+                return
+            self._source_pending = (int(revision), requested, variant_id, max(1, int(target_px)))
+            if not self._source_running:
+                self._source_running = True
+                self._executor.submit(self._run_source_requests)
+
+    def _run_source_requests(self) -> None:
+        try:
+            while True:
+                with self._source_lock:
+                    request, self._source_pending = self._source_pending, None
+                    if self._closed or request is None:
+                        return
+                self._resolve_sources_and_publish(*request)
+        finally:
+            with self._source_lock:
+                self._source_running = False
+                if not self._closed and self._source_pending is not None:
+                    self._source_running = True
+                    self._executor.submit(self._run_source_requests)
 
     def shutdown(self) -> None:
+        with self._source_lock:
+            self._closed = True
+            self._source_pending = None
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     def clear_source_cache(self) -> None:
-        with self._resolver_lock:
-            self._source_cache.clear()
-            self._source_cache_token = None
+        # Invalidate on the worker; never wait for file I/O on the GUI thread.
+        self._source_generation += 1
 
     def _decode_and_publish(
         self,
@@ -259,7 +287,7 @@ class ThumbnailService:
     ) -> None:
         try:
             with self._resolver_lock:
-                token = self._resolver.source_catalog_token(variant_id)
+                token = (self._source_generation, self._resolver.source_catalog_token(variant_id))
                 if token != self._source_cache_token:
                     self._source_cache.clear()
                     self._source_cache_token = token
@@ -272,6 +300,7 @@ class ThumbnailService:
                         unresolved.append(metadata_id)
                         continue
                     cached = self._source_cache[cache_key]
+                    self._source_cache.move_to_end(cache_key)
                     if cached is None:
                         continue
                     try:
@@ -295,6 +324,8 @@ class ThumbnailService:
                         cache_key = (variant_key, int(target_px), int(metadata_id))
                         value = newly_resolved.get(metadata_id)
                         self._source_cache[cache_key] = value
+                        while len(self._source_cache) > self.MAX_SOURCE_ENTRIES:
+                            self._source_cache.popitem(last=False)
                         if value is not None:
                             resolved[metadata_id] = value
             sources = tuple(resolved[metadata_id] for metadata_id in requested if metadata_id in resolved)
@@ -365,9 +396,13 @@ class ThumbnailService:
         self,
         payload: DecodedThumbnail | ThumbnailDecodeFailure | None,
     ) -> None:
+        if self._closed:
+            return
         for callback in tuple(self._callbacks):
             callback(payload)
 
     def _emit_source_batch(self, payload: ThumbnailSourceBatch) -> None:
+        if self._closed:
+            return
         for callback in tuple(self._source_callbacks):
             callback(payload)

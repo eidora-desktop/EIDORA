@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from datetime import timezone
 import json
+import logging
 import re
 import shutil
+import sqlite3
 import zipfile
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -22,6 +24,8 @@ from project.storage import (
     write_project_manifest,
 )
 from shared.paths import default_workspace_root
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ProjectService:
@@ -101,7 +105,8 @@ class ProjectService:
         if recent_projects:
             try:
                 return self.open_project(recent_projects[0].root)
-            except (FileNotFoundError, ValueError):
+            except (OSError, ValueError, sqlite3.Error):
+                LOGGER.warning("Could not reopen the last project; keeping it available for retry", exc_info=True)
                 return None
 
         return None
@@ -116,10 +121,14 @@ class ProjectService:
         for path, last_opened_at in records:
             try:
                 project = self._project_from_path(path)
-                if not MetadataRepository.contains_metadata(project.paths.metadata_database):
-                    continue
             except (FileNotFoundError, ValueError, OSError):
                 continue
+            try:
+                if not MetadataRepository.contains_metadata(project.paths.metadata_database):
+                    continue
+            except (sqlite3.Error, OSError):
+                # An unreadable database is not evidence that the project vanished.
+                LOGGER.warning("Could not inspect recent project %s; keeping its entry", path, exc_info=True)
             projects.append(project)
             kept_records.append((project.root.resolve(), last_opened_at))
         if [str(path) for path, _last_opened_at in kept_records] != [str(path) for path, _last_opened_at in records]:

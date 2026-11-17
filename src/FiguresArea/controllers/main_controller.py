@@ -47,6 +47,7 @@ class FiguresAreaController:
         self._restoring_project_state = False
         self._restored_project_root: Path | None = None
         self._work_service: FigureWorkService | None = None
+        self._retired_services: dict[Path, FigureWorkService] = {}
         self._preview_memory = PreviewMemoryBudget()
         self._cache_budgets = FigureCacheBudgets()
         self._save_future = None
@@ -80,20 +81,32 @@ class FiguresAreaController:
 
     def _set_project(self, project: Project | None) -> None:
         incoming_root = project.root if project is not None else None
+        previous_root = self._project.root if self._project is not None else None
         if self._project is not None and self._project.root != incoming_root:
-            self._save_project_tab_state()
+            self._save_project_tab_state(wait=False)
         project_changed = self._project is None or self._project.root != incoming_root
         self._project = project
         if project_changed:
+            # The retiring service owns its final write. A new project's
+            # autosave must never cancel that queued write.
+            self._save_future = None
+            self._save_poll_timer.stop()
             self._load_poll_timer.stop()
             if self._load_future is not None:
                 self._load_future.cancel()
                 self._load_future = None
             self._clear_figure_tabs()
             if self._work_service is not None:
-                self._work_service.shutdown()
+                self._work_service.shutdown(wait=False)
+                self._retired_services[previous_root] = self._work_service
+            self._retired_services = {
+                root: service for root, service in self._retired_services.items() if not service.retired
+            }
             self._cache_budgets.clear()
-            self._work_service = FigureWorkService(project.paths.state, cleanup_on_close=True) if project is not None else None
+            self._work_service = FigureWorkService(
+                project.paths.state, cleanup_on_close=True,
+                predecessor=self._retired_services.get(incoming_root),
+            ) if project is not None else None
             self._restored_project_root = None
         for plot_tab in self._plot_tabs.values():
             plot_tab.set_project(project)
@@ -107,7 +120,7 @@ class FiguresAreaController:
     def shutdown(self) -> None:
         if self._disposed:
             return
-        self._save_project_tab_state()
+        self._save_project_tab_state(wait=False)
         self._disposed = True
         self._save_poll_timer.stop()
         self._load_poll_timer.stop()
@@ -118,7 +131,7 @@ class FiguresAreaController:
         for panel in self._panels:
             panel.shutdown()
         if self._work_service is not None:
-            self._work_service.shutdown()
+            self._work_service.shutdown(wait=False)
         self._cache_budgets.clear()
 
     def activate(self) -> None:
@@ -205,6 +218,8 @@ class FiguresAreaController:
         self._ensure_project_state_loaded()
         if self._load_future is not None:
             self._show_status("Saved figures are still loading…")
+            return
+        if self._project is not None and self._restored_project_root != self._project.root:
             return
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
         title = f"{title_prefix} {self._next_figure_number(tabs)}"
@@ -454,13 +469,20 @@ class FiguresAreaController:
             return
         self._clear_figure_tabs()
         manifest = self._project.paths.state / "figures_area_state.json"
-        if manifest.exists() and manifest.stat().st_size > 128 * 1024:
+        try:
+            size = manifest.stat().st_size
+        except FileNotFoundError:
+            size = 0
+        except OSError as error:
+            self._show_status(f"Failed to load saved figures: {error}")
+            return
+        if size > 128 * 1024 or self._project.root in self._retired_services:
             self._load_future = self._work_service.load()
             self._load_poll_timer.start()
             self._show_status("Loading saved figures…")
             return
-        self._restore_project_tab_state()
-        self._restored_project_root = self._project.root
+        if self._restore_project_tab_state():
+            self._restored_project_root = self._project.root
 
     def _check_load_result(self) -> None:
         if self._load_future is None or not self._load_future.done():
@@ -473,17 +495,17 @@ class FiguresAreaController:
             self._show_status(f"Failed to load saved figures: {error}")
             return
         if not self._disposed and self._project is not None:
-            self._restore_project_tab_state(loaded)
-            self._restored_project_root = self._project.root
+            if self._restore_project_tab_state(loaded):
+                self._restored_project_root = self._project.root
 
-    def _restore_project_tab_state(self, loaded=None) -> None:
+    def _restore_project_tab_state(self, loaded=None) -> bool:
         if self._project is None:
-            return
+            return False
         try:
             records, current_index = loaded if loaded is not None else FigureTabsRepository(self._project.paths.state).load()
-        except OSError:
-            self._show_status("Failed to restore figure tabs.")
-            return
+        except (OSError, ValueError) as error:
+            self._show_status(f"Failed to restore figure tabs: {error}")
+            return False
         self._restoring_project_state = True
         try:
             for record in records:
@@ -505,6 +527,7 @@ class FiguresAreaController:
         finally:
             self._restoring_project_state = False
         self._sync_settings_panel_with_current_tab()
+        return True
 
     @staticmethod
     def _hide_add_tab_close_button(tabs: QtWidgets.QTabWidget) -> None:

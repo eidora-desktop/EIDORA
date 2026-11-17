@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import math
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -45,15 +46,17 @@ class FigureTabsRepository:
 
     def load(self) -> tuple[list[dict[str, Any]], int | None]:
         try:
-            payload = json_store.read_json(self._path, default={})
-        except (OSError, ValueError):
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
             return [], None
         if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3, 4, 5, 6, self._VERSION}:
-            return [], None
+            raise ValueError("Unsupported or invalid saved figure collection.")
         raw_tabs = payload.get("tabs")
         if not isinstance(raw_tabs, list):
-            return [], None
+            raise ValueError("Invalid saved figure tabs.")
         tabs = [tab for tab in (self._validated_tab(item) for item in raw_tabs) if tab is not None]
+        if len(tabs) != len(raw_tabs):
+            raise ValueError("Invalid saved figure tab; the collection was not loaded.")
         current_index = payload.get("current_index")
         valid_index = current_index if isinstance(current_index, int) and not isinstance(current_index, bool) else None
         return [self._composition_paths(tab, encode=False) for tab in tabs], valid_index

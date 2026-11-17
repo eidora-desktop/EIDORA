@@ -81,6 +81,7 @@ from DiscoveryArea.filters import (
 from DiscoveryArea.palettes import next_unused_area_color
 from DiscoveryArea.presets_repository import PresetRepository
 from DiscoveryArea.discovery_execution import DiscoveryRunBridge, DiscoveryRunWorker
+from shared.qt.background_tasks import BackgroundTasks
 from DiscoveryArea.service import DiscoveryService
 from DiscoveryArea.transform_service import DiscoveryTransformService
 from DiscoveryArea.transforms import (
@@ -148,28 +149,20 @@ class _ThumbnailReadyBridge(QtCore.QObject):
     ready = QtCore.Signal(object)
 
 
-class _CanvasStyleBuildSignals(QtCore.QObject):
-    finished = QtCore.Signal(int, object)
-    failed = QtCore.Signal(int, str)
-    cancelled = QtCore.Signal(int)
-
-
-class _CanvasStyleBuildTask(QtCore.QRunnable):
+class _CanvasStyleBuildTask:
     def __init__(
         self,
         request: CanvasStyleRequest,
         cancelled: threading.Event,
         metadata_access: DiscoveryMetadataAccess | None,
     ) -> None:
-        super().__init__()
-        self.setAutoDelete(False)
         self.request = request
         self.cancelled = cancelled
         self.metadata_access = metadata_access
-        self.signals = _CanvasStyleBuildSignals()
 
-    @QtCore.Slot()
-    def run(self) -> None:
+    def run(self, _progress):
+        if self.cancelled.is_set():
+            return None
         try:
             prepared = _canvas_style_request_with_metadata(
                 self.request,
@@ -177,15 +170,8 @@ class _CanvasStyleBuildTask(QtCore.QRunnable):
             )
             result = build_canvas_style(prepared, cancelled=self.cancelled.is_set)
         except StyleBuildCancelled:
-            self.signals.cancelled.emit(self.request.revision)
-            return
-        except Exception as exc:
-            self.signals.failed.emit(self.request.revision, f"{type(exc).__name__}: {exc}")
-            return
-        if self.cancelled.is_set():
-            self.signals.cancelled.emit(self.request.revision)
-        else:
-            self.signals.finished.emit(self.request.revision, result)
+            return None
+        return None if self.cancelled.is_set() else result
 
 
 def _canvas_style_request_with_metadata(
@@ -479,7 +465,9 @@ class DiscoveryAreaController:
         self._panel_lookup: dict[type[UiPanelController], UiPanelController] = {}
         self._canvas_widget: DiscoveryCanvasWidget | None = None
         self._canvas_style_revision = 0
-        self._canvas_style_tasks: dict[int, _CanvasStyleBuildTask] = {}
+        self._canvas_style_runner = BackgroundTasks(self._widget)
+        self._canvas_style_runner.finished.connect(self._on_canvas_style_completed)
+        self._canvas_style_runner.failed.connect(self._on_canvas_style_failed)
         self._canvas_style_cancel_events: dict[int, threading.Event] = {}
         self._canvas_style_render_options: dict[int, tuple[DiscoveryDataset, bool, bool]] = {}
         self._service = DiscoveryService()
@@ -519,6 +507,7 @@ class DiscoveryAreaController:
         self._active_discovery_run: _QueuedDiscoveryRun | None = None
         self._discovery_run_thread: QtCore.QThread | None = None
         self._discovery_run_worker: DiscoveryRunWorker | None = None
+        self._prepared_discovery_dataset = None
         self._discovery_admission = None
         self._pending_discovery_option_key: str | None = None
         self._pending_discovery_error: str | None = None
@@ -530,6 +519,7 @@ class DiscoveryAreaController:
         self._shutting_down = False
         self._tooltip_popup: _CanvasTooltipPopup | None = None
         self._selection_actions_dialog_controller: SelectionActionsDialogController | None = None
+        self._selection_session_revision = 0
         self._selection_neighbor_group_changed = False
         self._neighbor_search_coordinator = NearestNeighborCoordinator(self._widget)
         self._neighbor_search_coordinator.result_ready.connect(
@@ -564,6 +554,7 @@ class DiscoveryAreaController:
         )
         self._active_thumbnail_plan: ThumbnailViewportPlan | None = None
         self._active_thumbnail_metadata_id_set: set[int] = set()
+        self._thumbnail_resolved_source_ids: set[int] = set()
         self._thumbnail_decode_px = 32
         self._thumbnail_fast_frames = 0
         self._thumbnail_slow_frames = 0
@@ -617,6 +608,8 @@ class DiscoveryAreaController:
         self._persist_appearance_timer.timeout.connect(self._persist_project_appearance_state)
         self._current_snapshot_path: Path | None = None
         self._current_snapshot_baseline: dict[str, object] | None = None
+        self._snapshot_write_revision = 0
+        self._snapshot_write_active = False
         self._active_pin_annotation_id: str | None = None
         self._applying_project_layer_state = False
         self._restoring_project_state = False
@@ -644,6 +637,7 @@ class DiscoveryAreaController:
     def deactivate(self) -> None:
         """Close transient Discovery windows when its stacked page is left."""
 
+        self._close_selection_actions()
         canvas_layers = self._panel(CanvasLayersPanelController)
         if canvas_layers is not None:
             canvas_layers.close_layer_settings_popups()
@@ -722,11 +716,23 @@ class DiscoveryAreaController:
         self._set_project(project)
 
     def _set_project(self, project: Project | None) -> None:
+        self._snapshot_write_revision += 1
+        if project is not self._project:
+            self._close_selection_actions()
         self._flush_pin_persistence()
         self._persist_project_appearance_state()
         self._persist_project_exploration_settings()
         if project is not self._project:
             self._cancel_all_discovery_runs()
+            self._active_dataset = self._source_dataset = None
+            self._active_transform = None
+            self._active_arrangement_ref = "original"
+            self._active_discovery_key = "random"
+            transform_panel = self._panel(TransformPanelController)
+            if transform_panel is not None:
+                transform_panel.set_projection(None, populated=False)
+            if self._canvas_widget is not None:
+                self._canvas_widget.clear()
             self._transform_coordinator.cancel_pending()
             self._transform_request_key = None
             self._transform_request_fingerprint = None
@@ -831,6 +837,8 @@ class DiscoveryAreaController:
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        self._snapshot_write_revision += 1
+        self._close_selection_actions()
         self._flush_pin_persistence()
         self._persist_project_appearance_state()
         self._persist_project_exploration_settings()
@@ -846,9 +854,11 @@ class DiscoveryAreaController:
         self._thumbnail_rolling_request_timer.stop()
         self._thumbnail_progressive_timer.stop()
         self._thumbnail_push_timer.stop()
-        self._thumbnail_plan_coordinator.cancel_pending()
-        self._transform_coordinator.cancel_pending()
-        self._neighbor_search_coordinator.cancel_pending(clear_cache=True)
+        self._thumbnail_plan_coordinator.shutdown()
+        self._transform_coordinator.shutdown()
+        self._canvas_style_runner.shutdown()
+        self._canvas_style_cancel_events.clear()
+        self._neighbor_search_coordinator.shutdown()
         self._persist_appearance_timer.stop()
         self._persist_settings_timer.stop()
         if self._thumbnail_service is not None:
@@ -1329,7 +1339,6 @@ class DiscoveryAreaController:
         discovery_panel.set_discovery_options(options, enabled=True, selected_key=resolved_key)
         # Load the same fallback selection that is highlighted in the list.
         resolved_key = discovery_panel.current_selection_key() or resolved_key
-        self._active_discovery_key = resolved_key
         self._handle_discovery_selection(resolved_key)
         self._refresh_preset_menus()
 
@@ -1407,6 +1416,9 @@ class DiscoveryAreaController:
             return
         metadata_ids = self._project_metadata_ids(self._project)
         if metadata_ids.size == 0:
+            if selection_key != self._active_discovery_key:
+                self._close_selection_actions()
+            self._active_discovery_key = selection_key
             self._active_dataset = None
             self._source_dataset = None
             self._active_transform = None
@@ -1424,12 +1436,7 @@ class DiscoveryAreaController:
             self._show_status("No items available. Import metadata or run an analysis on assets.")
             self._discovery_debug("discovery_selection_no_metadata", selection_key=selection_key)
             return
-        if selection_key != self._active_discovery_key:
-            self._flush_pin_persistence()
-        self._active_discovery_key = selection_key
         discovery_panel = self._panel(DiscoveryPanelController)
-        if discovery_panel is not None and discovery_panel.current_selection_key() != selection_key:
-            discovery_panel.set_selected_key(selection_key, emit_signal=False)
         self._discovery_debug(
             "discovery_dataset_load_start",
             selection_key=selection_key,
@@ -1437,11 +1444,30 @@ class DiscoveryAreaController:
             discovery_file=str(option.discovery_file) if option.discovery_file is not None else None,
             is_random=option.is_random,
         )
-        self._set_pending_discovery_display_progress(96, "Loading saved projection coordinates...")
+        try:
+            prepared = self._prepared_discovery_dataset
+            self._prepared_discovery_dataset = None
+            if prepared is not None and prepared[0] is self._project and prepared[1] == selection_key:
+                dataset = prepared[2]
+            else:
+                dataset = self._service.load_discovery_dataset_for_option(self._project, option, metadata_ids)
+        except Exception as exc:
+            if self._pending_discovery_canvas_key == selection_key:
+                raise
+            if discovery_panel is not None:
+                discovery_panel.set_selected_key(self._active_discovery_key, emit_signal=False)
+            self._show_status(f"Projection could not be loaded: {exc}")
+            return
+        if selection_key != self._active_discovery_key:
+            self._close_selection_actions()
+            self._flush_pin_persistence()
+        self._active_discovery_key = selection_key
+        if discovery_panel is not None and discovery_panel.current_selection_key() != selection_key:
+            discovery_panel.set_selected_key(selection_key, emit_signal=False)
+        self._set_pending_discovery_display_progress(96, "Preparing saved projection display...")
         self._transform_coordinator.cancel_pending()
         self._transform_request_key = None
         self._transform_request_fingerprint = None
-        dataset = self._service.load_discovery_dataset_for_option(self._project, option, metadata_ids)
         self._discovery_debug(
             "discovery_dataset_loaded",
             coordinate_shape=tuple(dataset.coordinates.shape),
@@ -1673,6 +1699,7 @@ class DiscoveryAreaController:
             revision = self._canvas_style_revision
             for event in self._canvas_style_cancel_events.values():
                 event.set()
+            self._canvas_style_render_options.clear()
             request = self._canvas_style_request(dataset, revision=revision)
             self._canvas_style_render_options[revision] = (dataset, preserve_view, fit_view)
             if dataset.coordinates.shape[0] <= 10_000:
@@ -1693,12 +1720,8 @@ class DiscoveryAreaController:
                 cancelled,
                 self._metadata_access,
             )
-            task.signals.finished.connect(self._on_canvas_style_ready)
-            task.signals.failed.connect(self._on_canvas_style_failed)
-            task.signals.cancelled.connect(self._on_canvas_style_cancelled)
             self._canvas_style_cancel_events[revision] = cancelled
-            self._canvas_style_tasks[revision] = task
-            QtCore.QThreadPool.globalInstance().start(task)
+            self._canvas_style_runner.submit(revision, task.run)
             return
 
     def _canvas_style_request(self, dataset: DiscoveryDataset, *, revision: int) -> CanvasStyleRequest:
@@ -1743,9 +1766,14 @@ class DiscoveryAreaController:
             filter_matching=filter_matching,
         )
 
+    def _on_canvas_style_completed(self, revision: int, result: object) -> None:
+        if result is None:
+            self._on_canvas_style_cancelled(revision)
+        else:
+            self._on_canvas_style_ready(revision, result)
+
     @QtCore.Slot(int, object)
     def _on_canvas_style_ready(self, revision: int, result: object) -> None:
-        self._canvas_style_tasks.pop(int(revision), None)
         self._canvas_style_cancel_events.pop(int(revision), None)
         options = self._canvas_style_render_options.pop(int(revision), None)
         if int(revision) != self._canvas_style_revision or options is None:
@@ -1831,7 +1859,6 @@ class DiscoveryAreaController:
 
     @QtCore.Slot(int, str)
     def _on_canvas_style_failed(self, revision: int, message: str) -> None:
-        self._canvas_style_tasks.pop(int(revision), None)
         self._canvas_style_cancel_events.pop(int(revision), None)
         self._canvas_style_render_options.pop(int(revision), None)
         if int(revision) == self._canvas_style_revision:
@@ -1843,7 +1870,6 @@ class DiscoveryAreaController:
 
     @QtCore.Slot(int)
     def _on_canvas_style_cancelled(self, revision: int) -> None:
-        self._canvas_style_tasks.pop(int(revision), None)
         self._canvas_style_cancel_events.pop(int(revision), None)
         self._canvas_style_render_options.pop(int(revision), None)
 
@@ -1851,6 +1877,7 @@ class DiscoveryAreaController:
         self._thumbnail_plan_coordinator.cancel_pending()
         self._active_thumbnail_plan = None
         self._active_thumbnail_metadata_id_set.clear()
+        self._thumbnail_resolved_source_ids.clear()
         self._thumbnail_decode_px = 32
         self._thumbnail_fast_frames = 0
         self._thumbnail_slow_frames = 0
@@ -1996,11 +2023,12 @@ class DiscoveryAreaController:
             return
         self._hide_tooltip_popup()
         position = global_pos if isinstance(global_pos, QtCore.QPoint) else None
+        revision = self._selection_session_revision
         defer_to_event_loop(
             lambda target=int(metadata_id), pos=position: self._show_selection_actions(
                 target,
                 pos,
-            )
+            ) if revision == self._selection_session_revision else None
         )
 
     def _show_selection_actions(
@@ -2009,25 +2037,29 @@ class DiscoveryAreaController:
         global_pos: QtCore.QPoint | None,
     ) -> None:
         canvas = self._canvas_widget
-        if canvas is None or canvas.selected_metadata_id() != int(metadata_id):
+        if (canvas is None or self._shutting_down
+                or self._selection_actions_dialog_controller is not None
+                or canvas.selected_metadata_id() != int(metadata_id)):
             return
         controller = SelectionActionsDialogController()
         self._selection_actions_dialog_controller = controller
         self._selection_neighbor_group_changed = False
         tools_panel = self._panel(CanvasToolsPanelController)
-        if tools_panel is not None:
-            tools_panel.set_active_mode("pan")
-        else:
-            canvas.set_interaction_mode("pan")
         pin_changed = False
 
         def set_pin_scope(scope_mode: str) -> bool:
             nonlocal pin_changed
+            if self._selection_actions_dialog_controller is not controller:
+                return False
             changed = self._set_selection_pin_scope(metadata_id, scope_mode)
             pin_changed = pin_changed or changed
             return changed
 
         try:
+            if tools_panel is not None:
+                tools_panel.set_active_mode("pan")
+            else:
+                canvas.set_interaction_mode("pan")
             result = controller.exec(
                 self._selection_actions_dialog_data(metadata_id),
                 global_pos,
@@ -2039,6 +2071,8 @@ class DiscoveryAreaController:
                 canvas.refresh_cursor,
                 set_pin_scope,
             )
+            if self._selection_actions_dialog_controller is not controller:
+                return
             action = result if isinstance(result, str) else getattr(result, "action", None)
             if action != "metadata":
                 if not self._selection_neighbor_group_changed and not pin_changed:
@@ -2047,15 +2081,31 @@ class DiscoveryAreaController:
             if self._open_metadata_callback is not None:
                 self._open_metadata_callback(int(metadata_id))
         finally:
-            self._neighbor_search_coordinator.cancel_pending(clear_cache=True)
-            controller.close()
-            self._selection_actions_dialog_controller = None
-            if tools_panel is not None:
-                tools_panel.set_active_mode("selection")
+            if self._selection_actions_dialog_controller is controller:
+                self._close_selection_actions()
             else:
-                canvas.set_interaction_mode("selection")
-            canvas.clear_find_item_blink()
-            canvas.clear_selected_metadata_id()
+                controller.close()
+
+    def _close_selection_actions(self) -> None:
+        self._selection_session_revision += 1
+        controller, self._selection_actions_dialog_controller = self._selection_actions_dialog_controller, None
+        self._neighbor_search_coordinator.cancel_pending(clear_cache=True)
+        if controller is None:
+            if self._canvas_widget is not None:
+                self._canvas_widget.clear_selected_metadata_id()
+            return
+        try:
+            controller.close()
+        finally:
+            canvas = self._canvas_widget
+            if canvas is not None:
+                canvas.clear_find_item_blink()
+                canvas.clear_selected_metadata_id()
+                tools_panel = self._panel(CanvasToolsPanelController)
+                if tools_panel is not None:
+                    tools_panel.set_active_mode("selection")
+                else:
+                    canvas.set_interaction_mode("selection")
 
     def _set_selection_pin_scope(self, metadata_id: int, scope_mode: str) -> bool:
         canvas = self._canvas_widget
@@ -2262,7 +2312,7 @@ class DiscoveryAreaController:
         if request.embedding_run_id:
             return self._neighbor_search_coordinator.submit(
                 cache_key=f"embedding:{request.embedding_run_id}",
-                loader=lambda: self._service.prepare_embedding_neighbor_index_for_run(
+                loader=lambda service=self._service: service.prepare_embedding_neighbor_index_for_run(
                     project,
                     request.embedding_run_id,
                 ),
@@ -2271,7 +2321,7 @@ class DiscoveryAreaController:
         candidate_ids = np.asarray(dataset.metadata_ids, dtype=np.int64).copy()
         return self._neighbor_search_coordinator.submit(
             cache_key=str(self._active_discovery_key),
-            loader=lambda: self._service.prepare_embedding_neighbor_index(
+            loader=lambda service=self._service: service.prepare_embedding_neighbor_index(
                 project,
                 option,
                 candidate_ids,
@@ -2693,11 +2743,6 @@ class DiscoveryAreaController:
             and previous_plan.scene_revision == payload.scene_revision
             and previous_plan.decode_px == payload.decode_px
         )
-        previous_metadata_ids = (
-            self._active_thumbnail_metadata_id_set.copy()
-            if reusable_sources
-            else set()
-        )
         self._active_thumbnail_plan = payload
         layers_panel = self._panel(LayersSettingPanelController)
         if layers_panel is not None:
@@ -2710,9 +2755,11 @@ class DiscoveryAreaController:
         self._active_thumbnail_metadata_id_set = set(cache_metadata_ids)
         self._thumbnail_loading_pending_ids = set(display_metadata_ids)
         if reusable_sources:
+            self._thumbnail_resolved_source_ids.intersection_update(self._active_thumbnail_metadata_id_set)
             self._thumbnail_missing_ids.intersection_update(self._active_thumbnail_metadata_id_set)
             self._thumbnail_failed_ids.intersection_update(self._active_thumbnail_metadata_id_set)
         else:
+            self._thumbnail_resolved_source_ids.clear()
             self._thumbnail_missing_ids.clear()
             self._thumbnail_failed_ids.clear()
         canvas.set_thumbnail_viewport_plan(
@@ -2740,15 +2787,12 @@ class DiscoveryAreaController:
             self._update_thumbnail_loading_indicator()
             return
         if canvas.supports_native_thumbnail_sources():
-            added_metadata_ids = [
-                metadata_id
-                for metadata_id in cache_metadata_ids
-                if metadata_id not in previous_metadata_ids
-            ]
-            if added_metadata_ids:
+            unresolved_ids = [value for value in cache_metadata_ids
+                              if value not in self._thumbnail_resolved_source_ids]
+            if unresolved_ids:
                 service.request_sources(
                     revision=payload.request_revision,
-                    metadata_ids=added_metadata_ids,
+                    metadata_ids=unresolved_ids,
                     variant_id=self._canvas_thumbnail_variant_id,
                     target_px=payload.decode_px,
                 )
@@ -2954,6 +2998,11 @@ class DiscoveryAreaController:
         ):
             self._thumbnail_stale_results += 1
             return
+        if payload.failed_message:
+            self._thumbnail_loading_pending_ids.difference_update(payload.requested_metadata_ids)
+            self._show_status(f"Thumbnail source lookup failed: {payload.failed_message}")
+            self._update_thumbnail_loading_indicator()
+            return
         missing = {int(value) for value in payload.missing_metadata_ids}
         self._thumbnail_missing_ids.update(missing)
         self._thumbnail_loading_pending_ids.difference_update(missing)
@@ -2981,8 +3030,8 @@ class DiscoveryAreaController:
             entries,
             revision=payload.revision,
         )
-        if payload.failed_message:
-            self._show_status(f"Thumbnail source lookup failed: {payload.failed_message}")
+        self._thumbnail_resolved_source_ids.update(payload.requested_metadata_ids)
+        self._thumbnail_resolved_source_ids.intersection_update(self._active_thumbnail_metadata_id_set)
         canvas.set_thumbnail_plan_diagnostics(
             desired_visible=plan.desired_visible_count,
             planned_visible=plan.planned_visible_count,
@@ -3968,65 +4017,55 @@ class DiscoveryAreaController:
             self._applying_camera_preset = False
 
     def _save_snapshot_by_label(self, label: str) -> bool:
-        if self._project is None or self._active_dataset is None:
+        return self._write_snapshot(label)
+
+    def _update_snapshot_from_path(self, path: Path) -> bool:
+        if not path.exists():
+            return False
+        return self._write_snapshot(path.stem, update=True)
+
+    def _write_snapshot(self, label: str, *, update: bool = False) -> bool:
+        if self._project is None or self._active_dataset is None or self._shutting_down:
+            return False
+        if self._snapshot_write_active:
+            self._show_status("A snapshot is still saving…")
             return False
         refs = self._save_component_presets_for_snapshot(label)
         snapshot = self._build_snapshot_payload(label, refs=refs)
         projection = snapshot.projection or self._snapshot_projection_payload()
-        project = self._project
-        dataset = self._active_dataset
+        project, dataset, service = self._project, self._active_dataset, self._service
+        baseline = self._current_snapshot_comparison_state(label)
+        thumbnail = (self._canvas_widget.render_snapshot_pixmap(SNAPSHOT_PREVIEW_IMAGE_SIZE)
+                     if self._canvas_widget is not None else None)
+        self._snapshot_write_revision += 1
+        revision = self._snapshot_write_revision
+        operation = service.update_snapshot if update else service.save_snapshot
+        self._snapshot_write_active = True
         try:
             path = run_snapshot_write_responsive(
-                lambda: self._service.save_snapshot(
-                    project,
-                    label,
-                    snapshot,
-                    dataset,
-                    projection,
-                )
-            )
-        except FileExistsError:
-            self._show_status(f"Snapshot '{label}' already exists.")
-            return False
-        except Exception as exc:
-            self._show_status(f"Could not save snapshot '{label}': {exc}")
-            return False
-        self._save_snapshot_thumbnail(path)
-        self._current_snapshot_path = path
-        self._current_snapshot_baseline = self._current_snapshot_comparison_state(path.stem)
-        snapshots_panel = self._panel(SnapshotsPanelController)
-        if snapshots_panel is not None:
-            snapshots_panel.prefer_snapshot_path(path)
-        self._refresh_current_snapshot_update_state()
-        self._refresh_preset_menus()
-        self._notify_snapshots_changed()
-        return True
-
-    def _update_snapshot_from_path(self, path: Path) -> bool:
-        if self._project is None or self._active_dataset is None or not path.exists():
-            return False
-        refs = self._save_component_presets_for_snapshot(path.stem)
-        snapshot = self._build_snapshot_payload(path.stem, refs=refs)
-        projection = snapshot.projection or self._snapshot_projection_payload()
-        dataset = self._active_dataset
-        project = self._project
-        try:
-            run_snapshot_write_responsive(
-                lambda: self._service.update_snapshot(
-                    project,
-                    path.stem,
-                    snapshot,
-                    dataset,
-                    projection,
-                )
+                lambda: operation(project, label, snapshot, dataset, projection)
             )
         except Exception as exc:
-            self._show_status(f"Could not update snapshot '{path.stem}': {exc}")
+            if revision == self._snapshot_write_revision and not self._shutting_down:
+                self._show_status(f"Could not save snapshot '{label}': {exc}")
             return False
-        self._save_snapshot_thumbnail(path)
+        finally:
+            self._snapshot_write_active = False
+        # Persistence succeeded. A nested event loop may have changed project,
+        # view, or started another save; only the captured state may be activated.
+        if thumbnail is not None:
+            thumbnail.save(str(path.with_suffix(".png")))
+        if revision != self._snapshot_write_revision or self._shutting_down:
+            return True
+        if self._project is not project:
+            return True
+        if self._active_dataset is dataset and self._current_snapshot_comparison_state(label) == baseline:
+            self._current_snapshot_path = path
+            self._current_snapshot_baseline = baseline
+            panel = self._panel(SnapshotsPanelController)
+            if panel is not None:
+                panel.prefer_snapshot_path(path)
         self._refresh_preset_menus()
-        self._current_snapshot_path = path
-        self._current_snapshot_baseline = self._current_snapshot_comparison_state(path.stem)
         self._refresh_current_snapshot_update_state()
         self._notify_snapshots_changed()
         return True
@@ -4640,25 +4679,17 @@ class DiscoveryAreaController:
         panel = self._panel(DiscoveryPanelController)
         if panel is not None:
             panel.set_run_started(request.run_id)
-        thread = QtCore.QThread(self._widget)
-        worker = DiscoveryRunWorker(
+        thread = worker = DiscoveryRunWorker(
             request.project,
             request.payload,
             request.metadata_ids,
             request.artifact,
+            parent=self._widget,
         )
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
         worker.progress.connect(self._discovery_run_bridge.on_progress)
-        worker.finished.connect(self._discovery_run_bridge.on_finished)
+        worker.result_ready.connect(self._discovery_run_bridge.on_finished)
         worker.failed.connect(self._discovery_run_bridge.on_failed)
         worker.cancelled.connect(self._discovery_run_bridge.on_cancelled)
-        worker.finished.connect(thread.quit)
-        worker.failed.connect(thread.quit)
-        worker.cancelled.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        worker.failed.connect(worker.deleteLater)
-        worker.cancelled.connect(worker.deleteLater)
         thread.finished.connect(self._discovery_run_bridge.on_thread_finished)
         thread.finished.connect(thread.deleteLater)
         self._discovery_run_thread = thread
@@ -4841,7 +4872,7 @@ class DiscoveryAreaController:
         self._show_status("Aborting projection at a safe checkpoint...")
         if worker is not None:
             worker.request_cancel()
-        if self._discovery_run_thread is None or not self._discovery_run_thread.isRunning():
+        if self._discovery_run_thread is None:
             self._process_pending_discovery_completion()
         return True
 
@@ -4859,14 +4890,18 @@ class DiscoveryAreaController:
             return
         if self._discovery_run_worker is not None:
             self._discovery_run_worker.request_cancel()
-        if self._discovery_run_thread is None or not self._discovery_run_thread.isRunning():
+        if self._discovery_run_thread is None:
             self._process_pending_discovery_completion()
 
     def _handle_discovery_run_finished(self, option_key: str) -> None:
         self._discovery_debug("discovery_worker_finished_signal", option_key=option_key)
+        worker = self._discovery_run_worker
+        run = self._active_discovery_run
+        if worker is not None and run is not None and worker.prepared_dataset is not None:
+            self._prepared_discovery_dataset = (run.project, option_key, worker.prepared_dataset)
         self._pending_discovery_option_key = option_key
         self._pending_discovery_error = None
-        if self._discovery_run_thread is None or not self._discovery_run_thread.isRunning():
+        if self._discovery_run_thread is None:
             self._process_pending_discovery_completion()
 
     def _handle_discovery_thread_finished(self) -> None:
@@ -4909,15 +4944,21 @@ class DiscoveryAreaController:
             self._pending_discovery_canvas_key = None
             self._pending_discovery_canvas_ready = False
             self._pending_discovery_reload_complete = False
-            if cancelled_key:
-                self._service.discard_discovery_result(run.project, cancelled_key)
             restore_key = getattr(self, "_discovery_selection_before_run", None) or "random"
-            if was_loaded and not project_changed:
-                self._reload_discovery_options(selected_key=restore_key)
+            try:
+                if cancelled_key:
+                    self._service.discard_discovery_result(run.project, cancelled_key)
+                if was_loaded and not project_changed:
+                    self._reload_discovery_options(selected_key=restore_key)
+            except Exception as exc:
+                message = f"Projection stopped, but finishing cancellation failed: {exc}"
             if discovery_panel is not None:
-                discovery_panel.remove_run(run.run_id)
+                if message:
+                    discovery_panel.set_run_failed(run.run_id, message)
+                else:
+                    discovery_panel.remove_run(run.run_id)
             if not project_changed:
-                self._show_status("Projection run aborted safely.")
+                self._show_status(message or "Projection run aborted safely.")
             self._discovery_debug("discovery_completion_aborted", option_key=cancelled_key)
             self._finish_active_discovery_run()
             return
@@ -4946,6 +4987,11 @@ class DiscoveryAreaController:
                 f"Projection was saved but could not be reloaded: {exc}"
             )
             return
+        if self._active_discovery_run is not run:
+            return
+        if self._active_discovery_key != option_key:
+            self._fail_pending_discovery_display("Saved projection is no longer available for display.")
+            return
         self._pending_discovery_reload_complete = True
         self._complete_pending_discovery_display_if_ready()
 
@@ -4958,14 +5004,14 @@ class DiscoveryAreaController:
         self._discovery_debug("discovery_worker_failed_signal", message=message)
         self._pending_discovery_error = message
         self._pending_discovery_option_key = None
-        if self._discovery_run_thread is None or not self._discovery_run_thread.isRunning():
+        if self._discovery_run_thread is None:
             self._process_pending_discovery_completion()
 
     def _handle_discovery_run_cancelled(self) -> None:
         self._discovery_debug("discovery_worker_cancelled_signal")
         self._discovery_cancel_requested = True
         self._pending_discovery_error = None
-        if self._discovery_run_thread is None or not self._discovery_run_thread.isRunning():
+        if self._discovery_run_thread is None:
             self._process_pending_discovery_completion()
 
     def _set_pending_discovery_display_progress(self, value: int, message: str) -> None:
@@ -5015,6 +5061,7 @@ class DiscoveryAreaController:
         self._finish_active_discovery_run()
 
     def _finish_active_discovery_run(self) -> None:
+        self._prepared_discovery_dataset = None
         admission = self._discovery_admission
         self._discovery_admission = None
         if admission is not None:

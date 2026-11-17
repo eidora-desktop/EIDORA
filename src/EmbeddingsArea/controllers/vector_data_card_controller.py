@@ -44,6 +44,8 @@ class VectorDataCardController(QtCore.QObject):
         self.on_action = on_action
         self.on_cluster_action = on_cluster_action
         self.widget = load_ui("EmbeddingsArea", "ui/embedding_run_row.ui", parent)
+        # Removing a row deletes its widget; retire its controller with it too.
+        self.setParent(self.widget)
         self._run = None
         self._dataset = None
         self._records: dict[str, dict] = {}

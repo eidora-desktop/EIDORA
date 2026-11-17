@@ -66,6 +66,7 @@ from shared.cursors import (
     CanvasCursorController,
 )
 from shared.env import env_flag, get_env
+from shared.qt.background_tasks import BackgroundTasks
 
 
 ENABLE_SCENEGRAPH_PYTHON_ENV_VAR = "EIDORA_ENABLE_SCENEGRAPH_PYTHON"
@@ -76,44 +77,24 @@ ALLOW_PAINTED_DISCOVERY_FALLBACK_ENV_VAR = "EIDORA_ALLOW_PAINTED_DISCOVERY_FALLB
 DISCOVERY_QUICK_HOST_ENV_VAR = "EIDORA_DISCOVERY_QUICK_HOST"
 
 
-class _SceneBuildSignals(QtCore.QObject):
-    finished = QtCore.Signal(int, object, float)
-    failed = QtCore.Signal(int, str)
-    cancelled = QtCore.Signal(int)
-
-
-class _SceneBuildTask(QtCore.QRunnable):
+class _SceneBuildTask:
     def __init__(self, request: CanvasSceneRequest, cancelled: threading.Event) -> None:
-        super().__init__()
-        self.setAutoDelete(False)
         self.request = request
         self.cancelled = cancelled
-        self.signals = _SceneBuildSignals()
 
-    @QtCore.Slot()
-    def run(self) -> None:
+    def run(self, _progress):
+        if self.cancelled.is_set():
+            return None
         started = time.perf_counter()
         try:
             scene = build_canvas_scene(self.request, cancelled=self.cancelled.is_set)
         except SceneBuildCancelled:
-            self.signals.cancelled.emit(int(self.request.revision))
-            return
-        except Exception as exc:
-            self.signals.failed.emit(int(self.request.revision), f"{type(exc).__name__}: {exc}")
-            return
+            return None
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        if self.cancelled.is_set():
-            self.signals.cancelled.emit(int(self.request.revision))
-        else:
-            self.signals.finished.emit(int(self.request.revision), scene, float(elapsed_ms))
+        return None if self.cancelled.is_set() else (scene, elapsed_ms)
 
 
-class _LassoSelectionSignals(QtCore.QObject):
-    finished = QtCore.Signal(int, int, int, object, object)
-    cancelled = QtCore.Signal(int)
-
-
-class _LassoSelectionTask(QtCore.QRunnable):
+class _LassoSelectionTask:
     def __init__(
         self,
         *,
@@ -127,8 +108,6 @@ class _LassoSelectionTask(QtCore.QRunnable):
         spatial_index: UniformGridIndex | None,
         cancelled: threading.Event,
     ) -> None:
-        super().__init__()
-        self.setAutoDelete(False)
         self.scene_revision = int(scene_revision)
         self.query_revision = int(query_revision)
         self.polygon_index = int(polygon_index)
@@ -138,28 +117,23 @@ class _LassoSelectionTask(QtCore.QRunnable):
         self.visibility = visibility
         self.spatial_index = spatial_index
         self.cancelled = cancelled
-        self.signals = _LassoSelectionSignals()
 
-    @QtCore.Slot()
-    def run(self) -> None:
+    def run(self, _progress):
         if self.cancelled.is_set():
-            self.signals.cancelled.emit(self.query_revision)
             return
         if self.spatial_index is None:
             candidates = np.arange(self.points.shape[0], dtype=np.int64)
         else:
             candidates = self.spatial_index.indices_in_polygon_bounds(self.polygon)
         if self.cancelled.is_set():
-            self.signals.cancelled.emit(self.query_revision)
             return
         if self.visibility.shape[0] == self.points.shape[0]:
             candidates = candidates[self.visibility[candidates] >= 0.5]
         inside = points_in_polygon(self.points[candidates], self.polygon) if candidates.size else np.empty((0,), dtype=bool)
         selected = self.metadata_ids[candidates[inside]] if candidates.size else np.empty((0,), dtype=np.int64)
         if self.cancelled.is_set():
-            self.signals.cancelled.emit(self.query_revision)
             return
-        self.signals.finished.emit(
+        return (
             self.scene_revision,
             self.query_revision,
             self.polygon_index,
@@ -1704,8 +1678,12 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._representative_pick_limit = -1
         self._scene_revision = 0
         self._active_scene_revision = 0
-        self._scene_thread_pool = QtCore.QThreadPool.globalInstance()
-        self._scene_tasks: dict[int, _SceneBuildTask] = {}
+        self._scene_runner = BackgroundTasks(self)
+        self._scene_runner.finished.connect(self._on_scene_task_completed)
+        self._scene_runner.failed.connect(self._on_scene_build_failed)
+        self._lasso_runner = BackgroundTasks(self)
+        self._lasso_runner.finished.connect(self._on_lasso_task_completed)
+        self._lasso_runner.failed.connect(self._on_lasso_task_failed)
         self._scene_cancel_events: dict[int, threading.Event] = {}
         self._scene_preserve_view: dict[int, bool] = {}
         self._scene_source_tokens: dict[int, tuple[int, int | None]] = {}
@@ -1841,7 +1819,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._last_lasso_status_hint = ""
         self._lasso_selection_callback = None
         self._lasso_query_revision = 0
-        self._lasso_query_tasks: dict[int, _LassoSelectionTask] = {}
         self._lasso_query_cancel_events: dict[int, threading.Event] = {}
         self._space_pan_active = False
         self._space_pan_previous_mode: str | None = None
@@ -2180,9 +2157,21 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._crop_bars_visible and self._viewport_aspect_preset != "free",
         )
 
+    def event(self, event: QtCore.QEvent) -> bool:
+        if event.type() in {
+            QtCore.QEvent.Type.WindowDeactivate, QtCore.QEvent.Type.FocusOut,
+            QtCore.QEvent.Type.UngrabMouse,
+        }:
+            self.eventFilter(self, event)
+        return super().event(event)
+
     def eventFilter(self, _obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        if event.type() == QtCore.QEvent.Type.WindowDeactivate:
-            self._commit_camera_interaction()
+        if event.type() in {
+            QtCore.QEvent.Type.WindowDeactivate, QtCore.QEvent.Type.FocusOut,
+            QtCore.QEvent.Type.UngrabMouse, QtCore.QEvent.Type.Hide,
+        }:
+            self._finish_camera_drag()
+            self.end_temporary_pan()
             self._reset_zoom_drag()
         if event.type() == QtCore.QEvent.Type.Enter:
             self._update_keyboard_modifier_state(QtWidgets.QApplication.keyboardModifiers())
@@ -2200,7 +2189,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             return False
         if event.type() == QtCore.QEvent.Type.MouseButtonPress:
             mouse_event = event
-            self._click_press_pos = mouse_event.position()
             self._update_cursor_from_pointer_event(mouse_event)
             if self._quick is not None:
                 self._quick.setFocus()
@@ -2210,6 +2198,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                     self._quick_view.requestActivate()
             else:
                 self.setFocus()
+            self._click_press_pos = mouse_event.position()
             if self._interaction_mode == "lasso":
                 handled = self._handle_lasso_press(mouse_event)
                 self._update_cursor_from_pointer_event(mouse_event)
@@ -2263,7 +2252,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             next_lasso_hover = self._lasso_hover_state_key()
             if self._interaction_mode == "lasso" and previous_lasso_hover != next_lasso_hover:
                 self._refresh()
-            if self._interaction_mode == "pan" and self._drag_start_pos is not None and self._drag_start_viewport is not None:
+            if self._drag_start_pos is not None and self._drag_start_viewport is not None:
                 self._pan_from_drag(mouse_event.position())
                 return True
             if self._interaction_mode == "lasso" and self._lasso_dragging_anchor is not None:
@@ -2337,11 +2326,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 self._click_press_pos = None
                 self._update_cursor_from_pointer_event(mouse_event)
                 return True
-            if self._interaction_mode == "pan":
-                self._drag_start_pos = None
-                self._drag_start_viewport = None
-                self._commit_camera_interaction()
+            if mouse_event.button() == QtCore.Qt.MouseButton.LeftButton and self._drag_start_pos is not None:
+                self._finish_camera_drag()
                 self._update_cursor()
+                return True
             if self._interaction_mode == "lasso":
                 handled = self._handle_lasso_release(mouse_event)
                 self._update_cursor_from_pointer_event(mouse_event)
@@ -2392,6 +2380,8 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 and self._distance_px(self._click_press_pos, release_pos) > self._click_move_threshold_px
             ):
                 self._click_press_pos = None
+                return False
+            if self._click_press_pos is None:
                 return False
             metadata_id = self._pick_metadata_id(release_pos.x(), release_pos.y())
             self._click_press_pos = None
@@ -2567,6 +2557,12 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 setter(viewport_payload)
         self._pin_overlay.update()
         self._interaction_viewport_payload = viewport
+
+    def _finish_camera_drag(self) -> None:
+        self._drag_start_pos = None
+        self._drag_start_viewport = None
+        self._click_press_pos = None
+        self._commit_camera_interaction()
 
     def _commit_camera_interaction(self) -> None:
         self._interaction_settle_timer.stop()
@@ -3535,11 +3531,27 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._update_selection_overlay_position()
         self._refresh()
 
+    def hideEvent(self, event: QtGui.QHideEvent) -> None:
+        self._finish_camera_drag()
+        self.end_temporary_pan()
+        self._reset_zoom_drag()
+        super().hideEvent(event)
+
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        self._interaction_settle_timer.stop()
+        self._camera_interaction_active = False
+        self._drag_start_pos = self._drag_start_viewport = None
+        self._click_press_pos = None
+        self._space_pan_active = False
+        self._space_pan_previous_mode = None
         for cancel_event in self._scene_cancel_events.values():
             cancel_event.set()
         for cancel_event in self._lasso_query_cancel_events.values():
             cancel_event.set()
+        self._scene_runner.shutdown()
+        self._lasso_runner.shutdown()
+        self._scene_cancel_events.clear()
+        self._lasso_query_cancel_events.clear()
         self._shutdown_quick_host()
         super().closeEvent(event)
 
@@ -3806,16 +3818,17 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
         cancelled = threading.Event()
         task = _SceneBuildTask(request, cancelled)
-        task.signals.finished.connect(self._on_scene_build_finished)
-        task.signals.failed.connect(self._on_scene_build_failed)
-        task.signals.cancelled.connect(self._on_scene_build_cancelled)
         self._scene_cancel_events[revision] = cancelled
-        self._scene_tasks[revision] = task
-        self._scene_thread_pool.start(task)
+        self._scene_runner.submit(revision, task.run)
+
+    def _on_scene_task_completed(self, revision: int, result: object) -> None:
+        if result is None:
+            self._on_scene_build_cancelled(revision)
+        else:
+            self._on_scene_build_finished(revision, *result)
 
     @QtCore.Slot(int, object, float)
     def _on_scene_build_finished(self, revision: int, scene: object, elapsed_ms: float) -> None:
-        self._scene_tasks.pop(int(revision), None)
         self._scene_cancel_events.pop(int(revision), None)
         if int(revision) != self._scene_revision or not isinstance(scene, CanvasScene):
             return
@@ -3858,7 +3871,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int, str)
     def _on_scene_build_failed(self, revision: int, message: str) -> None:
-        self._scene_tasks.pop(int(revision), None)
         self._scene_cancel_events.pop(int(revision), None)
         self._scene_preserve_view.pop(int(revision), None)
         self._scene_source_tokens.pop(int(revision), None)
@@ -3869,7 +3881,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int)
     def _on_scene_build_cancelled(self, revision: int) -> None:
-        self._scene_tasks.pop(int(revision), None)
         self._scene_cancel_events.pop(int(revision), None)
         self._scene_preserve_view.pop(int(revision), None)
         self._scene_source_tokens.pop(int(revision), None)
@@ -4649,6 +4660,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     def set_interaction_mode(self, mode: str) -> None:
         if mode in {"pan", "zoom", "lasso", "selection", "pin"}:
+            if mode != self._interaction_mode:
+                self._finish_camera_drag()
+                self.end_temporary_pan()
             if mode != "selection":
                 if not self._hover_enabled and self._last_hover_metadata_id is not None:
                     self._last_hover_metadata_id = None
@@ -4973,8 +4987,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return bool(self._lasso_alt_held or self._lasso_shift_held or self._lasso_ctrl_held)
 
     def _cursor_name(self) -> str:
+        if self._drag_start_pos is not None:
+            return PAN_CLOSED
         if self._interaction_mode == "pan":
-            return PAN_CLOSED if self._drag_start_pos is not None else PAN_OPEN
+            return PAN_OPEN
         if self._interaction_mode == "zoom":
             return ZOOM_OUT if self._zoom_shift_held or self._zoom_out_mouse_held else ZOOM_IN
         if self._interaction_mode == "lasso":
@@ -5937,14 +5953,23 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 spatial_index=self._grid_index,
                 cancelled=cancelled,
             )
-            task.signals.finished.connect(self._on_lasso_selection_ready)
-            task.signals.cancelled.connect(self._on_lasso_selection_cancelled)
-            self._lasso_query_tasks[query_revision] = task
             self._lasso_query_cancel_events[query_revision] = cancelled
-            self._scene_thread_pool.start(task)
+            self._lasso_runner.submit(query_revision, task.run)
             return
         selected_ids = self.select_metadata_ids_in_polygon(polygon, visible_threshold=0.5)
         self._deliver_lasso_selection(polygon_index, polygon, selected_ids)
+
+    def _on_lasso_task_completed(self, revision: int, result: object) -> None:
+        if result is None:
+            self._on_lasso_selection_cancelled(revision)
+        else:
+            self._on_lasso_selection_ready(*result)
+
+    def _on_lasso_task_failed(self, revision: int, message: str) -> None:
+        from shared.diagnostics.service import LOGGER
+
+        self._on_lasso_selection_cancelled(revision)
+        LOGGER.warning("Discovery lasso selection failed: %s", message)
 
     @QtCore.Slot(int, int, int, object, object)
     def _on_lasso_selection_ready(
@@ -5955,7 +5980,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         polygon: object,
         selected_ids: object,
     ) -> None:
-        self._lasso_query_tasks.pop(int(query_revision), None)
         self._lasso_query_cancel_events.pop(int(query_revision), None)
         if int(query_revision) != self._lasso_query_revision or int(scene_revision) != self._active_scene_revision:
             return
@@ -5972,7 +5996,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int)
     def _on_lasso_selection_cancelled(self, query_revision: int) -> None:
-        self._lasso_query_tasks.pop(int(query_revision), None)
         self._lasso_query_cancel_events.pop(int(query_revision), None)
 
     def _deliver_lasso_selection(

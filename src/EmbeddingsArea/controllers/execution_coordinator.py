@@ -81,11 +81,11 @@ class _ClusteringThread(QtCore.QThread):
         return 2
 
 
-class _InitializationWorker(QtCore.QObject):
-    finished = QtCore.Signal(object)
+class _InitializationThread(QtCore.QThread):
+    result_ready = QtCore.Signal(object)
 
-    def __init__(self, service) -> None:
-        super().__init__()
+    def __init__(self, service, parent=None) -> None:
+        super().__init__(parent)
         self._service = service
 
     @QtCore.Slot()
@@ -93,9 +93,9 @@ class _InitializationWorker(QtCore.QObject):
         try:
             self._service.initialize()
         except Exception as exc:  # noqa: BLE001
-            self.finished.emit(exc)
+            self.result_ready.emit(exc)
         else:
-            self.finished.emit(None)
+            self.result_ready.emit(None)
 
 
 class ExecutionCoordinator(QtCore.QObject):
@@ -121,7 +121,6 @@ class ExecutionCoordinator(QtCore.QObject):
         self.initialization_error = ""
         self.active_id: str | None = None
         self._initialization_thread: QtCore.QThread | None = None
-        self._initialization_worker: _InitializationWorker | None = None
         self._initialization_admission = None
         self._initialization_generation = 0
         self._thread_keys: dict[QtCore.QThread, tuple[str, str]] = {}
@@ -153,7 +152,7 @@ class ExecutionCoordinator(QtCore.QObject):
         key = ("embedding", run_id)
         if key in self._jobs and self._jobs[key].state in {"queued", "running", "cancelling"}:
             raise ValueError("This embedding run is already active.")
-        run = self._session.service.get_embedding_run_configuration(run_id).run
+        run = self._session.runs.require_unpublished_run(run_id)
         media_busy = getattr(self, "media_source_busy", None)
         if media_busy and any(media_busy(source_id) for source_id in run.selected_source_ids):
             raise ValueError("Wait for media loading or linking to finish before starting this run.")
@@ -235,6 +234,8 @@ class ExecutionCoordinator(QtCore.QObject):
                 self.service.repository.cancel_queued(target)
                 self.changed.emit()
             return
+        if state.state not in {"queued", "running"}:
+            return
         queued = bool(state.admission is not None and getattr(state.admission, "queued", False))
         if queued:
             state.admission.cancel()
@@ -266,15 +267,9 @@ class ExecutionCoordinator(QtCore.QObject):
         def start() -> None:
             if generation != self._generation or self._shutting_down or self.service is None:
                 return
-            thread = QtCore.QThread(self)
-            worker = _InitializationWorker(self.service)
-            worker.moveToThread(thread)
+            thread = _InitializationThread(self.service, self)
             self._initialization_thread = thread
-            self._initialization_worker = worker
-            thread.started.connect(worker.run)
-            worker.finished.connect(self._initialization_complete_current)
-            worker.finished.connect(thread.quit)
-            worker.finished.connect(worker.deleteLater)
+            thread.result_ready.connect(self._initialization_complete_current)
             thread.finished.connect(self._initialization_thread_finished_current)
             thread.finished.connect(thread.deleteLater)
             thread.start()
@@ -283,6 +278,8 @@ class ExecutionCoordinator(QtCore.QObject):
 
     @QtCore.Slot(object)
     def _initialization_complete_current(self, result: object) -> None:
+        if self.sender() is not self._initialization_thread:
+            return
         generation = self._initialization_generation
         if generation != self._generation:
             return
@@ -290,13 +287,14 @@ class ExecutionCoordinator(QtCore.QObject):
 
     @QtCore.Slot()
     def _initialization_thread_finished_current(self) -> None:
+        if self.sender() is not self._initialization_thread:
+            return
         generation = self._initialization_generation
         admission = self._initialization_admission
         self._initialization_admission = None
         if admission is not None:
             admission.finish()
         self._initialization_thread = None
-        self._initialization_worker = None
         if generation != self._generation:
             return
         self.initializing = False
@@ -489,7 +487,6 @@ class ExecutionCoordinator(QtCore.QObject):
             self._initialization_admission.finish()
         self._initialization_admission = None
         self._initialization_thread = None
-        self._initialization_worker = None
         self.initializing = False
         for state in tuple(self._jobs.values()):
             if state.state in {"queued", "running", "cancelling"}:

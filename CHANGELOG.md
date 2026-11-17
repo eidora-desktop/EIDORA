@@ -4,6 +4,40 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Keep GUI-thread garbage collection progressing after short-lived allocation bursts and during idle periods, including in packaged GUI self-tests. Explicitly delete disposed project-chooser widget trees so row callbacks cannot retain closed dialogs and their controllers.
+
+- Schedule cyclic garbage collection on the GUI thread so background allocations cannot finalize abandoned Qt widget cycles during event dispatch. Retire Vector Data card controllers with their widgets on project switches instead of retaining them in the persistent list.
+
+- Make failed metadata choices explicitly retryable without losing saved settings; keep pending numeric filters active, missing fields inactive, and advanced-query values tied to the selected field. Track Model Zoo card and size completion separately. Drain final Figure saves after renderer-stop errors, reject new preparations and saves after retirement, and keep long exports independent of the interactive preview deadline. Start render processes without holding the GUI-facing lifetime lock and close pipe endpoints when startup fails.
+
+- Load Discovery metadata choices and numeric ranges in bounded background queues; preserve saved colors, filters and slicer settings while loading, and discard obsolete control/project results.
+
+- Cancel obsolete or stalled Figure renderer exchanges, recover with a fresh worker, and retire Figures services without blocking the GUI. Preserve final-save ordering when returning to a project and discard cancelled animation-export staging.
+
+- Bound Model Zoo catalog, card and size requests independently, keeping the latest selection responsive without accumulating network threads or delaying cards behind size lookups.
+
+- Preserve saved Figures after unreadable or invalid collection files: report load failures, keep autosave disabled until restoration succeeds, and allow retry without restarting.
+
+- Capture snapshot state before background writes and reject stale UI activation; cancel Figure callbacks with their widgets and reuse the snapshot-save dialog. Retry unfinished thumbnail sources across viewport changes, bound source lookup queues and caches, and account for metadata summaries in the shared cache budget without retaining failed reads or unbounded panel copies.
+
+- Give projection jobs unique output identities so cancellation cannot delete another writer's result. Preserve committed imports through cleanup errors, keep coordinate read failures visible without replacing the current view, and finish jobs whose saved projection disappears before activation.
+
+- Handle re-entrant background progress delivery and release superseded Discovery task inputs immediately; end item sessions when reloading a different projection and keep temporarily locked recent projects retryable.
+
+- Keep Discovery computation tasks free of Qt objects, collect results on the GUI thread, and retain only active and latest queued work. Give projection and clustering-initialization runners GUI-owned lifetimes and reject initialization callbacks from previous projects.
+
+- Keep projection children tied to the application lifetime, report actual computation stages, reserve default CPU capacity for interaction, and prepare newly saved coordinates in the background before display. Preserve the pinned UMAP version for this reliability change.
+
+- Cancel deferred Appearance and Vector Data layout callbacks when their widgets are destroyed.
+
+- Finish Discovery pan gestures independently of tool and Space-key release order, restore pending appearance updates, and discard abandoned gestures on focus loss, mouse-grab loss, hiding, and closure without re-uploading point positions.
+
+- Dispose item/nearest-neighbor dialogs and their callbacks when a session ends, restore selection and blinking on workspace/project changes, and preserve the open window after saving a group. Limit neighbor searches to one running task and the latest pending request; cancelled requests skip obsolete loading and cannot publish into another session.
+
+- Protect saved vectors from accidental model execution, reconfiguration, reset, cancellation, and startup cleanup, including legacy runs whose saved status is inconsistent. Dismissing clustering menus no longer cancels finished jobs.
+
+- Report committed embedding imports as saved even if derived metadata or display refresh fails. Close import iterators and mapped files before cleanup, preserve cards after read failures, and keep locked projects in Recent Projects instead of treating storage errors as missing data.
+
 - Simplify footer activity feedback to a single-line process description and adjacent progress bar, removing the redundant activity-summary box.
 
 - Rename static and animation tabs through their right-click menu or by double-clicking the tab label. Save names automatically and use them for export filename suggestions.

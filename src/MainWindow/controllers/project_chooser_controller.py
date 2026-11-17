@@ -271,11 +271,16 @@ class ProjectChooserController:
         self._update_open_button()
 
     def dispose(self) -> None:
+        if self._palette_filter is None:
+            return
         self.dialog.removeEventFilter(self._palette_filter)
         self._palette_filter = None
         for signal, slot in self._connections:
             signal.disconnect(slot)
         self._connections.clear()
+        # Row callbacks also retain this controller. Delete the entire transient
+        # tree on the GUI thread rather than relying on collection of Qt cycles.
+        self.dialog.deleteLater()
 
     def _refresh_branding(self) -> None:
         dark = self.dialog.palette().color(QtGui.QPalette.ColorRole.Window).lightness() < 128

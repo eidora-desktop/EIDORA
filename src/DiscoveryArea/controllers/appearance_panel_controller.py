@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
+from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from DiscoveryArea.color_rules import analyze_rule_overlaps, ordered_rules, overlap_key, overlap_labels
 from DiscoveryArea.palettes import MAX_CATEGORICAL_VALUES, distinct_palette, next_unused_color, palette_options
 from shared.qt.panel_controller import UiPanelController
@@ -75,6 +76,7 @@ class AppearancePanelController(UiPanelController):
     _CONDITION_KEY_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 3
 
     def _wire(self) -> None:
+        self._metadata_options = MetadataOptions(self._widget, self._show_status)
         self._style_changed_callback = None
         self._save_project_preset_callback: Callable[[str, dict], bool] | None = None
         self._load_project_preset_callback: Callable[[str], dict | None] | None = None
@@ -223,6 +225,7 @@ class AppearancePanelController(UiPanelController):
         self._update_dynamic_combo_tooltip(combo)
 
     def set_project(self, project) -> None:
+        self._metadata_options.reset()
         super().set_project(project)
         self._project = project
         enabled = project is not None
@@ -361,7 +364,7 @@ class AppearancePanelController(UiPanelController):
         if scroll is not None:
             scroll.verticalScrollBar().setValue(0)
         stack.updateGeometry()
-        QtCore.QTimer.singleShot(0, self._sync_scroll_content_height_deferred)
+        QtCore.QTimer.singleShot(0, self._widget, self._sync_scroll_content_height_deferred)
 
     def _select_property_page(
         self,
@@ -383,7 +386,7 @@ class AppearancePanelController(UiPanelController):
             )
             page.setSizePolicy(policy)
         stack.updateGeometry()
-        QtCore.QTimer.singleShot(0, self._sync_scroll_content_height_deferred)
+        QtCore.QTimer.singleShot(0, self._widget, self._sync_scroll_content_height_deferred)
         if stack.objectName() == "stack_border_width":
             self._update_border_color_enabled()
         if index == 2 and stack.objectName() in {"stack_fill_color", "stack_border_color"}:
@@ -393,7 +396,7 @@ class AppearancePanelController(UiPanelController):
 
     def _sync_scroll_content_height_deferred(self) -> None:
         self._sync_scroll_content_height()
-        QtCore.QTimer.singleShot(0, self._sync_scroll_content_height)
+        QtCore.QTimer.singleShot(0, self._widget, self._sync_scroll_content_height)
 
     def _sync_scroll_content_height(self) -> None:
         scroll = self._widget.findChild(QtWidgets.QScrollArea, "scroll_appearance_controls")
@@ -437,6 +440,7 @@ class AppearancePanelController(UiPanelController):
         metadata_access: DiscoveryMetadataAccess | None,
     ) -> None:
         self._metadata_access = metadata_access
+        self._metadata_options.reset()
         for target in ("point", "border"):
             self._queue_conflict_warnings(target)
 
@@ -456,6 +460,7 @@ class AppearancePanelController(UiPanelController):
         self._metadata_field_labels = {}
         self._categorical_color_columns = []
         self._continuous_color_columns = []
+        pending_columns = set()
         if project is not None:
             access = self._metadata_access or DiscoveryMetadataAccess(project)
             self._metadata_access = access
@@ -501,15 +506,19 @@ class AppearancePanelController(UiPanelController):
                         # Hand-authored and older projects may not have column
                         # summaries yet. Aggregate just this column in SQLite
                         # rather than materializing complete metadata rows.
-                        counts = [
-                            (value if value else "(missing)", int(count))
-                            for value, count in access.value_counts(name)
-                        ]
-                        self._metadata_column_counts[name] = counts
-                        unique_count = len(counts)
-                        is_numeric = self._is_numeric_column(
-                            [value for value, _count in counts if value != "(missing)"]
-                        )
+                        def describe(access=access, name=name):
+                            counts = access.value_counts(name)
+                            return len(counts), AppearancePanelController._is_numeric_column(
+                                [value for value, _ in counts if value])
+                        summary = self._metadata_options.get(('catalog', name), (id(access), name),
+                            describe, lambda: self._load_metadata_columns(project))
+                        if summary is None:
+                            # Unknown eligibility must not erase a saved field
+                            # or mode. Retain it as a disabled loading choice.
+                            pending_columns.add(name)
+                            unique_count, is_numeric, is_categorical = 0, True, True
+                        else:
+                            unique_count, is_numeric = summary
                     else:
                         unique_count = max(0, int(column.unique_values))
                     self._metadata_numeric_columns[name] = is_numeric
@@ -523,6 +532,13 @@ class AppearancePanelController(UiPanelController):
         self._repopulate_color_combo("point")
         self._repopulate_color_combo("border")
         self._populate_numeric_mapping_combos()
+        for name in ('combo_point_color_column', 'combo_border_color_column',
+                     'combo_point_size_column', 'combo_border_width_column'):
+            combo = self._widget.findChild(QtWidgets.QComboBox, name)
+            for index in range(combo.count()):
+                combo.model().item(index).setEnabled(combo.itemData(index) not in pending_columns)
+            if self._combo_value(combo) in pending_columns:
+                combo.setEnabled(False)
         self._populate_conditional_fields()
         for target, style in conditional_styles.items():
             # Stable field IDs survive renames; migrate displayed rule labels
@@ -711,7 +727,15 @@ class AppearancePanelController(UiPanelController):
         if self._conditional_value_columns.get(ui_target) == column:
             return
         current = str(values.currentText() or "")
-        options = [value for value, _count in self._metadata_value_counts(column)] if column else []
+        counts = self._metadata_value_counts(column, owner=values,
+            ready=lambda: self._populate_conditional_values(ui_target)) if column else []
+        values.setEnabled(counts is not None)
+        if counts is None:
+            self._conditional_value_columns.pop(ui_target, None)
+            with QtCore.QSignalBlocker(values):
+                values.model().setStringList([])
+            return
+        options = [value for value, _count in counts]
         values.blockSignals(True)
         values.model().setStringList(options)
         if current in options:
@@ -1139,6 +1163,7 @@ class AppearancePanelController(UiPanelController):
         return {"type": "rule", "winner": combo.currentText()}
 
     def shutdown(self) -> None:
+        self._metadata_options.shutdown()
         self._conflict_timer.stop()
         self._conflict_jobs.clear()
         self._conflict_executor.shutdown(wait=False, cancel_futures=True)
@@ -1162,7 +1187,12 @@ class AppearancePanelController(UiPanelController):
         table_name = "table_point_colors" if target == "point" else "table_border_colors"
         if self._current_combo_text(combo_name) != str(column):
             return
-        total_counts = dict(self._metadata_value_counts(str(column)))
+        table = self._widget.findChild(QtWidgets.QTableWidget, table_name)
+        counts = self._metadata_value_counts(str(column), owner=table,
+            ready=lambda: self._metadata_table_ready(target))
+        if counts is None:
+            return
+        total_counts = dict(counts)
         total = max(1, sum(total_counts.values()))
         self._set_table_percentages(
             table_name,
@@ -1786,7 +1816,13 @@ class AppearancePanelController(UiPanelController):
         if not column or column == self._NO_VALID_FIELDS_LABEL:
             self._setup_color_table("table_point_colors", [])
             return
-        counts = self._metadata_value_counts(column)
+        table = self._widget.findChild(QtWidgets.QTableWidget, "table_point_colors")
+        counts = self._metadata_value_counts(column, owner=table,
+            ready=lambda: self._metadata_table_ready("point"))
+        table.setEnabled(counts is not None)
+        if counts is None:
+            self._setup_color_table("table_point_colors", [])
+            return
         if not counts:
             self._setup_color_table("table_point_colors", self._GLOBAL_POINT_ROWS)
             return
@@ -1813,7 +1849,13 @@ class AppearancePanelController(UiPanelController):
         if not column or column == self._NO_VALID_FIELDS_LABEL:
             self._setup_color_table("table_border_colors", [])
             return
-        counts = self._metadata_value_counts(column)
+        table = self._widget.findChild(QtWidgets.QTableWidget, "table_border_colors")
+        counts = self._metadata_value_counts(column, owner=table,
+            ready=lambda: self._metadata_table_ready("border"))
+        table.setEnabled(counts is not None)
+        if counts is None:
+            self._setup_color_table("table_border_colors", [])
+            return
         if not counts:
             self._setup_color_table("table_border_colors", self._GLOBAL_BORDER_ROWS)
             return
@@ -1829,7 +1871,14 @@ class AppearancePanelController(UiPanelController):
             rows.append((color, share, label))
         self._setup_color_table("table_border_colors", rows)
 
-    def _metadata_value_counts(self, column: str) -> list[tuple[str, int]]:
+    def _metadata_table_ready(self, target):
+        if target == "point":
+            self._refresh_point_color_table_from_selection()
+        else:
+            self._refresh_border_color_table_from_selection()
+        self._emit_style_changed()
+
+    def _metadata_value_counts(self, column: str, *, owner=None, ready=lambda: None):
         cached = self._metadata_column_counts.get(column)
         if cached is not None:
             return list(cached)
@@ -1841,16 +1890,13 @@ class AppearancePanelController(UiPanelController):
                 counts[key] = counts.get(key, 0) + 1
             loaded = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         elif self._metadata_access is not None:
-            try:
-                loaded = [
-                    (value if value else "(missing)", int(count))
-                    for value, count in self._metadata_access.value_counts(column)
-                ]
-            except Exception:
-                loaded = []
+            access = self._metadata_access
+            return self._metadata_options.get(owner if owner is not None else column,
+                (id(access), column),
+                lambda: [(value if value else "(missing)", int(count))
+                         for value, count in access.value_counts(column)], ready)
         else:
             loaded = []
-        self._metadata_column_counts[column] = loaded
         return list(loaded)
 
     def _color_table_mapping(self, table_name: str) -> dict[str, str]:
@@ -2486,7 +2532,7 @@ class AppearancePanelController(UiPanelController):
             )
             page.setSizePolicy(policy)
         stack.updateGeometry()
-        QtCore.QTimer.singleShot(0, self._sync_scroll_content_height_deferred)
+        QtCore.QTimer.singleShot(0, self._widget, self._sync_scroll_content_height_deferred)
 
     def _apply_color_mapping(self, table_name: str, mapping: dict) -> None:
         table = self._widget.findChild(QtWidgets.QTableWidget, table_name)
@@ -2612,7 +2658,8 @@ class AppearancePanelController(UiPanelController):
         self._set_property_page_available(
             f"stack_{ui_target}_color", f"button_{ui_target}_color_mapped", 1, bool(options)
         )
-        self._select_default_color_mode_for_column(target)
+        if self._combo_value(combo) != current:
+            self._select_default_color_mode_for_column(target)
         self._enforce_color_mode_constraints(target)
 
     def _select_default_color_mode_for_column(self, target: str) -> None:

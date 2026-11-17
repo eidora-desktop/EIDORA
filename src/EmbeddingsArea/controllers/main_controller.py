@@ -45,7 +45,7 @@ class EmbeddingsAreaController:
         self._execution_coordinator.thumbnails_requested.connect(self._start_default_thumbnails)
         self._model_zoo_dialog: ModelZooDialogController | None = None
         self._load_panels()
-        QtCore.QTimer.singleShot(0, self._configure_layout_splitters)
+        QtCore.QTimer.singleShot(0, self._widget, self._configure_layout_splitters)
 
     @property
     def widget(self) -> QtWidgets.QWidget:

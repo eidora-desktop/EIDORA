@@ -47,6 +47,8 @@ class SnapshotsPanelController(UiPanelController):
         self._configure_options_menu()
 
     def set_project(self, project) -> None:
+        if project is not self._project and self._dialog is not None:
+            self._dialog.close()
         super().set_project(project)
         enabled = project is not None
         self._add_button.setEnabled(enabled)
@@ -207,6 +209,12 @@ class SnapshotsPanelController(UiPanelController):
         return QtGui.QIcon(self._snapshot_pixmap(snapshot_path, min(icon_size.width(), icon_size.height())))
 
     def _open_snapshot_save_dialog(self) -> None:
+        if self._dialog is not None:
+            require_child(self._dialog, QtWidgets.QLineEdit, "edit_preset_name").clear()
+            self._dialog.show()
+            self._dialog.raise_()
+            self._dialog.activateWindow()
+            return
         self._dialog = load_ui(self.package, "ui/save_preset_dialog.ui", self._widget)
         self._dialog.setWindowTitle("save new snapshot")
         warning = self._dialog.findChild(QtWidgets.QLabel, "label_preset_exists_warning")

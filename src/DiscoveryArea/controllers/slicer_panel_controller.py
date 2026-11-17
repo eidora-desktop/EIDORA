@@ -5,6 +5,7 @@ from collections.abc import Callable
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
+from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.widgets import require_child
@@ -16,6 +17,9 @@ class SlicerPanelController(UiPanelController):
     _navigation_speed_options = (100, 150, 200, 250, 300, 400, 500, 750, 1000, 2000)
 
     def _wire(self) -> None:
+        self._metadata_options = MetadataOptions(self._widget, self._show_status)
+        self._pending_state = None
+        self._values_loading = False
         self._column_combo = require_child(self._widget, QtWidgets.QComboBox, "combo_slicer_column")
         self._scrollbar = require_child(self._widget, QtWidgets.QScrollBar, "scrollbar_slicer")
         self._backward_button = require_child(self._widget, QtWidgets.QToolButton, "button_backward")
@@ -71,6 +75,8 @@ class SlicerPanelController(UiPanelController):
         self._configure_menu()
 
     def set_project(self, project) -> None:
+        self._metadata_options.reset()
+        self._pending_state = None
         super().set_project(project)
         previous_column = str(self._column_combo.currentData() or self._column_combo.currentText() or "")
         self._column_combo.blockSignals(True)
@@ -101,20 +107,33 @@ class SlicerPanelController(UiPanelController):
         metadata_access: DiscoveryMetadataAccess | None,
     ) -> None:
         self._metadata_access = metadata_access
+        self._metadata_options.reset()
+
+    def shutdown(self) -> None:
+        self._metadata_options.shutdown()
+        self._navigation_repeat_timer.stop()
+
+    def _values_for_column(self, column, ready):
+        if column in self._distinct_values_by_column or not column or self._metadata_access is None:
+            self._metadata_options.cancel(self._column_combo)
+            return list(self._distinct_values_by_column.get(column, []))
+        access = self._metadata_access
+        return self._metadata_options.get(self._column_combo, (id(access), column),
+            lambda: SlicerPanelController._sorted_slicer_values(set(access.distinct_values(column))), ready)
 
     def _on_column_changed(self, index: int) -> None:
-        column = self._current_column()
-        if (
-            column
-            and column not in self._distinct_values_by_column
-            and self._metadata_access is not None
-        ):
-            try:
-                values = set(self._metadata_access.distinct_values(column))
-            except Exception:
-                values = set()
-            self._distinct_values_by_column[column] = self._sorted_slicer_values(values)
-        self._column_values = list(self._distinct_values_by_column.get(column, []))
+        self._pending_state = None
+        values = self._values_for_column(self._current_column(),
+            lambda: self._on_column_changed(self._column_combo.currentIndex()))
+        if values is None:
+            self._pending_state = self.slicer_state_payload()
+            self._pending_state.update(enabled=index > 0, position=0)
+            self._pending_state.pop('start', None)
+            self._set_values_loading(True)
+            self._show_status("Loading slicer values…")
+            return
+        self._set_values_loading(False)
+        self._column_values = values
         self._configure_start_spin(reset=True)
         self._slicer_enabled = index > 0
         self._apply_button.setChecked(self._slicer_enabled)
@@ -123,6 +142,15 @@ class SlicerPanelController(UiPanelController):
         self._update_enabled_state()
         self._emit_slicer_changed()
         self._show_status(f"Slicer {'enabled' if self._slicer_enabled else 'disabled'}.")
+
+    def _set_values_loading(self, loading: bool) -> None:
+        self._values_loading = loading
+        if loading:
+            self._navigation_repeat_timer.stop()
+        for control in (self._start_spin, self._spread_spin, self._step_spin,
+                        self._scrollbar, self._backward_button, self._forward_button,
+                        self._apply_button):
+            control.setEnabled(not loading)
 
     def _on_spread_changed(self, value: int) -> None:
         if value < 1:
@@ -403,6 +431,8 @@ class SlicerPanelController(UiPanelController):
             action.setChecked(True)
 
     def slicer_state_payload(self) -> dict:
+        if self._pending_state is not None:
+            return self._pending_state
         return {
             "enabled": bool(self._slicer_enabled and self._current_column()),
             "column": self._current_column(),
@@ -420,6 +450,17 @@ class SlicerPanelController(UiPanelController):
             payload = self._metadata_access.canonical_field_payload(payload)
         slicer_payload = payload.get("slicer") if isinstance(payload.get("slicer"), dict) else payload
         column = str(slicer_payload.get("column") or "")
+        self._pending_state = dict(slicer_payload)
+        available = self._column_combo.findData(column) >= 0 or self._column_combo.findText(column) >= 0
+        if available and self._values_for_column(column, lambda: self.apply_slicer_state_payload(payload)) is None:
+            index = self._column_combo.findData(column)
+            if index < 0:
+                index = self._column_combo.findText(column)
+            with QtCore.QSignalBlocker(self._column_combo):
+                self._column_combo.setCurrentIndex(index)
+            self._set_values_loading(True)
+            return
+        self._pending_state = None
         self._applying_state = True
         try:
             if "auto_roll_seconds" in slicer_payload:
@@ -483,7 +524,7 @@ class SlicerPanelController(UiPanelController):
 
     def active_selection(self) -> dict[str, object]:
         column = self._current_column()
-        enabled = bool(self._slicer_enabled and column)
+        enabled = bool(self._slicer_enabled and column and not self._values_loading)
         return {
             "enabled": enabled,
             "column": column if enabled else "",

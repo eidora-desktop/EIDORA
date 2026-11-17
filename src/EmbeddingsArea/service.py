@@ -179,7 +179,7 @@ class EmbeddingRunService:
         for run in self._runs_repository.list_runs():
             if not _timestamp_precedes(run.created_at, app_started_at):
                 continue
-            if run.state == EmbeddingRunState.COMPLETED:
+            if self._has_saved_artifact(run):
                 continue
             checkpoint = None
             if run.state not in {EmbeddingRunState.DRAFT, EmbeddingRunState.CANCELLED}:
@@ -219,6 +219,20 @@ class EmbeddingRunService:
             raise ValueError(f"Unknown embedding run: {run_id}")
         return run
 
+    def _has_saved_artifact(self, run: EmbeddingRun) -> bool:
+        # A legacy status may be wrong. Never discard evidence of a saved result.
+        return bool(
+            run.state == EmbeddingRunState.COMPLETED
+            or run.artifact_path
+            or (self._project.paths.embeddings / f"{run.id}.npz").exists()
+        )
+
+    def require_unpublished_run(self, run_id: str) -> EmbeddingRun:
+        run = self.require_run(run_id)
+        if self._has_saved_artifact(run):
+            raise ValueError("Saved vector data cannot be changed into a model job. Create a new run instead.")
+        return run
+
     def count_run_inputs(self, run_id: str) -> int:
         self.require_run(run_id)
         return self._runs_repository.count_run_inputs(run_id)
@@ -243,7 +257,7 @@ class EmbeddingRunService:
         input_bindings: dict[str, str] | None = None,
         parameter_values: dict[tuple[str, str], str] | None = None,
     ) -> EmbeddingRun:
-        run = self.require_run(run_id)
+        run = self.require_unpublished_run(run_id)
         active_model_id = run.selected_model_id if model_id is None else model_id.strip()
         active_source_ids = run.selected_source_ids if source_ids is None else tuple(
             source_id.strip() for source_id in source_ids if source_id.strip()
@@ -345,7 +359,7 @@ class EmbeddingRunService:
                 status_callback(message)
 
         checkpoint("Preparing embedding inputs: loading sources…")
-        run = self.require_run(run_id)
+        run = self.require_unpublished_run(run_id)
         if not run.selected_model_id:
             raise ValueError("Choose a model before preparing the embedding run.")
         if not run.selected_source_ids:
@@ -472,7 +486,7 @@ class EmbeddingRunService:
     ) -> EmbeddingRun:
         from EmbeddingsArea.runtime.contracts import RunCancelled, RunPaused
 
-        run = self.require_run(run_id)
+        run = self.require_unpublished_run(run_id)
         if run.state == EmbeddingRunState.DRAFT or not run.prepared_signature:
             try:
                 run = self.prepare_run(run.id, control_callback=control_callback,
@@ -725,7 +739,7 @@ class EmbeddingRunService:
 
     def cancel_run(self, run_id: str) -> EmbeddingRun:
         run = self.require_run(run_id)
-        if run.state in {EmbeddingRunState.COMPLETED, EmbeddingRunState.FAILED, EmbeddingRunState.CANCELLED}:
+        if self._has_saved_artifact(run) or run.state in {EmbeddingRunState.FAILED, EmbeddingRunState.CANCELLED}:
             return run
         if run.state not in {
             EmbeddingRunState.QUEUED,
@@ -739,7 +753,7 @@ class EmbeddingRunService:
         return cancelled
 
     def reset_run(self, run_id: str) -> EmbeddingRun:
-        run = self.require_run(run_id)
+        run = self.require_unpublished_run(run_id)
         if run.state in {EmbeddingRunState.RUNNING, EmbeddingRunState.QUEUED, EmbeddingRunState.PAUSED}:
             raise ValueError(f"Cannot reset embedding run in {run.state.value} state.")
         self._clear_run_runtime_artifacts(run.id, run.artifact_path)

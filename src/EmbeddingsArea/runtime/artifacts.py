@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 import json
 import os
 import shutil
@@ -52,9 +53,9 @@ class ArtifactStore:
         _atomic_write_npy(self.chunks_dir / f"name_{chunk_index:06d}.npy", identifiers.astype(np.str_))
         _atomic_write_text(self.chunks_dir / f"commit_{chunk_index:06d}.json", json.dumps({"rows": len(object_ids), "dimensions": embeddings.shape[1]}))
 
-    def iter_chunks_with_names(self) -> Iterator[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    def iter_chunks_with_names(self, *, mmap_mode: str | None = "r") -> Iterator[tuple[np.ndarray, np.ndarray, np.ndarray]]:
         for chunk_index in range(self.chunk_count()):
-            yield self._load_committed_chunk(chunk_index)
+            yield self._load_committed_chunk(chunk_index, mmap_mode=mmap_mode)
 
     def iter_chunks(self) -> Iterator[tuple[np.ndarray, np.ndarray]]:
         for object_ids, embeddings, _identifiers in self.iter_chunks_with_names():
@@ -80,14 +81,20 @@ class ArtifactStore:
     def _load_committed_chunk(
         self,
         chunk_index: int,
+        *, mmap_mode: str | None = "r", mappings: ExitStack | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         index = f"{chunk_index:06d}"
+
+        def load(prefix):
+            array = np.load(self.chunks_dir / f"{prefix}_{index}.npy", mmap_mode=mmap_mode)
+            if mappings is not None and isinstance(array, np.memmap):
+                mappings.callback(array._mmap.close)
+            return array
+
         try:
-            object_ids = np.load(self.chunks_dir / f"id_{index}.npy", mmap_mode="r")
-            embeddings = np.load(self.chunks_dir / f"emb_{index}.npy", mmap_mode="r")
-            identifiers = np.load(
-                self.chunks_dir / f"name_{index}.npy", mmap_mode="r"
-            )
+            object_ids = load("id")
+            embeddings = load("emb")
+            identifiers = load("name")
             marker = json.loads(
                 (self.chunks_dir / f"commit_{index}.json").read_text(
                     encoding="utf-8"
@@ -153,90 +160,99 @@ class ArtifactStore:
                 check_cancelled()
 
         check()
-        first = next(self.iter_chunks_with_names(), None)
-        if first is None:
+        chunk_count = self.chunk_count()
+        if not chunk_count:
             raise RuntimeError("Cannot finalize embedding artifact without chunks.")
         row_count = 0
         name_bytes = 4
-        for ids, vectors, names in self.iter_chunks_with_names():
-            check()
-            row_count += len(ids)
-            name_bytes = max(name_bytes, names.dtype.itemsize)
+        for index in range(chunk_count):
+            # Read headers without copying vector data during the sizing pass.
+            with ExitStack() as mappings:
+                ids, vectors, names = self._load_committed_chunk(index, mappings=mappings)
+                check()
+                row_count += len(ids)
+                name_bytes = max(name_bytes, names.dtype.itemsize)
+                if index == 0:
+                    dimensions, dtype = vectors.shape[1], vectors.dtype
         if row_count != input_count:
             raise RuntimeError("Committed embedding rows do not match the prepared input count.")
-        dimensions = first[1].shape[1]
         cache = self.run_dir / "cache"
         cache.mkdir(exist_ok=True)
-        required = row_count * (dimensions * first[1].dtype.itemsize + 8 + name_bytes) * 2
+        required = row_count * (dimensions * dtype.itemsize + 8 + name_bytes) * 2
         if shutil.disk_usage(cache).free < required:
             raise RuntimeError(f"Not enough free disk space to finalize embeddings (about {required / 1024**3:.2f} GiB required).")
-        embeddings = np.lib.format.open_memmap(cache / "embeddings.npy", mode="w+", dtype=first[1].dtype, shape=(row_count, dimensions))
-        object_ids = np.lib.format.open_memmap(cache / "object_ids.npy", mode="w+", dtype=np.int64, shape=(row_count,))
-        name_dtype = np.dtype(f"U{name_bytes // 4}")
-        identifiers = np.lib.format.open_memmap(cache / "identifiers.npy", mode="w+", dtype=name_dtype, shape=(row_count,))
-        offset = 0
-        for ids, vectors, names in self.iter_chunks_with_names():
-            check()
-            if vectors.shape != (len(ids), dimensions) or len(names) != len(ids):
-                raise RuntimeError("Inconsistent embedding chunk shape.")
-            end = offset + len(ids)
-            object_ids[offset:end], embeddings[offset:end], identifiers[offset:end] = ids, vectors, names
-            offset = end
-        for array in (object_ids, embeddings, identifiers):
-            array.flush()
-        manifest = self.read_manifest() or {}
-        normalized = True
-        for start in range(0, row_count, 4096):
-            check()
-            if not np.allclose(
-                np.linalg.norm(embeddings[start:start + 4096], axis=1),
-                1.0,
-                rtol=1e-5,
-                atol=1e-6,
-            ):
-                normalized = False
-                break
-        self.init_manifest({**manifest, "raw_dimensions": dimensions, "dimensions": dimensions, "input_count": row_count, "l2_normalized": bool(normalized)})
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd: int | None = None
-        tmp_path = ""
-        try:
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                prefix=f".{output_path.stem}.",
-                suffix=".npz",
-                dir=str(output_path.parent),
-            )
-            with os.fdopen(tmp_fd, "wb") as handle:
-                tmp_fd = None
+        # Close every mapped cache file before cleanup, including on failure.
+        with ExitStack() as mappings:
+            embeddings = np.lib.format.open_memmap(cache / "embeddings.npy", mode="w+", dtype=dtype, shape=(row_count, dimensions))
+            mappings.callback(embeddings._mmap.close)
+            object_ids = np.lib.format.open_memmap(cache / "object_ids.npy", mode="w+", dtype=np.int64, shape=(row_count,))
+            mappings.callback(object_ids._mmap.close)
+            name_dtype = np.dtype(f"U{name_bytes // 4}")
+            identifiers = np.lib.format.open_memmap(cache / "identifiers.npy", mode="w+", dtype=name_dtype, shape=(row_count,))
+            mappings.callback(identifiers._mmap.close)
+            offset = 0
+            for ids, vectors, names in self.iter_chunks_with_names(mmap_mode=None):
                 check()
-                np.savez(
-                    handle,
-                    artifact_schema_version=EMBEDDING_ARTIFACT_SCHEMA_VERSION,
-                    object_ids=object_ids,
-                    embeddings=embeddings,
-                    filenames=identifiers,
-                    model_id=model_id,
-                    model_name=model_label,
-                    backend=backend,
-                    source=(self.read_manifest() or {}).get("source", "runtime_chunks"),
-                    input_modalities=json.dumps(list(content_types)),
-                    preprocess=json.dumps((self.read_manifest() or {}).get("preprocess", {})),
-                    postprocess=json.dumps((self.read_manifest() or {}).get("postprocess", [])),
-                    provenance=json.dumps((self.read_manifest() or {}).get("provenance", {})),
-                    raw_dimensions=int(embeddings.shape[1]),
-                    l2_normalized=(self.read_manifest() or {}).get("l2_normalized", False),
-                    input_count=int(input_count),
-                    dimensions=int(embeddings.shape[1]),
+                if vectors.shape != (len(ids), dimensions) or len(names) != len(ids):
+                    raise RuntimeError("Inconsistent embedding chunk shape.")
+                end = offset + len(ids)
+                object_ids[offset:end], embeddings[offset:end], identifiers[offset:end] = ids, vectors, names
+                offset = end
+            for array in (object_ids, embeddings, identifiers):
+                array.flush()
+            manifest = self.read_manifest() or {}
+            normalized = True
+            for start in range(0, row_count, 4096):
+                check()
+                if not np.allclose(
+                    np.linalg.norm(embeddings[start:start + 4096], axis=1),
+                    1.0,
+                    rtol=1e-5,
+                    atol=1e-6,
+                ):
+                    normalized = False
+                    break
+            self.init_manifest({**manifest, "raw_dimensions": dimensions, "dimensions": dimensions, "input_count": row_count, "l2_normalized": bool(normalized)})
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_fd: int | None = None
+            tmp_path = ""
+            try:
+                tmp_fd, tmp_path = tempfile.mkstemp(
+                    prefix=f".{output_path.stem}.",
+                    suffix=".npz",
+                    dir=str(output_path.parent),
                 )
-            check()
-            os.replace(tmp_path, output_path)
-            stat = output_path.stat()
-            _atomic_write_text(cache / "complete.json", json.dumps({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}))
-        finally:
-            if tmp_fd is not None:
-                os.close(tmp_fd)
-            if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
+                with os.fdopen(tmp_fd, "wb") as handle:
+                    tmp_fd = None
+                    check()
+                    np.savez(
+                        handle,
+                        artifact_schema_version=EMBEDDING_ARTIFACT_SCHEMA_VERSION,
+                        object_ids=object_ids,
+                        embeddings=embeddings,
+                        filenames=identifiers,
+                        model_id=model_id,
+                        model_name=model_label,
+                        backend=backend,
+                        source=(self.read_manifest() or {}).get("source", "runtime_chunks"),
+                        input_modalities=json.dumps(list(content_types)),
+                        preprocess=json.dumps((self.read_manifest() or {}).get("preprocess", {})),
+                        postprocess=json.dumps((self.read_manifest() or {}).get("postprocess", [])),
+                        provenance=json.dumps((self.read_manifest() or {}).get("provenance", {})),
+                        raw_dimensions=int(embeddings.shape[1]),
+                        l2_normalized=(self.read_manifest() or {}).get("l2_normalized", False),
+                        input_count=int(input_count),
+                        dimensions=int(embeddings.shape[1]),
+                    )
+                check()
+                os.replace(tmp_path, output_path)
+                stat = output_path.stat()
+                _atomic_write_text(cache / "complete.json", json.dumps({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}))
+            finally:
+                if tmp_fd is not None:
+                    os.close(tmp_fd)
+                if tmp_path and os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
         return output_path
 
 
