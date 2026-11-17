@@ -4,6 +4,14 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Preserve legacy animation dimensions after loading the selected frame and keep gaps in saved plot grids blank. Refresh local legend changes in partial previews and update grid controls after adjacent plot insertion without discarding pending edits.
+
+- Start new Journal figures at 1600 × 1200 px, Presentation figures at 1920 × 1080 px, and Animation figures at 800 × 600 px, with coordinated margins, spacing and text sizes. Preserve snapshot point sizing and all existing saved settings, including legacy fallback values.
+
+- Use pixels for all figure dimensions, spacing, fonts and line widths, with no DPI or unit selector. Show actual output measurements as the layout changes. Apply exact output sizes to one plot or all plots, show mixed values explicitly, and preserve full precision through resizing, saved figures, presets and animation exports.
+
+- Make figure width and height the exact final export dimensions, reserve empty grid cells, and scale each plot proportionally with its annotations. Preserve saved figures through measured layout conversion, keep shared text at its chosen size, and retain plots when expanding the grid above or to the left.
+
 - Prepare and render all animation timeline thumbnails in the shared background worker, keeping the GUI responsive for large snapshot and slicer frames. Publish only current completed images, preserve previous thumbnails on cancellation or failure, and retain full-resolution appearance and export quality.
 
 - Replace cached dataset identities when loading snapshot data so direct animation-frame exports cannot reuse another frame's axis bounds.

@@ -16,6 +16,14 @@ class Figure:
 class FigurePlotSettings:
     width_mm: float = 70.0
     height_mm: float = 70.0
+    layout_version: int = 2
+    plot_width_mm: float = 0.0
+    plot_height_mm: float = 0.0
+    # Minimum measured bands retained when converting a saved per-plot layout.
+    # Order: left, right, top, bottom. New figures have no inherited bands.
+    cell_content_padding_mm: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
+    cell_padding_mm: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
+    page_padding_mm: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
     rows: int = 1
     columns: int = 1
     margin_mm: float = 0.0
@@ -32,7 +40,7 @@ class FigurePlotSettings:
     grid_mode: Literal["off", "lines", "map"] = "off"
     grid_line_width: float = 0.8
     grid_cell_size_mm: float = 10.0
-    tick_label_size: int = 10
+    tick_label_size: float = 10.0
     tick_label_margin_pt: float = 0.0
     point_size_factor_percent: float = 0.0
     point_size: float = 9.0
@@ -42,12 +50,12 @@ class FigurePlotSettings:
     main_title_location: Literal["top", "left", "right", "bottom"] = "top"
     main_title_alignment: Literal["left", "center", "right"] = "center"
     main_title_font: str = "DejaVu Sans"
-    main_title_size: int = 14
+    main_title_size: float = 14.0
     subtitle_show: bool = False
     subtitle_location: Literal["top", "left", "right", "bottom"] = "top"
     subtitle_alignment: Literal["left", "center", "right"] = "center"
     subtitle_font: str = "DejaVu Sans"
-    subtitle_size: int = 10
+    subtitle_size: float = 10.0
     legend_show: bool = False
     legend_scope: Literal["global", "per_plot"] = "per_plot"
     legend_location: Literal[
@@ -63,7 +71,7 @@ class FigurePlotSettings:
     legend_include_point_color: bool = True
     legend_include_border_color: bool = True
     legend_include_shape: bool = True
-    legend_font_size: int = 10
+    legend_font_size: float = 10.0
     legend_marker_size: float = 8.0
     legend_columns: int = 1
     legend_frame: bool = True
@@ -73,17 +81,25 @@ class FigurePlotSettings:
     pin_line_width: float = 1.5
     main_caption_show: bool = False
     main_caption_font: str = "DejaVu Sans"
-    main_caption_size: int = 10
+    main_caption_size: float = 10.0
     main_caption_justify: bool = False
     main_caption_line_spacing: float = 1.25
     subplot_caption_show: bool = False
     subplot_caption_alignment: Literal["left", "center", "right", "justify"] = "center"
     subplot_caption_font: str = "DejaVu Sans"
-    subplot_caption_size: int = 9
+    subplot_caption_size: float = 9.0
     subplot_caption_line_spacing: float = 1.25
 
     legend_side: Literal["", "left", "right", "top", "bottom"] = ""
     legend_alignment: Literal["start", "center", "end"] = "start"
+
+    def __post_init__(self) -> None:
+        # Capture the initial plot aspect once; changing the page later does
+        # not change the authored plot dimensions or stretch its contents.
+        if self.plot_width_mm <= 0:
+            object.__setattr__(self, "plot_width_mm", self.width_mm)
+        if self.plot_height_mm <= 0:
+            object.__setattr__(self, "plot_height_mm", self.height_mm)
 
     @property
     def legend_placement(self) -> tuple[str, str]:
@@ -96,7 +112,7 @@ class FigurePlotSettings:
 
     @property
     def subplot_size_mm(self) -> float:
-        return self.width_mm
+        return self.plot_width_mm
 
 
 FigureElementKind = Literal["main_title", "plot_title", "legend", "caption"]
@@ -131,6 +147,9 @@ class PlotCell:
     metadata: Mapping[int, Mapping[str, str]] = field(default_factory=dict)
     render_state: dict[str, Any] = field(default_factory=dict)
     element_ids: list[str] = field(default_factory=list)
+    size_overrides: dict[str, float] = field(default_factory=dict)
+    # A migrated gap reserves layout space without drawing a plot or labels.
+    reserved_only: bool = False
     data_ref: str | None = None
     point_count: int = 0
     # Transient identity of immutable data buffers; never serialized as settings.

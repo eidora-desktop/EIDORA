@@ -318,7 +318,7 @@
                                <cursorShape>PointingHandCursor</cursorShape>
                               </property>
                               <property name="text">
-                               <string>journal / print</string>
+                               <string>journal / publication</string>
                               </property>
                               <property name="icon">
                                <iconset>
@@ -338,7 +338,7 @@
                             <item alignment="Qt::AlignmentFlag::AlignHCenter">
                              <widget class="QLabel" name="label">
                               <property name="text">
-                               <string>journal / print</string>
+                               <string>journal / publication</string>
                               </property>
                              </widget>
                             </item>

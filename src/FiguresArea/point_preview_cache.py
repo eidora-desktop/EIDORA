@@ -56,7 +56,7 @@ class PointPreviewCache:
         key = (
             cell.data_key or cell.data_ref,
             json.dumps(state, sort_keys=True, separators=(",", ":")),
-            settings.point_size, settings.point_size_factor_percent,
+            settings.point_size, settings.point_size_factor_percent, getattr(settings, "content_scale", 1.0),
             settings.grid_mode, settings.grid_line_width, settings.grid_cell_size_mm,
             tuple(axes.get_xlim()), tuple(axes.get_ylim()), axes.figure.dpi,
             width, height, tuple(round(v, 6) for v in (bounds.x0-x, bounds.y0-y, bounds.width, bounds.height)),

@@ -171,7 +171,7 @@ class FiguresAreaController:
 
     def _configure_plot_option_buttons(self) -> None:
         specs = [
-            ("button_create_journal_plot", "journal", "journal", "Journal / print"),
+            ("button_create_journal_plot", "journal", "journal", "Journal / publication"),
             (
                 "button_create_presentation_plot",
                 "presentation",
@@ -247,19 +247,19 @@ class FiguresAreaController:
             controller_kwargs["figure_kind"] = normalized_kind
             controller_kwargs["defer_render"] = self._restoring_project_state
         plot = controller_type(**controller_kwargs)
-        if settings is not None:
+        restored_composition = None
+        if isinstance(plot, PlotTabController):
+            restored_composition = FigureTabsRepository.composition_from_payload(
+                composition, settings=FigureTabsRepository.settings_from_payload(settings, figure_kind=normalized_kind),
+            )
+        if restored_composition is not None:
+            plot.apply_figure_composition(restored_composition)
+        elif settings is not None:
             plot.apply_figure_settings(
                 FigureTabsRepository.settings_from_payload(
                     settings, figure_kind=normalized_kind
                 )
             )
-        if isinstance(plot, PlotTabController):
-            restored_composition = FigureTabsRepository.composition_from_payload(
-                composition,
-                settings=plot.figure_settings(),
-            )
-            if restored_composition is not None:
-                plot.apply_figure_composition(restored_composition)
         page = plot.widget
         page.setObjectName(f"page_figure_{normalized_kind}_{len(self._plot_tabs) + 1}")
         page.setProperty("figureKind", normalized_kind)

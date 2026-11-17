@@ -49,6 +49,13 @@ class FigureWorkService:
     def load(self):
         return self._renders.submit(self._request, {"load": str(self.repository.data.root.parent)})
 
+    def prepare_measurements(self, composition, values, selected_cell=None):
+        from FiguresArea.measurements import measurement_snapshot
+        return self._renders.submit(self._request, {
+            'measurements': measurement_snapshot(composition),
+            'measurement_values': dict(values), 'selected_cell': selected_cell,
+        })
+
     def set_preview_active(self, owner, active):
         self._renders.set_active(owner, active)
 
@@ -91,6 +98,7 @@ class FigureWorkService:
             prepared.snapshot_label = frame.label
         target = composition.plot_cells.get((0, 0)) or composition.add_plot_cell(0, 0)
         prepared.element_ids = target.element_ids
+        prepared.size_overrides = dict(target.size_overrides)
         composition.plot_cells[0, 0] = prepared
         element = composition.figure_elements.get('plot_title_settings_0_0')
         if element is not None and element.auto_text:

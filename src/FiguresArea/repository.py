@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,8 @@ from FiguresArea.domain import (
     FigurePlotSettings,
     PlotCell,
 )
-from FiguresArea.template_settings import default_plot_settings
+from FiguresArea.template_settings import saved_plot_defaults
+from FiguresArea.measurements import validated_sizes, FONT_SIZES
 from FiguresArea.data_repository import FigureDataRepository
 from project.portable_paths import ProjectPaths
 from shared.persistence import json_store
@@ -21,7 +23,7 @@ class FigureTabsRepository:
     """Project-local persistence boundary for saved FiguresArea compositions."""
 
     _FILENAME = "figures_area_state.json"
-    _VERSION = 6
+    _VERSION = 7
     _KINDS = {"journal", "presentation", "snapshot_animation", "animation"}
 
     def __init__(self, state_root: Path) -> None:
@@ -46,7 +48,7 @@ class FigureTabsRepository:
             payload = json_store.read_json(self._path, default={})
         except (OSError, ValueError):
             return [], None
-        if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3, 4, 5, self._VERSION}:
+        if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3, 4, 5, 6, self._VERSION}:
             return [], None
         raw_tabs = payload.get("tabs")
         if not isinstance(raw_tabs, list):
@@ -59,6 +61,15 @@ class FigureTabsRepository:
     def load_compact(self):
         """Migrate large legacy inline datasets before returning documents to Qt."""
         records, index = self.load()
+        for record in records:
+            settings = self.settings_from_payload(record.get("settings"), figure_kind=record["kind"])
+            if settings.layout_version < 2 and record["kind"] != "animation":
+                composition = self.composition_from_payload(record.get("composition"), settings=settings)
+                if composition is not None:
+                    from FiguresArea.page_layout import migrate_page_dimensions
+                    composition = migrate_page_dimensions(composition)
+                    record["settings"] = self.settings_payload(composition.settings)
+                    record["composition"] = self.composition_payload(composition)
         large = False
         for record in records:
             composition = record.get("composition")
@@ -154,6 +165,8 @@ class FigureTabsRepository:
                     **point_data(cell),
                     "render_state": copy.deepcopy(cell.render_state),
                     "element_ids": list(cell.element_ids),
+                    "size_overrides": dict(cell.size_overrides),
+                    "reserved_only": cell.reserved_only,
                 }
                 for cell in sorted(
                     composition.plot_cells.values(),
@@ -214,10 +227,20 @@ class FigureTabsRepository:
 
     @classmethod
     def settings_from_payload(cls, payload: object, *, figure_kind: str) -> FigurePlotSettings:
-        defaults = default_plot_settings(figure_kind)
+        defaults = saved_plot_defaults(figure_kind)
         if not isinstance(payload, dict):
             return defaults
         payload = dict(payload)
+        payload.setdefault("layout_version", 1)
+        for name in ("cell_padding_mm", "cell_content_padding_mm", "page_padding_mm"):
+            value = payload.get(name)
+            if isinstance(value, (list, tuple)) and len(value) == 4 and all(
+                isinstance(part, (int, float)) and not isinstance(part, bool) and math.isfinite(part) and part >= 0
+                for part in value
+            ):
+                payload[name] = tuple(float(part) for part in value)
+            else:
+                payload.pop(name, None)
         if "export_dpi" not in payload and "preview_dpi" in payload:
             payload["export_dpi"] = payload["preview_dpi"]
         allowed = {field.name for field in fields(FigurePlotSettings)}
@@ -225,7 +248,7 @@ class FigureTabsRepository:
         values = {
             name: value
             for name, value in payload.items()
-            if name in allowed and cls._matches_setting_type(value, default_values[name])
+            if name in allowed and cls._matches_setting_type(value, float(default_values[name]) if name in FONT_SIZES else default_values[name])
         }
         for name, choices in {
             "grid_mode": {"off", "lines", "map"},
@@ -336,6 +359,8 @@ class FigureTabsRepository:
                 if payload.get("snapshot_label") is not None
                 else None
             ),
+            size_overrides=validated_sizes(payload.get("size_overrides")),
+            reserved_only=payload.get("reserved_only") is True,
             coordinates=coordinates,
             metadata_ids=metadata_ids,
             metadata=metadata,

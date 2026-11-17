@@ -90,6 +90,8 @@ class _PendingPlotLoad:
 class PlotTabController(QtCore.QObject):
     """Controller for one figure plot tab with one authoritative Matplotlib canvas."""
 
+    measurements_changed = QtCore.Signal()
+
     _ADD_BUTTON_SIZE = 28
     _GLOBAL_ADD_BUTTON_HEIGHT = 32
     _CONTROL_MARGIN = 72
@@ -129,6 +131,7 @@ class PlotTabController(QtCore.QObject):
         self._render_dirty = False
         self._preview_memory = preview_memory or PreviewMemoryBudget()
         self._disposed = False
+        self.measurement_revision = 0
         self._preview_pending = False
         self._preview_activity = None
         self._discovery_method_catalog = DiscoveryMethodCatalog()
@@ -433,10 +436,34 @@ class PlotTabController(QtCore.QObject):
     def figure_settings(self) -> FigurePlotSettings:
         return self._composition.settings
 
+    def figure_measurements(self):
+        return self._layout_map.plot_measurements
+
+    def figure_size_overrides(self):
+        from FiguresArea.measurements import size_override_payload
+        return size_override_payload(self._composition)
+
+    def restore_size_overrides(self, payload):
+        from FiguresArea.measurements import restore_size_overrides
+        restore_size_overrides(self._composition, payload)
+        self._redraw_figure()
+
+    def prepare_measurement_edit(self, values, selected_cell=None):
+        return self._work_service.prepare_measurements(self._composition, values, selected_cell)
+
+    def apply_measurement_overrides(self, overrides):
+        for key, values in overrides.items():
+            cell = self._composition.plot_cells.get(tuple(key))
+            if cell is not None:
+                cell.size_overrides = dict(values)
+        self._redraw_figure()
+
     def figure_composition(self) -> FigureComposition:
         return self._composition
 
     def apply_figure_composition(self, composition: FigureComposition) -> None:
+        from FiguresArea.page_layout import migrate_page_dimensions
+        composition = migrate_page_dimensions(composition)
         self._composition = composition
         self._plot_settings = composition.settings
         self._sync_composition_grid()
@@ -479,19 +506,28 @@ class PlotTabController(QtCore.QObject):
         settings: FigurePlotSettings,
         *,
         progress_callback: Callable[[str, int], None] | None = None,
+        defer_legacy_migration: bool = False,
     ) -> None:
         if progress_callback is not None:
             progress_callback("Updating figure layout…", 10)
+        from FiguresArea.composition_service import clear_inherited_bands
+        settings = clear_inherited_bands(self._composition.settings, settings)
         self._plot_settings = settings
         self._composition.settings = settings
         self._sync_composition_grid()
         self._sync_parameter_elements()
+        if settings.layout_version < 2 and not defer_legacy_migration:
+            from FiguresArea.page_layout import migrate_page_dimensions
+            self._composition = migrate_page_dimensions(self._composition)
+            self._plot_settings = self._composition.settings
         if progress_callback is not None:
             progress_callback("Rendering figure preview…", 30)
         self._redraw_figure(show_activity=progress_callback is None)
         if progress_callback is not None and not self._preview_pending:
             progress_callback("Finalizing figure preview…", 90)
-        self._show_status("Updating figure preview…" if self._preview_pending else "Applied figure settings.")
+        self._show_status(getattr(self, "_layout_error", None) or (
+            "Updating figure preview…" if self._preview_pending else "Applied figure settings."
+        ))
         if self._state_changed_callback is not None:
             self._state_changed_callback()
         if progress_callback is not None and not self._preview_pending:
@@ -516,6 +552,7 @@ class PlotTabController(QtCore.QObject):
             for cell in sorted(desired):
                 if cell not in self._plot_cells:
                     self._plot_cells[cell] = self._create_plot_overlay_cell(cell, is_main=cell == (0, 0))
+            self._plot_area = self._plot_cells[(0, 0)].drop_target
 
     def _sync_parameter_elements(self) -> None:
         settings = self._composition.settings
@@ -552,6 +589,8 @@ class PlotTabController(QtCore.QObject):
         desired_ids: set[str] = set()
         if settings.subtitle_show:
             for cell in sorted(self._composition.plot_cells):
+                if self._composition.plot_cells[cell].reserved_only:
+                    continue
                 element_id = f"{prefix}{cell[0]}_{cell[1]}"
                 desired_ids.add(element_id)
                 element = self._composition.figure_elements.get(element_id)
@@ -603,6 +642,8 @@ class PlotTabController(QtCore.QObject):
                 element.font_size = float(settings.legend_font_size)
             else:
                 for cell in sorted(self._composition.plot_cells):
+                    if self._composition.plot_cells[cell].reserved_only:
+                        continue
                     element_id = f"{prefix}{cell[0]}_{cell[1]}"
                     desired_ids.add(element_id)
                     element = self._composition.figure_elements.get(element_id)
@@ -657,6 +698,8 @@ class PlotTabController(QtCore.QObject):
         desired_ids: set[str] = set()
         if settings.subplot_caption_show:
             for cell in sorted(self._composition.plot_cells):
+                if self._composition.plot_cells[cell].reserved_only:
+                    continue
                 element_id = f"{prefix}{cell[0]}_{cell[1]}"
                 desired_ids.add(element_id)
                 element = self._composition.figure_elements.get(element_id)
@@ -719,6 +762,8 @@ class PlotTabController(QtCore.QObject):
     ) -> None:
         if self._disposed:
             return
+        self.measurement_revision += 1
+        self._layout_error = None
         if notify_state and self._state_changed_callback is not None:
             self._state_changed_callback()
         if self._defer_render:
@@ -740,7 +785,12 @@ class PlotTabController(QtCore.QObject):
             with self._activity_manager.busy("Refreshing plot…"):
                 self._redraw_figure(show_activity=False, notify_state=False)
             return
-        result = self._renderer.build(self._composition)
+        try:
+            result = self._renderer.build(self._composition)
+        except ValueError as error:
+            self._layout_error = str(error)
+            self._show_status(self._layout_error)
+            return
         self._layout_map = result.layout_map
         self._preview_scale = self._preview_scale_for_viewport()
         if self._canvas is not None:
@@ -755,6 +805,7 @@ class PlotTabController(QtCore.QObject):
         self._update_preview_canvas()
         self._position_canvas_stack()
         self._sync_overlay_geometry()
+        self.measurements_changed.emit()
 
     def _adopt_preview_datasets(self, datasets) -> None:
         if self._disposed:
@@ -787,6 +838,7 @@ class PlotTabController(QtCore.QObject):
         self._sync_overlay_geometry()
         self._preview_pending = False
         self._finish_preview_activity()
+        self.measurements_changed.emit()
         self._show_status("Figure preview updated.")
 
     def _finish_preview_activity(self) -> None:
@@ -1117,8 +1169,29 @@ class PlotTabController(QtCore.QObject):
         plot_cell = self._create_plot_overlay_cell(target_cell)
         self._plot_cells[target_cell] = plot_cell
         self._composition.add_plot_cell(*target_cell)
+        from FiguresArea.composition_service import reserve_grid
+        shifted = target_cell[0] < 0 or target_cell[1] < 0
+        self._composition = reserve_grid(self._composition)
+        self._plot_settings = self._composition.settings
+        if shifted:
+            offset_row, offset_column = max(-target_cell[0], 0), max(-target_cell[1], 0)
+            self._snapshot_jobs = {(row + offset_row, column + offset_column): job
+                                   for (row, column), job in self._snapshot_jobs.items()}
+            if self._pending_transform is not None:
+                row, column = self._pending_transform['cell']
+                self._pending_transform['cell'] = (row + offset_row, column + offset_column)
+            self._active_preset_control_cell = self._active_settings_button_cell = None
+            for overlay_cell in self._plot_cells.values():
+                self._delete_overlay_cell(overlay_cell)
+            self._plot_cells.clear()
+        self._sync_composition_grid()
+        self._sync_parameter_elements()
+        if shifted:
+            target_cell = (max(target_cell[0], 0), max(target_cell[1], 0))
+            plot_cell = self._plot_cells[target_cell]
         if redraw:
             self._redraw_figure()
+        self.measurements_changed.emit()
         self._show_status(f"Added plot area at row {target_cell[0]}, column {target_cell[1]}.")
         return plot_cell.block
 
@@ -1486,7 +1559,10 @@ class PlotTabController(QtCore.QObject):
                 return False
         plot_cell.snapshot_path = None
         plot_cell.render_state["preset_paths"] = selected_paths
-        self._update_subtitle_text_for_cell(cell)
+        if kind == "discovery":
+            self._finish_loaded_plot(cell)
+        else:
+            self._update_subtitle_text_for_cell(cell)
         self._redraw_figure()
         self._show_status(f"Applied {kind} preset '{path.stem}'.")
         state_key = {
@@ -1551,7 +1627,7 @@ class PlotTabController(QtCore.QObject):
             return
         prepared.snapshot_label = target.snapshot_label
         self._apply_prepared_snapshot(target, prepared)
-        self._update_subtitle_text_for_cell(cell)
+        self._finish_loaded_plot(cell)
         self._redraw_figure()
         self._show_status('Applied transformation.' if pending['preset'] else 'Restored Original projection coordinates.')
         self._notify_plot_edit({'kind': 'render_state', 'values': {
@@ -1664,11 +1740,21 @@ class PlotTabController(QtCore.QObject):
             prepared.snapshot_label = label
         plot_cell = self._composition.plot_cells[cell_key]
         self._apply_prepared_snapshot(plot_cell, prepared)
-        self._update_subtitle_text_for_cell(cell_key)
+        self._finish_loaded_plot(cell_key)
         self._redraw_figure(show_activity=show_activity)
         if announce:
             self._show_status(f"Rendered snapshot '{snapshot_path.stem}'.")
         return True
+
+    def _finish_loaded_plot(self, cell) -> None:
+        self._sync_parameter_elements()
+        self._update_subtitle_text_for_cell(cell)
+        # Legacy animations have no stored composition. Their frame must supply
+        # its legend mappings and title before final-page dimensions are fixed.
+        if self._composition.settings.layout_version < 2:
+            from FiguresArea.page_layout import migrate_page_dimensions
+            self._composition = migrate_page_dimensions(self._composition)
+            self._plot_settings = self._composition.settings
 
     def _cancel_snapshot_jobs(self, cell=None) -> None:
         for key in list(self._snapshot_jobs):
@@ -1676,6 +1762,7 @@ class PlotTabController(QtCore.QObject):
                 self._snapshot_jobs.pop(key).future.cancel()
 
     def _apply_projection_data(self, target, prepared, paths) -> None:
+        target.reserved_only = False
         target.coordinates, target.metadata_ids, target.metadata = prepared.coordinates, prepared.metadata_ids, prepared.metadata
         target.snapshot_path = None
         paths["transform"] = None
@@ -1706,7 +1793,7 @@ class PlotTabController(QtCore.QObject):
                 self._apply_projection_data(job.target, prepared, paths)
             else:
                 self._apply_prepared_snapshot(job.target, prepared)
-            self._update_subtitle_text_for_cell(key)
+            self._finish_loaded_plot(key)
             self._redraw_figure(show_activity=False)
             if job.announce:
                 self._show_status(f"Loaded plot '{job.path.stem}'.")
@@ -1729,6 +1816,7 @@ class PlotTabController(QtCore.QObject):
 
     @staticmethod
     def _apply_prepared_snapshot(target: PlotCell, source: PlotCell) -> None:
+        target.reserved_only = False
         target.snapshot_path = source.snapshot_path
         target.snapshot_label = source.snapshot_label
         target.coordinates = source.coordinates
@@ -1918,6 +2006,7 @@ class PlotTabController(QtCore.QObject):
         )
         self._composition.figure_elements[element_id] = element
         if source_cell is not None:
+            self._composition.plot_cells[source_cell].reserved_only = False
             self._composition.plot_cells[source_cell].element_ids.append(element_id)
         self._redraw_figure()
         self._select_element(element_id)

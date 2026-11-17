@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from html.parser import HTMLParser
 import json
 import math
@@ -37,6 +37,7 @@ from matplotlib.textpath import TextToPath
 
 from FiguresArea.appearance_units import diameter_pixels_to_matplotlib_area, pixels_to_points, signed_percent_to_scale
 from FiguresArea.compact_metadata import CompactMetadata
+from FiguresArea.measurements import output_measurements, plot_element
 from FiguresArea.domain import FigureComposition, FigureElement, FigurePlotSettings, PlotCell
 
 
@@ -64,6 +65,7 @@ class FigureLayoutMap:
     pin_anchor_points_px: dict[tuple[int, int], dict[str, tuple[float, float]]] = field(default_factory=dict)
     pin_box_anchor_points_px: dict[tuple[int, int], dict[str, tuple[float, float]]] = field(default_factory=dict)
     pin_geometries: dict[tuple[int, int], dict[str, FigurePinGeometry]] = field(default_factory=dict)
+    plot_measurements: dict[tuple[int, int], dict[str, float]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -146,6 +148,8 @@ class FigureMatplotlibRenderer:
     @staticmethod
     def _preview_cell_key(cell, settings):
         identity = cell.data_ref or cell.data_key
+        if not identity and not len(cell.coordinates) and not cell.point_count:
+            identity = "empty-cell"
         if not identity:
             return None  # Mutable/unidentified data must be rendered again.
         thumbnails = []
@@ -184,6 +188,14 @@ class FigureMatplotlibRenderer:
             with tempfile.TemporaryDirectory(prefix=".eidora-export-", dir=path.parent) as directory:
                 staged = Path(directory) / path.name
                 figure.savefig(str(staged), dpi=max(int(composition.settings.export_dpi), 36))
+                if staged.suffix.lower() == '.svg':
+                    # Preserve vector coordinates, but expose the same output
+                    # pixel dimensions as the editor and raster exports.
+                    svg = staged.read_text(encoding='utf-8')
+                    for name, size in (('width', figure.bbox.width), ('height', figure.bbox.height)):
+                        pattern = rf'(<svg\b[^>]*\b{name}=")[^"]*'
+                        svg = re.sub(pattern, lambda match: match[1] + f'{int(size)}px', svg, count=1)
+                    staged.write_text(svg, encoding='utf-8')
                 if progress_callback is not None:
                     progress_callback("Finalizing figure export…", 95)
                 staged.replace(path)
@@ -199,18 +211,6 @@ class FigureMatplotlibRenderer:
         cells = composition.plot_cells or {(0, 0): PlotCell(row=0, column=0)}
         # Shared for the lifetime of this figure, including deferred Agg draws.
         render_data = {}
-        min_row, max_row, min_column, max_column = self._bounds(cells)
-        rows = max_row - min_row + 1
-        columns = max_column - min_column + 1
-        subplot_width_in = self._mm_to_inches(settings.width_mm)
-        subplot_height_in = self._mm_to_inches(settings.height_mm)
-        subplot_gap_in = self._subplot_margin_inches(settings)
-        cell_element_bands_in = self._cell_element_bands_inches(
-            composition,
-            caption_width_in=subplot_width_in,
-        )
-        axis_bands_in = self._axis_decoration_bands_inches(settings)
-        cell_bands_in = {side: band + axis_bands_in[side] for side, band in cell_element_bands_in.items()}
         dpi = max(int(settings.export_dpi), 36)
         figure = self._preview_figure if self._reuse_page else None
         if figure is None:
@@ -222,55 +222,12 @@ class FigureMatplotlibRenderer:
             for artist in list(figure.texts) + list(figure.legends) + list(figure.artists):
                 artist.remove()
             figure.set_dpi(dpi)
-        # Text metrics do not require allocating an Agg buffer for the old page
-        # at a potentially new DPI. Use a tiny measurement surface.
-        legend_renderer = RendererAgg(1, 1, dpi)
-        legends = {}
-        for element in composition.figure_elements.values():
-            if not element.visible or element.kind != "legend":
-                continue
-            if element.source_cell is not None and element.source_cell not in cells:
-                continue
-            width_in = subplot_width_in if element.source_cell is not None else columns * subplot_width_in
-            legend = self._create_legend(figure, element, composition, width_in)
-            if legend is not None:
-                if self._partial_page is not None:
-                    legend.set_gid(element.element_id)
-                    self._preview_draw_keys[element.element_id] = repr((settings, element, self._legend_entries_for_element(element, composition)))
-                bbox = legend.get_window_extent(legend_renderer)
-                legends[element.element_id] = (element, legend, bbox.width / dpi, bbox.height / dpi)
-        local_legends = [entry for entry in legends.values() if entry[0].source_cell is not None]
-        global_legends = [entry for entry in legends.values() if entry[0].source_cell is None]
-        cell_bands_in, legend_rects = self._layout_legends(
-            local_legends, settings, subplot_width_in, subplot_height_in, cell_bands_in, dpi,
-        )
-        cell_width_in = cell_bands_in["left"] + subplot_width_in + cell_bands_in["right"]
-        cell_height_in = cell_bands_in["top"] + subplot_height_in + cell_bands_in["bottom"]
-        grid_width_in = columns * cell_width_in + (columns - 1) * subplot_gap_in
-        grid_height_in = rows * cell_height_in + (rows - 1) * subplot_gap_in
-        margins_in = self._reserved_margins_inches(
-            composition,
-            caption_width_in=max(columns * subplot_width_in, subplot_width_in),
-        )
-        global_bands_in, global_legend_rects = self._layout_legends(
-            global_legends,
-            settings,
-            grid_width_in - cell_bands_in["left"] - cell_bands_in["right"],
-            grid_height_in - cell_bands_in["top"] - cell_bands_in["bottom"],
-            cell_bands_in,
-            dpi,
-        )
-        legend_rects.update(global_legend_rects)
-        outer_margin_in = self._margin_mm_to_inches(settings.margin_mm)
-        margins_in = {
-            side: margin + global_bands_in[side] - cell_bands_in[side] + outer_margin_in
-            for side, margin in margins_in.items()
-        }
-        figure_width_in = grid_width_in + margins_in["left"] + margins_in["right"]
-        figure_height_in = grid_height_in + margins_in["top"] + margins_in["bottom"]
-        layout_key = (dpi, figure_width_in, figure_height_in, tuple(sorted(cells)),
-                      tuple(margins_in.items()), tuple(cell_bands_in.items()),
-                      subplot_width_in, subplot_height_in, subplot_gap_in)
+        from FiguresArea.page_layout import measure_page
+        page = measure_page(self, composition, figure)
+        figure_width_in, figure_height_in = page.width, page.height
+        legends = page.legends
+        cells = {key: cells.get(key, PlotCell(*key)) for key in page.plots}
+        layout_key = (dpi, page.width, page.height, tuple((key, rect[:4], cells[key].reserved_only) for key, rect in page.plots.items()))
         reuse_axes = self._reuse_page and layout_key == self._preview_layout
         if self._reuse_page and not reuse_axes:
             for axes in list(figure.axes):
@@ -280,45 +237,37 @@ class FigureMatplotlibRenderer:
         old_axes = {self._axes_cell_from_label(axes.get_label()): axes for axes in figure.axes}
         next_cells = {}
         retained_pins = {}
-        figure.set_size_inches(figure_width_in, figure_height_in)
+        from FiguresArea.measurements import page_inches_for_pixels
+        figure.set_size_inches(page_inches_for_pixels(figure_width_in, dpi),
+                               page_inches_for_pixels(figure_height_in, dpi))
         figure.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
         canvas_width_px = max(int(figure.bbox.width), 1)
         canvas_height_px = max(int(figure.bbox.height), 1)
         plot_rects: dict[tuple[int, int], tuple[int, int, int, int]] = {}
-        plot_origins: dict[tuple[int, int] | None, tuple[float, float]] = {
-            None: (margins_in["left"] + cell_bands_in["left"], margins_in["bottom"] + cell_bands_in["bottom"]),
-        }
         pin_specs: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
         for (row, column), cell in sorted(cells.items()):
-            cell_left_in = margins_in["left"] + ((column - min_column) * (cell_width_in + subplot_gap_in))
-            cell_bottom_in = margins_in["bottom"] + ((max_row - row) * (cell_height_in + subplot_gap_in))
-            left_in = cell_left_in + cell_bands_in["left"]
-            bottom_in = cell_bottom_in + cell_bands_in["bottom"]
-            plot_origins[(row, column)] = (left_in, bottom_in)
-            rect = [
-                left_in / figure_width_in,
-                bottom_in / figure_height_in,
-                subplot_width_in / figure_width_in,
-                subplot_height_in / figure_height_in,
-            ]
-            key = self._preview_cell_key(cell, settings) if self._reuse_page else None
-            axes = old_axes.get((row, column)) if reuse_axes else None
-            unchanged = axes is not None and key is not None and key == self._preview_cells.get((row, column))
-            if unchanged:
-                if self._point_cache is not None:
-                    self._point_cache.bind_data(axes, self._point_collections_factory(axes, cell, settings, render_data))
-                if (row, column) in self._preview_pins:
-                    retained_pins[(row, column)] = self._preview_pins[(row, column)]
-            else:
-                if axes is None:
-                    axes = figure.add_axes(rect)
+            left_in, bottom_in, width_in, height_in, plot_settings = page.plots[row, column]
+            rect = [left_in / figure_width_in, bottom_in / figure_height_in,
+                    width_in / figure_width_in, height_in / figure_height_in]
+            if not cell.reserved_only:
+                key = self._preview_cell_key(cell, plot_settings) if self._reuse_page else None
+                axes = old_axes.get((row, column)) if reuse_axes else None
+                unchanged = axes is not None and key is not None and key == self._preview_cells.get((row, column))
+                if unchanged:
+                    if self._point_cache is not None:
+                        self._point_cache.bind_data(axes, self._point_collections_factory(axes, cell, plot_settings, render_data))
+                    if (row, column) in self._preview_pins:
+                        retained_pins[(row, column)] = self._preview_pins[(row, column)]
                 else:
-                    axes.clear()
-                axes.set_label(f"plot:{row},{column}")
-                cell_pin_specs = self._render_plot_cell(axes, cell, settings, render_data=render_data)
-                if cell_pin_specs:
-                    pin_specs[(row, column)] = cell_pin_specs
-            next_cells[(row, column)] = key
+                    if axes is None:
+                        axes = figure.add_axes(rect)
+                    else:
+                        axes.clear()
+                    axes.set_label(f"plot:{row},{column}")
+                    cell_pin_specs = self._render_plot_cell(axes, cell, plot_settings, render_data=render_data)
+                    if cell_pin_specs:
+                        pin_specs[(row, column)] = cell_pin_specs
+                next_cells[(row, column)] = key
             left_px = int(round(rect[0] * canvas_width_px))
             right_px = int(round((rect[0] + rect[2]) * canvas_width_px))
             bottom_px = int(round(rect[1] * canvas_height_px))
@@ -334,12 +283,14 @@ class FigureMatplotlibRenderer:
             composition,
             plot_rects,
             canvas_size_px=(canvas_width_px, canvas_height_px),
+            plot_settings={key: value[4] for key, value in page.plots.items()},
         )
         for element_id, (element, legend, width_in, height_in) in legends.items():
-            x, y = legend_rects[element_id]
-            origin_x, origin_y = plot_origins[element.source_cell]
-            x += origin_x
-            y += origin_y
+            x, y = page.legend_origins[element_id]
+            if self._partial_page is not None:
+                legend.set_gid(element.element_id)
+                effective_settings = page.plots[element.source_cell][4] if element.source_cell is not None else settings
+                self._preview_draw_keys[element_id] = repr((effective_settings, element, self._legend_entries_for_element(element, composition)))
             legend.set_bbox_to_anchor((x / figure_width_in, y / figure_height_in), transform=figure.transFigure)
             element_rects[element_id] = (
                 round(x * dpi), round((figure_height_in - y - height_in) * dpi),
@@ -381,6 +332,7 @@ class FigureMatplotlibRenderer:
                 pin_anchor_points_px=pin_anchor_points,
                 pin_box_anchor_points_px=pin_box_anchor_points,
                 pin_geometries=pin_geometries,
+                plot_measurements={key: output_measurements(rect[4]) for key, rect in page.plots.items()},
             ),
         )
 
@@ -441,6 +393,9 @@ class FigureMatplotlibRenderer:
         edge_colors, border_width = self._point_border_from_state(cell.render_state, cell.metadata_ids, cell.metadata, settings, axes.figure.dpi)
         markers = self._point_markers_from_state(cell.render_state, cell.metadata_ids, cell.metadata)
         point_size = self._point_size_from_state(cell.render_state, settings, axes.figure.dpi)
+        scale = getattr(settings, "content_scale", 1.0)
+        point_size *= scale ** 2
+        border_width *= scale
         colors = np.asarray(colors)
         edge_colors = np.asarray(edge_colors)
         collections = []
@@ -472,12 +427,13 @@ class FigureMatplotlibRenderer:
         return FigureMatplotlibRenderer._margin_mm_to_inches(getattr(settings, "subplot_margin_mm", 0.0))
 
     def _apply_grid_mode(self, axes: Any, settings: FigurePlotSettings) -> None:
+        scale = getattr(settings, "content_scale", 1.0)
         grid_mode = str(getattr(settings, "grid_mode", "off") or "off").lower()
         if grid_mode not in {"off", "lines", "map"}:
             grid_mode = "off"
-        axis_box_line_width = max(float(getattr(settings, "axis_box_line_width", 0.0)), 0.0)
+        axis_box_line_width = max(float(getattr(settings, "axis_box_line_width", 0.0)), 0.0) * scale
         show_axis_box = axis_box_line_width > 0.0
-        grid_line_width = max(float(getattr(settings, "grid_line_width", 0.8)), 0.0)
+        grid_line_width = max(float(getattr(settings, "grid_line_width", 0.8)), 0.0) * scale
         if grid_mode == "off":
             axes.set_xticks([])
             axes.set_yticks([])
@@ -502,7 +458,7 @@ class FigureMatplotlibRenderer:
         xlim = axes.get_xlim()
         ylim = axes.get_ylim()
         cell_size_mm = self._grid_cell_size_mm(settings)
-        tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 1.0)
+        tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 0.000001) * scale
         map_labels = grid_mode == "map"
         for axis, limits, axis_mm, horizontal in (
             (axes.xaxis, xlim, self._mm_to_inches(settings.width_mm) * 25.4, True),
@@ -534,7 +490,7 @@ class FigureMatplotlibRenderer:
         axes.set_axisbelow(True)
         self._apply_axis_box(axes, visible=show_axis_box, line_width=axis_box_line_width)
         axes.grid(True, which="major", alpha=0.4, linewidth=grid_line_width)
-        tick_label_margin = max(float(getattr(settings, "tick_label_margin_pt", 0.0)), 0.0)
+        tick_label_margin = max(float(getattr(settings, "tick_label_margin_pt", 0.0)), 0.0) * scale
         axes.tick_params(
             axis="both",
             which="major",
@@ -577,13 +533,31 @@ class FigureMatplotlibRenderer:
         plot_rects: dict[tuple[int, int], tuple[int, int, int, int]],
         *,
         canvas_size_px: tuple[int, int],
+        plot_settings: dict | None = None,
     ) -> dict[str, tuple[int, int, int, int]]:
         element_rects: dict[str, tuple[int, int, int, int]] = {}
         for element in sorted(composition.figure_elements.values(), key=lambda item: item.order):
             if not element.visible or element.kind == "legend":
                 continue
             text_count = len(figure.texts)
-            rect = self._element_rect(element, plot_rects, canvas_size_px, composition.settings)
+            local_settings = (plot_settings or {}).get(element.source_cell, composition.settings)
+            element = plot_element(element, local_settings)
+            scale = getattr(local_settings, "content_scale", 1.0)
+            reference_width = None
+            rect = self._element_rect(element, plot_rects, canvas_size_px, local_settings)
+            if scale != 1.0 and element.source_cell in plot_rects:
+                x, y, width, height = plot_rects[element.source_cell]
+                reference_width = (local_settings.width_mm if element.direction in {"top", "bottom"} else local_settings.height_mm) / 25.4 * figure.dpi
+                band = self._element_band_px_for_width(element, local_settings, width_px=round(reference_width)) * scale
+                margin = self._element_margin_px(element, local_settings) * scale
+                rect = {"top": (x, y - margin - band, width, band),
+                        "bottom": (x, y + height + margin, width, band),
+                        "left": (x - margin - band, y, band, height),
+                        "right": (x + width + margin, y, band, height)}[element.direction]
+                rect = tuple(round(value) for value in rect)
+                if element.direction in {"left", "right"}:
+                    reference_width = band / scale
+                element = replace(element, font_size=element.font_size * scale)
             element_rects[element.element_id] = rect
             center_x, center_y, horizontal_alignment, vertical_alignment = self._text_anchor_for_element(
                 element,
@@ -591,7 +565,8 @@ class FigureMatplotlibRenderer:
                 canvas_size_px,
             )
             if element.kind == "caption":
-                self._render_caption_element(figure, element, rect, canvas_size_px)
+                self._render_caption_element(figure, element, rect, canvas_size_px,
+                                             wrap_width_px=reference_width, content_scale=scale)
             else:
                 figure.text(
                     center_x,
@@ -599,7 +574,7 @@ class FigureMatplotlibRenderer:
                     element.text,
                     ha=horizontal_alignment,
                     va=vertical_alignment,
-                    fontsize=max(float(element.font_size), 1.0),
+                    fontsize=max(float(element.font_size), 0.000001),
                     fontfamily=element.font_family,
                     rotation=self._text_rotation_for_element(element),
                 )
@@ -615,17 +590,20 @@ class FigureMatplotlibRenderer:
         element: FigureElement,
         rect: tuple[int, int, int, int],
         canvas_size_px: tuple[int, int],
+        *,
+        wrap_width_px: float | None = None,
+        content_scale: float = 1.0,
     ) -> None:
         x, y, width, height = rect
         alignment = str(getattr(element, "alignment", "center") or "center")
         if alignment not in {"left", "center", "right", "justify"}:
             alignment = "center"
         text_alignment = "left" if alignment == "justify" else alignment
-        font_size = max(float(element.font_size), 1.0)
+        font_size = max(float(element.font_size), 0.000001)
         lines = self._wrapped_caption_text_lines(
             self._caption_plain_text(element),
-            width,
-            font_size,
+            width if wrap_width_px is None else round(wrap_width_px),
+            font_size / content_scale,
             figure.dpi,
             element.font_family,
         )
@@ -662,7 +640,7 @@ class FigureMatplotlibRenderer:
         if not handles:
             return None
         settings = composition.settings
-        font_size = max(float(settings.legend_font_size), 1.0)
+        font_size = max(float(settings.legend_font_size), 0.000001)
         columns = min(max(int(settings.legend_columns), 1), len(labels))
         font_family = font_manager.FontProperties().get_family()[0]
         # Give each column a readable line length, allowing the page to grow when needed.
@@ -783,7 +761,7 @@ class FigureMatplotlibRenderer:
         if not text:
             return 0.0
         try:
-            prop = font_manager.FontProperties(family=font_family, size=max(float(font_size), 0.1))
+            prop = font_manager.FontProperties(family=font_family, size=max(float(font_size), 0.000001))
             width_pt, _height_pt, _descent_pt = TextToPath().get_text_width_height_descent(
                 str(text),
                 prop,
@@ -791,7 +769,7 @@ class FigureMatplotlibRenderer:
             )
             return max((float(width_pt) * max(float(dpi), 1.0)) / 72.0, 0.0)
         except Exception:
-            return len(str(text)) * max(float(font_size), 0.1) * 0.52 * max(float(dpi), 1.0) / 72.0
+            return len(str(text)) * max(float(font_size), 0.000001) * 0.52 * max(float(dpi), 1.0) / 72.0
 
     @classmethod
     def _justified_caption_text_lines(
@@ -825,7 +803,7 @@ class FigureMatplotlibRenderer:
     @staticmethod
     def _caption_line_height_px_for_font_size(font_size: float, element: FigureElement, dpi: float) -> float:
         line_spacing = max(float(getattr(element, "line_spacing", 1.25)), 0.1)
-        return max(float(font_size), 0.1) * line_spacing * max(float(dpi), 1.0) / 72.0
+        return max(float(font_size), 0.000001) * line_spacing * max(float(dpi), 1.0) / 72.0
 
     @staticmethod
     def _text_anchor_for_element(
@@ -955,7 +933,7 @@ class FigureMatplotlibRenderer:
         grid_mode = str(getattr(settings, "grid_mode", "off") or "off").lower()
         if grid_mode != "map":
             return {"top": 0.0, "left": 0.0, "right": 0.0, "bottom": 0.0}
-        tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 1.0)
+        tick_label_size = max(float(getattr(settings, "tick_label_size", 10)), 0.000001)
         tick_label_margin = max(float(getattr(settings, "tick_label_margin_pt", 0.0)), 0.0)
         height_mm = self._mm_to_inches(settings.height_mm) * 25.4
         row_count = self._grid_cell_count(height_mm, self._grid_cell_size_mm(settings))
@@ -1001,7 +979,7 @@ class FigureMatplotlibRenderer:
     @staticmethod
     def _element_band_inches(element: FigureElement, settings: FigurePlotSettings) -> float:
         if element.kind in {"main_title", "plot_title"}:
-            return max(float(element.font_size), 1.0) / 72.0
+            return max(float(element.font_size), 0.000001) / 72.0
         return FigureMatplotlibRenderer._ELEMENT_BAND_MM / 25.4
 
     @staticmethod
@@ -1014,7 +992,7 @@ class FigureMatplotlibRenderer:
         if element.kind != "caption":
             return FigureMatplotlibRenderer._element_band_px(element, settings)
         dpi = max(float(settings.export_dpi), 1.0)
-        base_font_size = max(float(element.font_size), 1.0)
+        base_font_size = max(float(element.font_size), 0.000001)
         base_width_px = max(int(round(float(width_px))), 1)
         line_count = FigureMatplotlibRenderer._caption_line_count(element, base_width_px, dpi, font_size=base_font_size)
         height_px = line_count * FigureMatplotlibRenderer._caption_line_height_px_for_font_size(base_font_size, element, dpi)
@@ -1032,7 +1010,7 @@ class FigureMatplotlibRenderer:
         dpi = max(float(settings.export_dpi), 1.0)
         base_width_in = max(float(width_in), 0.01)
         base_width_px = max(int(round(base_width_in * dpi)), 1)
-        base_font_size = max(float(element.font_size), 1.0)
+        base_font_size = max(float(element.font_size), 0.000001)
         line_count = FigureMatplotlibRenderer._caption_line_count(element, base_width_px, dpi, font_size=base_font_size)
         base_height_px = line_count * FigureMatplotlibRenderer._caption_line_height_px_for_font_size(base_font_size, element, dpi)
         return max(base_height_px / dpi, 1.0 / dpi)
@@ -1058,7 +1036,7 @@ class FigureMatplotlibRenderer:
         composition: FigureComposition,
     ) -> tuple[list[Line2D], list[str]]:
         entries = self._legend_entries_for_element(element, composition)
-        marker_size = max(float(getattr(composition.settings, "legend_marker_size", 8.0)), 0.1)
+        marker_size = max(float(getattr(composition.settings, "legend_marker_size", 8.0)), 0.000001)
         handles = [
             Line2D(
                 [0],
@@ -1068,7 +1046,7 @@ class FigureMatplotlibRenderer:
                 label=entry.label,
                 markerfacecolor=entry.face_color,
                 markeredgecolor=entry.edge_color,
-                markeredgewidth=max(float(entry.edge_width), 0.0),
+                markeredgewidth=max(float(entry.edge_width), 0.0) * getattr(composition.settings, "content_scale", 1.0),
                 markersize=marker_size,
             )
             for entry in entries
@@ -1170,7 +1148,7 @@ class FigureMatplotlibRenderer:
 
     @staticmethod
     def _mm_to_inches(value_mm: float) -> float:
-        return max(float(value_mm), 0.1) / 25.4
+        return max(float(value_mm), 0.000001) / 25.4
 
     @staticmethod
     def _margin_mm_to_inches(value_mm: float) -> float:
@@ -1184,7 +1162,7 @@ class FigureMatplotlibRenderer:
     @staticmethod
     def _grid_cell_size_mm(settings: FigurePlotSettings) -> float:
         size = settings.grid_cell_size_mm
-        return min(max(size, 0.5), 1000.0) if math.isfinite(size) else 10.0
+        return min(max(size, 0.001), 100000.0) if math.isfinite(size) else 10.0
 
     @staticmethod
     def _index_to_alpha_label(index: int) -> str:
@@ -1401,6 +1379,7 @@ class FigureMatplotlibRenderer:
             if point is None or offset is None or not all(math.isfinite(value) for value in (*point, *offset)):
                 continue
             annotation_id = str(annotation.get("annotation_id") or "").strip()
+            offset = tuple(value * getattr(settings, "content_scale", 1.0) for value in offset)
             box_anchor = self._box_anchor_data_for_pin(axes, annotation, point=point, offset=offset)
             if not annotation_id or box_anchor is None:
                 continue
@@ -1443,12 +1422,12 @@ class FigureMatplotlibRenderer:
         box_alignment = (0.0, 1.0)
         connector_visible = bool(style.get("connector_visible", True))
         connector_color = str(style.get("connector_color") or "#333333")
-        connector_width = pixels_to_points(self._clamped_float(style.get("connector_width", 1.5), 0.0, 100.0, 1.5), dpi)
+        connector_width = pixels_to_points(self._clamped_float(style.get("connector_width", 1.5), 0.0, 1000000.0, 1.5), dpi) * getattr(settings, "content_scale", 1.0)
         if box is not None:
             box_visible = bool(style.get("box_visible", True))
             box_alpha = self._clamped_float(style.get("box_opacity", 0.96), 0.0, 1.0, 0.96) if box_visible else 0.0
             border_width = (
-                pixels_to_points(self._clamped_float(style.get("border_width", 1.0), 0.0, 100.0, 1.0), dpi)
+                pixels_to_points(self._clamped_float(style.get("border_width", 1.0), 0.0, 100.0, 1.0), dpi) * getattr(settings, "content_scale", 1.0)
                 if box_visible
                 else 0.0
             )
@@ -1461,6 +1440,7 @@ class FigureMatplotlibRenderer:
                 box_alignment=box_alignment,
                 frameon=box_visible,
                 pad=0.35,
+                fontsize=10.0 * getattr(settings, "content_scale", 1.0),
                 bboxprops={
                     "facecolor": str(style.get("box_color") or "#f0f0f0"),
                     "edgecolor": str(style.get("border_color") or "#666666"),
@@ -1528,7 +1508,7 @@ class FigureMatplotlibRenderer:
         if len(pieces) == 1:
             return pieces[0]
         position = str(style.get("thumbnail_position") or "left").lower()
-        gap = pixels_to_points(6.0, dpi)
+        gap = pixels_to_points(6.0, dpi) * getattr(settings, "content_scale", 1.0)
         if position == "right":
             return HPacker(children=[text_box, thumbnail], align="top", pad=0, sep=gap)
         if position == "top":
@@ -1560,7 +1540,7 @@ class FigureMatplotlibRenderer:
         thumbnail_size = self._scaled_pin_thumbnail_size_px(axes, style, settings)
         height = float(getattr(image, "shape", [thumbnail_size])[0] or thumbnail_size)
         width = float(getattr(image, "shape", [thumbnail_size, thumbnail_size])[1] or thumbnail_size)
-        zoom = min(thumbnail_size / max(height, width, 1.0), 1.0)
+        zoom = min(thumbnail_size / max(height, width, 1.0), getattr(settings, "content_scale", 1.0))
         imagebox = OffsetImage(image, zoom=zoom)
         return imagebox
 
@@ -1568,15 +1548,17 @@ class FigureMatplotlibRenderer:
         base_size = self._clamped_float(style.get("thumbnail_size", 96), 1.0, 1000.0, 96.0)
         base_size *= self._clamped_float(style.get("size_scale", 1.0), 0.05, 6.0, 1.0)
         axes_width_px, axes_height_px = self._axes_size_px(axes)
-        max_size = max(min(axes_width_px, axes_height_px) * 0.32, 1.0)
-        return min(base_size, max_size)
+        scale = getattr(settings, "content_scale", 1.0)
+        max_size = max(min(axes_width_px, axes_height_px) / scale * 0.32, 1.0)
+        return min(base_size, max_size) * scale
 
     def _scaled_pin_font_size(self, axes: Any, style: dict[str, Any], settings: FigurePlotSettings) -> float:
         base_size = self._clamped_float(style.get("font_size", 11), 1.0, 200.0, 11.0)
         base_size *= self._clamped_float(style.get("size_scale", 1.0), 0.05, 6.0, 1.0)
         axes_width_px, axes_height_px = self._axes_size_px(axes)
-        scale = min(max(min(axes_width_px, axes_height_px) / 220.0, 0.55), 1.0)
-        return max(base_size * scale, 5.0)
+        content_scale = getattr(settings, "content_scale", 1.0)
+        scale = min(max(min(axes_width_px, axes_height_px) / content_scale / 220.0, 0.55), 1.0)
+        return max(base_size * scale, 5.0) * content_scale
 
     def _pin_geometries_from_artists(
         self,
@@ -1644,9 +1626,9 @@ class FigureMatplotlibRenderer:
                     connector_end_px=connector_end,
                     connector_color=str(style.get("connector_color") or "#333333"),
                     connector_width=pixels_to_points(
-                        self._clamped_float(style.get("connector_width", 1.5), 0.0, 100.0, 1.5),
+                        self._clamped_float(style.get("connector_width", 1.5), 0.0, 1000000.0, 1.5),
                         max(float(settings.export_dpi), 1.0),
-                    ),
+                    ) * getattr(settings, "content_scale", 1.0),
                     xlim=(float(xlim[0]), float(xlim[1])),
                     ylim=(float(ylim[0]), float(ylim[1])),
                 )

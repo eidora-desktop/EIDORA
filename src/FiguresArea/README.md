@@ -21,6 +21,67 @@ frame exports, so each frame uses its own axis bounds rather than a previous fra
 
 Export formats must also pass the packaged application self-test.
 
+New figures use the pixel profiles in `template_settings.py`:
+
+| Starting value (px) | Journal | Presentation | Animation |
+| --- | ---: | ---: | ---: |
+| Page | 1600 × 1200 | 1920 × 1080 | 800 × 600 |
+| Outer margin | 40 | 48 | 24 |
+| Plot spacing | 32 | 40 | 20 |
+| Main title | 48 | 56 | 28 |
+| Plot titles | 32 | 36 | 22 |
+| Legend/grid labels | 24 | 28 | 18 |
+| Captions | 22 | 24 | 16 |
+| Grid line width | 1 | 1.5 | 1 |
+
+Each starts with one cell, no visible titles, captions, legend, grid or axis box,
+and no extra point scaling applied to imported snapshots. The initial plot design
+fills the area inside the margins at scale 1; subsequent layout changes retain
+proportional scaling. Animation retains 150 ms frames and looping playback.
+`default_plot_settings` applies only to new figures. Repository loading uses
+`saved_plot_defaults`, whose historical fallback values must remain unchanged so
+older documents and partial presets do not inherit the new starting profile.
+
+Width and height specify the final exported pixel dimensions, including margins and figure
+elements. `page_layout.py` measures decorations before fitting each plot into
+the reserved rows and columns. Empty cells retain their space. Each plot keeps
+its initial design dimensions and aspect ratio; points, borders, grid labels,
+pins, local titles, captions and legends scale with it. Figure-level text and
+shared legends retain their chosen pixel sizes. Excess space stays blank;
+plots are never stretched or cropped to fill a cell. A page too small for its
+fixed margins or shared decorations reports a layout error rather than growing.
+
+State version 7 converts older per-plot dimensions to their measured final page
+size without loading point datasets. The conversion retains the original plot
+dimensions and measured decoration bands, preserving saved appearance. Editing
+those decorations replaces their inherited spacing constraints. Preview and
+vector/raster export use the same page geometry; rendering never writes scaled
+font or marker sizes back into the document.
+
+Legacy animation conversion waits for the selected frame to load successfully,
+so its actual legend and title determine the saved page dimensions. Pending or
+failed loads retain the legacy settings. Missing cells in a legacy grid persist
+as `reserved_only` gaps: they accept plot drops but draw no axes or generated
+annotations until populated.
+
+The settings panel displays actual output pixels for every dimension, margin,
+font and line width, with no resolution control or unit selector. Page dimensions
+are whole pixels; other measurements allow fractional pixels. Values adapt when
+the page or reserved grid changes. Select All plots or one plot in the Measurements
+selector; differing output sizes display as Mixed. Entering a value sets that
+pixel size in the current layout, and later layout edits scale it proportionally.
+Figure-level sizes remain fixed. Display rounding never rewrites saved values.
+SVG files declare the same pixel width and height as raster exports.
+
+`measurements.py` converts between output pixels and the established internal
+mm/point rendering contract. The saved resolution stays internal to preserve
+existing compositions, font metrics and vector output. `page_inches_for_pixels`
+protects integer pixel requests from floating-point truncation in Agg. The worker
+resolves size edits using only text and style data. Per-cell design overrides
+retain full precision and travel with compositions, presets and animation settings.
+Results apply only to the unchanged target revision. Older presets with pending
+mm/point edits convert to pixels without rounding their requested values.
+
 Large static previews render in one persistent spawned Agg process per Figures
 workspace. The GUI keeps the last image visible while a latest-only coordinator
 prepares the next revision. `render_scheduler.py` keeps one render lane and at most
@@ -134,7 +195,7 @@ legends and pin geometry still come from the authoritative Matplotlib renderer.
 Previews keep the same resolution and point population as before. Exports bypass
 the point cache and retain their requested DPI and vector point artists.
 
-Figure state version 6 keeps large coordinate/ID arrays and frozen metadata in
+Figure state version 7 keeps large coordinate/ID arrays and frozen metadata in
 content-addressed NPZ artifacts under `state/figure_data/`. Documents reference
 these project-owned artifacts using portable paths. `compact_metadata.py` stores
 metadata in lossless dictionary-encoded columns with separate codes, UTF-8 JSON

@@ -294,6 +294,32 @@ class AnimationTabController(QtCore.QObject):
     def deactivate(self) -> None:
         self._plot.deactivate()
 
+    @property
+    def measurements_changed(self):
+        return self._plot.measurements_changed
+
+    @property
+    def measurement_revision(self):
+        return self._plot.measurement_revision
+
+    def figure_measurements(self):
+        return self._plot.figure_measurements()
+
+    def figure_size_overrides(self):
+        return self._plot.figure_size_overrides()
+
+    def restore_size_overrides(self, payload):
+        self._plot.restore_size_overrides(payload)
+
+    def prepare_measurement_edit(self, values, selected_cell=None):
+        self._pause()
+        return self._plot.prepare_measurement_edit(values, selected_cell)
+
+    def apply_measurement_overrides(self, overrides):
+        self._plot.apply_measurement_overrides(overrides)
+        self._state.thumbnails_dirty = True
+        self._update_control_states()
+
     def figure_settings(self) -> FigurePlotSettings:
         return self._plot.figure_settings()
 
@@ -304,7 +330,7 @@ class AnimationTabController(QtCore.QObject):
         progress_callback: Callable[[str, int], None] | None = None,
     ) -> None:
         self._plot.apply_figure_settings(
-            settings, progress_callback=progress_callback
+            settings, progress_callback=progress_callback, defer_legacy_migration=settings.layout_version < 2
         )
 
     def export_figure(
@@ -648,6 +674,7 @@ class AnimationTabController(QtCore.QObject):
 
     def animation_state_payload(self) -> dict[str, Any]:
         return {
+            "plot_sizes": self.figure_size_overrides(),
             "frames": [self._frame_payload(frame) for frame in self._state.frames],
             "base_snapshot_path": (
                 self._stored_path(self._state.base_snapshot_path)
@@ -675,6 +702,7 @@ class AnimationTabController(QtCore.QObject):
         missing_base_snapshot = False
         try:
             self._pause()
+            self.restore_size_overrides(payload.get("plot_sizes"))
             self._cancel_thumbnail_generation()
             self._reset_preview_cache()
             self._list.clear()
@@ -1244,7 +1272,7 @@ class AnimationTabController(QtCore.QObject):
             directory.cleanup()
             raise
 
-    def _thumbnail_template(self) -> tuple[FigurePlotSettings, dict[str, FigureElement]]:
+    def _thumbnail_template(self) -> tuple:
         # Capture only small page settings/elements, never point or metadata arrays.
         # Automatic plot titles are resolved separately for each exported frame;
         # selecting another timeline item must not invalidate an entire refresh.
@@ -1252,7 +1280,7 @@ class AnimationTabController(QtCore.QObject):
             key: replace(element, text="" if key == "plot_title_settings_0_0" and element.auto_text else element.text)
             for key, element in self._plot.figure_composition().figure_elements.items()
         }
-        return self.figure_settings(), elements
+        return self.figure_settings(), elements, self.figure_size_overrides()
 
     def _finish_thumbnail_generation(self) -> None:
         self._thumbnail_batch_template = None
