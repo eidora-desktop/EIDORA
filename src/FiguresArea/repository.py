@@ -91,7 +91,7 @@ class FigureTabsRepository:
         return records, index
 
     def remove_unused_data(self) -> None:
-        """Run only after readers/writers stop; closed figures remain referenced."""
+        """Remove unreferenced owned data only after all readers/writers stop."""
         if not self._path.exists() or not self.data.root.exists():
             return
         raw = json_store.read_json(self._path)

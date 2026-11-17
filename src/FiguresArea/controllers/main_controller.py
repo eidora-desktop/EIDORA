@@ -44,7 +44,6 @@ class FiguresAreaController:
         self._plot_tabs: dict[
             QtWidgets.QWidget, PlotTabController | AnimationTabController
         ] = {}
-        self._closed_figure_tabs: list[dict[str, object]] = []
         self._restoring_project_state = False
         self._restored_project_root: Path | None = None
         self._work_service: FigureWorkService | None = None
@@ -165,7 +164,10 @@ class FiguresAreaController:
     def _configure_figure_tabs(self) -> None:
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
         tabs.setTabsClosable(True)
-        tabs.tabCloseRequested.connect(self._close_figure_tab)
+        tabs.tabCloseRequested.connect(self._delete_figure_tab)
+        tabs.tabBarDoubleClicked.connect(self._rename_figure_tab)
+        tabs.tabBar().setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        tabs.tabBar().customContextMenuRequested.connect(self._show_figure_tab_menu)
         tabs.currentChanged.connect(lambda _index: self._sync_settings_panel_with_current_tab())
         self._hide_add_tab_close_button(tabs)
 
@@ -277,7 +279,64 @@ class FiguresAreaController:
         self._sync_settings_panel_with_current_tab()
         self._save_project_tab_state(wait=False)
 
-    def _close_figure_tab(self, index: int) -> None:
+    def _show_figure_tab_menu(self, position: QtCore.QPoint) -> None:
+        tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
+        tab_bar = tabs.tabBar()
+        page = tabs.widget(tab_bar.tabAt(position))
+        if page not in self._plot_tabs:
+            return
+        menu = QtWidgets.QMenu()
+        rename_action = menu.addAction("Rename…")
+        chosen = menu.exec(tab_bar.mapToGlobal(position))
+        if chosen is rename_action and not self._disposed and page in self._plot_tabs:
+            self._rename_figure_tab(tabs.indexOf(page))
+
+    def _rename_figure_tab(self, index: int) -> None:
+        tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
+        page = tabs.widget(index)
+        if self._disposed or page not in self._plot_tabs:
+            return
+        dialog = QtWidgets.QInputDialog()
+        dialog.setWindowTitle("Rename Figure")
+        dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        dialog.setLabelText("Figure name:")
+        dialog.setTextValue(tabs.tabText(index))
+        dialog.setOkButtonText("Rename")
+        if dialog.exec() != QtWidgets.QDialog.DialogCode.Accepted:
+            return
+        if self._disposed or page not in self._plot_tabs:
+            return
+        title = dialog.textValue().strip()
+        if not title:
+            self._show_status("Figure name cannot be empty.")
+            return
+        index = tabs.indexOf(page)
+        if title == tabs.tabText(index):
+            return
+        tabs.setTabText(index, title)
+        page.setProperty("figureTitle", title)
+        self._hide_add_tab_close_button(tabs)
+        self._save_project_tab_state(wait=False)
+
+    def _confirm_delete_figure(self, title: str) -> bool:
+        dialog = QtWidgets.QMessageBox()
+        dialog.setWindowTitle("Delete Figure")
+        dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        dialog.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        dialog.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        dialog.setText(f'Delete “{title}” from this project?')
+        dialog.setInformativeText(
+            "This permanently deletes the figure and its saved settings. This cannot be undone.\n\n"
+            "Source snapshots, project data and exported files will be kept."
+        )
+        delete_button = dialog.addButton("Delete Figure", QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = dialog.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+        dialog.setDefaultButton(cancel_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec()
+        return dialog.clickedButton() is delete_button
+
+    def _delete_figure_tab(self, index: int) -> None:
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
         if index < 0 or index >= tabs.count():
             return
@@ -285,9 +344,12 @@ class FiguresAreaController:
         if page is None or page.objectName() == "page_add_figure":
             self._hide_add_tab_close_button(tabs)
             return
-        record = self._figure_tab_record(tabs, index)
-        if record is not None:
-            self._closed_figure_tabs.append(record)
+        if not self._confirm_delete_figure(tabs.tabText(index)):
+            return
+        # The modal event loop may have processed a project change or shutdown.
+        if self._disposed or page not in self._plot_tabs:
+            return
+        index = tabs.indexOf(page)
         tabs.removeTab(index)
         plot = self._plot_tabs.pop(page, None)
         shutdown = getattr(plot, "shutdown", None)
@@ -310,7 +372,6 @@ class FiguresAreaController:
                 tabs.removeTab(index)
             page.deleteLater()
         self._plot_tabs.clear()
-        self._closed_figure_tabs.clear()
         self._hide_add_tab_close_button(tabs)
 
     def _save_project_tab_state(self, *, wait: bool = True) -> None:
@@ -334,8 +395,6 @@ class FiguresAreaController:
             record = self._figure_tab_record(tabs, index)
             if record is not None:
                 payload.append(record)
-        # A closed view remains a project document and is restored on reopening.
-        payload.extend(self._closed_figure_tabs)
         try:
             if self._save_future is not None:
                 self._save_future.cancel()
@@ -449,20 +508,26 @@ class FiguresAreaController:
 
     @staticmethod
     def _hide_add_tab_close_button(tabs: QtWidgets.QTabWidget) -> None:
+        tab_bar = tabs.tabBar()
         for index in range(tabs.count()):
-            if tabs.widget(index).objectName() != "page_add_figure":
-                continue
-            tab_bar = tabs.tabBar()
-            tab_bar.setTabButton(index, QtWidgets.QTabBar.ButtonPosition.LeftSide, None)
-            tab_bar.setTabButton(index, QtWidgets.QTabBar.ButtonPosition.RightSide, None)
-            break
+            for side in (QtWidgets.QTabBar.ButtonPosition.LeftSide, QtWidgets.QTabBar.ButtonPosition.RightSide):
+                if tabs.widget(index).objectName() == "page_add_figure":
+                    tab_bar.setTabButton(index, side, None)
+                else:
+                    button = tab_bar.tabButton(index, side)
+                    if button is not None:
+                        button.setToolTip("Delete Figure…")
+                        button.setAccessibleName(f"Delete Figure: {tabs.tabText(index)}")
 
     def _next_figure_number(self, tabs: QtWidgets.QTabWidget) -> int:
         count = 0
         for index in range(tabs.count()):
             if tabs.widget(index).objectName() != "page_add_figure":
                 count += 1
-        return count + len(self._closed_figure_tabs) + 1
+        number = count + 1
+        while any(tabs.tabText(index).endswith(f" {number}") for index in range(tabs.count())):
+            number += 1
+        return number
 
     def _show_status(self, message: str) -> None:
         if self._status_callback is not None:

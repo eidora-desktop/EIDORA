@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Rename static and animation tabs through their right-click menu or by double-clicking the tab label. Save names automatically and use them for export filename suggestions.
+
+- Treat static and animation tabs as the saved figure collection. The × button now confirms permanent deletion with Cancel selected by default; remaining figures continue to autosave and reopen with the project.
+
 - Preserve legacy animation dimensions after loading the selected frame and keep gaps in saved plot grids blank. Refresh local legend changes in partial previews and update grid controls after adjacent plot insertion without discarding pending edits.
 
 - Start new Journal figures at 1600 × 1200 px, Presentation figures at 1920 × 1080 px, and Animation figures at 800 × 600 px, with coordinated margins, spacing and text sizes. Preserve snapshot point sizing and all existing saved settings, including legacy fallback values.

@@ -3,9 +3,13 @@
 `domain.py` defines compositions, settings and animation frames. `renderer.py`
 builds Matplotlib figures. `animation_service.py` owns sequencing/playback rules;
 `animation_export_service.py` stages GIF output and `animation_gif_worker.py`
-encodes it in an isolated process. `repository.py` persists compositions and settings. Closing a figure hides its
-view; saved figures reopen when the project is reopened. Static exports
+encodes it in an isolated process. `repository.py` automatically persists compositions and settings. Tabs are the project
+figure collection, including animations. The × button asks for confirmation before
+permanently deleting a figure; Cancel leaves it intact. Remaining figures reopen
+with the project. Source snapshots and exported files are not deleted. Static exports
 are staged beside the destination and replace it only after a successful write.
+Right-click a figure tab and choose **Rename…**, or double-click its label, to
+rename it. Names autosave with the project and supply export filename suggestions.
 
 [Controllers](controllers/README.md) compose snapshots and bind Designer forms.
 Keep per-frame plot overrides consistent across preview, thumbnails and export.
@@ -242,7 +246,7 @@ with the previous copied-image path in separate processes.
 
 Old state versions remain readable. Large inline documents are migrated in the
 worker, publishing all datasets before atomically replacing the state manifest.
-Closed views still retain their saved documents. Shutdown flushes pending saves,
+Confirmed deletion removes the document from the next autosave. Shutdown flushes pending saves,
 stops workers, and only then removes unreferenced owned data artifacts; corrupt
 or unrecognized manifests do not trigger cleanup.
 

@@ -149,5 +149,8 @@ Matching data is shared between plot cells. These artifacts belong to the projec
 not a disposable global cache, and travel with project relocation and bundles.
 Small datasets remain inline. Older state versions remain readable and large
 inline data migrates atomically before the compact manifest is published.
-Closing a tab preserves its document. Unreferenced generated figure data is
+Tabs are the saved figure collection, including animations. The × button deletes
+the document after confirmation; remaining tabs autosave and reopen with the project.
+Existing saved records load directly as tabs. Source snapshots and exports remain
+untouched. Unreferenced generated figure data is
 removed only after all workspace readers and writers stop, with a valid manifest.
