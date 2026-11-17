@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
+import json
 import math
 from pathlib import Path
 import re
@@ -26,7 +28,7 @@ from matplotlib.colors import to_rgba
 from matplotlib.figure import Figure
 from matplotlib import font_manager
 from matplotlib import image as mpimg
-from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.backends.backend_agg import FigureCanvasAgg, RendererAgg
 from matplotlib.legend import Legend
 from matplotlib.lines import Line2D
 from matplotlib.offsetbox import AnnotationBbox, HPacker, OffsetImage, TextArea, VPacker
@@ -34,6 +36,7 @@ from matplotlib.ticker import FixedFormatter, FixedLocator, NullFormatter
 from matplotlib.textpath import TextToPath
 
 from FiguresArea.appearance_units import diameter_pixels_to_matplotlib_area, pixels_to_points, signed_percent_to_scale
+from FiguresArea.compact_metadata import CompactMetadata
 from FiguresArea.domain import FigureComposition, FigureElement, FigurePlotSettings, PlotCell
 
 
@@ -91,6 +94,75 @@ class FigureMatplotlibRenderer:
 
     _ELEMENT_BAND_MM = 12.0
 
+    def __init__(self, *, point_cache=None, reuse_page: bool = False, partial_draw: bool = True) -> None:
+        # Preview-only cache. Exports always construct ordinary vector artists.
+        self._point_cache = point_cache
+        from FiguresArea.data_repository import FigureDataCache
+        self._data_cache = FigureDataCache()
+        self._dataset_summaries = OrderedDict()
+        self._reuse_page = reuse_page
+        self._preview_figure = None
+        self._preview_layout = None
+        self._preview_cells = {}
+        self._preview_pins = {}
+        from FiguresArea.partial_page import PartialPage
+        self._partial_page = PartialPage() if reuse_page and partial_draw else None
+        self._preview_draw_keys = {}
+
+    def discard_preview(self) -> None:
+        """Retire the sole retained page, including partially built requests."""
+        if self._preview_figure is not None:
+            self._preview_figure.clear()
+        self._preview_figure = None
+        self._preview_layout = None
+        self._preview_cells.clear()
+        self._preview_pins.clear()
+        self._preview_draw_keys.clear()
+        if self._partial_page is not None:
+            self._partial_page.clear()
+
+    def draw_preview(self, result):
+        figure = result.figure
+        if self._partial_page is None:
+            figure.canvas.draw()
+            return {'partial': False, 'groups': len(figure.axes) + len(figure.texts) + len(figure.legends),
+                    'pixels': math.prod(result.layout_map.canvas_size_px)}
+        groups = []
+        for axes in figure.axes:
+            cell = self._axes_cell_from_label(axes.get_label())
+            signature = self._preview_cells.get(cell)
+            groups.append((('plot', cell), signature if signature is not None else object(), axes))
+        for artist in list(figure.texts) + list(figure.legends):
+            key = artist.get_gid()
+            groups.append((('element', key), self._preview_draw_keys.get(key, object()), artist))
+        return self._partial_page.draw(figure, self._preview_layout, groups)
+
+    def finish_preview(self) -> None:
+        """Keep artists/pixels, but release per-draw decoded data and callbacks."""
+        if self._preview_figure is not None and self._point_cache is not None:
+            for axes in self._preview_figure.axes:
+                self._point_cache.release_data(axes)
+
+    @staticmethod
+    def _preview_cell_key(cell, settings):
+        identity = cell.data_ref or cell.data_key
+        if not identity:
+            return None  # Mutable/unidentified data must be rendered again.
+        thumbnails = []
+        pinboard = FigureMatplotlibRenderer._safe_dict(cell.render_state.get("pinboard"))
+        annotations = pinboard.get("annotations")
+        for pin in annotations if isinstance(annotations, list) else []:
+            if not isinstance(pin, dict):
+                continue
+            path = str(pin.get("thumbnail_path") or "").strip()
+            if path:
+                try:
+                    stat = Path(path).stat()
+                    thumbnails.append((path, stat.st_mtime_ns, stat.st_size))
+                except OSError:
+                    thumbnails.append((path, None, None))
+        return (identity, settings, json.dumps(cell.render_state, sort_keys=True), tuple(thumbnails))
+
     def export(
         self,
         composition: FigureComposition,
@@ -98,6 +170,10 @@ class FigureMatplotlibRenderer:
         *,
         progress_callback: Callable[[str, int], None] | None = None,
     ) -> None:
+        if self._reuse_page or self._point_cache is not None:
+            # Preview artists contain Agg regions; exports must be fresh vectors.
+            FigureMatplotlibRenderer().export(composition, path, progress_callback=progress_callback)
+            return
         if progress_callback is not None:
             progress_callback("Building figure for export…", 10)
         figure = self.build(composition).figure
@@ -113,12 +189,16 @@ class FigureMatplotlibRenderer:
                 staged.replace(path)
         finally:
             figure.clear()
+            self._data_cache.trim()
         if progress_callback is not None:
             progress_callback("Figure export complete", 100)
 
     def build(self, composition: FigureComposition) -> FigureRenderResult:
         settings = composition.settings
+        self._preview_draw_keys = {}
         cells = composition.plot_cells or {(0, 0): PlotCell(row=0, column=0)}
+        # Shared for the lifetime of this figure, including deferred Agg draws.
+        render_data = {}
         min_row, max_row, min_column, max_column = self._bounds(cells)
         rows = max_row - min_row + 1
         columns = max_column - min_column + 1
@@ -132,8 +212,19 @@ class FigureMatplotlibRenderer:
         axis_bands_in = self._axis_decoration_bands_inches(settings)
         cell_bands_in = {side: band + axis_bands_in[side] for side, band in cell_element_bands_in.items()}
         dpi = max(int(settings.export_dpi), 36)
-        figure = Figure(figsize=(1 / dpi, 1 / dpi), dpi=dpi)
-        legend_renderer = FigureCanvasAgg(figure).get_renderer()
+        figure = self._preview_figure if self._reuse_page else None
+        if figure is None:
+            figure = Figure(figsize=(1 / dpi, 1 / dpi), dpi=dpi)
+            FigureCanvasAgg(figure)
+            if self._reuse_page:
+                self._preview_figure = figure
+        else:
+            for artist in list(figure.texts) + list(figure.legends) + list(figure.artists):
+                artist.remove()
+            figure.set_dpi(dpi)
+        # Text metrics do not require allocating an Agg buffer for the old page
+        # at a potentially new DPI. Use a tiny measurement surface.
+        legend_renderer = RendererAgg(1, 1, dpi)
         legends = {}
         for element in composition.figure_elements.values():
             if not element.visible or element.kind != "legend":
@@ -143,6 +234,9 @@ class FigureMatplotlibRenderer:
             width_in = subplot_width_in if element.source_cell is not None else columns * subplot_width_in
             legend = self._create_legend(figure, element, composition, width_in)
             if legend is not None:
+                if self._partial_page is not None:
+                    legend.set_gid(element.element_id)
+                    self._preview_draw_keys[element.element_id] = repr((settings, element, self._legend_entries_for_element(element, composition)))
                 bbox = legend.get_window_extent(legend_renderer)
                 legends[element.element_id] = (element, legend, bbox.width / dpi, bbox.height / dpi)
         local_legends = [entry for entry in legends.values() if entry[0].source_cell is not None]
@@ -174,6 +268,18 @@ class FigureMatplotlibRenderer:
         }
         figure_width_in = grid_width_in + margins_in["left"] + margins_in["right"]
         figure_height_in = grid_height_in + margins_in["top"] + margins_in["bottom"]
+        layout_key = (dpi, figure_width_in, figure_height_in, tuple(sorted(cells)),
+                      tuple(margins_in.items()), tuple(cell_bands_in.items()),
+                      subplot_width_in, subplot_height_in, subplot_gap_in)
+        reuse_axes = self._reuse_page and layout_key == self._preview_layout
+        if self._reuse_page and not reuse_axes:
+            for axes in list(figure.axes):
+                figure.delaxes(axes)
+            self._preview_cells.clear()
+            self._preview_pins.clear()
+        old_axes = {self._axes_cell_from_label(axes.get_label()): axes for axes in figure.axes}
+        next_cells = {}
+        retained_pins = {}
         figure.set_size_inches(figure_width_in, figure_height_in)
         figure.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
         canvas_width_px = max(int(figure.bbox.width), 1)
@@ -195,11 +301,24 @@ class FigureMatplotlibRenderer:
                 subplot_width_in / figure_width_in,
                 subplot_height_in / figure_height_in,
             ]
-            axes = figure.add_axes(rect)
-            axes.set_label(f"plot:{row},{column}")
-            cell_pin_specs = self._render_plot_cell(axes, cell, settings)
-            if cell_pin_specs:
-                pin_specs[(row, column)] = cell_pin_specs
+            key = self._preview_cell_key(cell, settings) if self._reuse_page else None
+            axes = old_axes.get((row, column)) if reuse_axes else None
+            unchanged = axes is not None and key is not None and key == self._preview_cells.get((row, column))
+            if unchanged:
+                if self._point_cache is not None:
+                    self._point_cache.bind_data(axes, self._point_collections_factory(axes, cell, settings, render_data))
+                if (row, column) in self._preview_pins:
+                    retained_pins[(row, column)] = self._preview_pins[(row, column)]
+            else:
+                if axes is None:
+                    axes = figure.add_axes(rect)
+                else:
+                    axes.clear()
+                axes.set_label(f"plot:{row},{column}")
+                cell_pin_specs = self._render_plot_cell(axes, cell, settings, render_data=render_data)
+                if cell_pin_specs:
+                    pin_specs[(row, column)] = cell_pin_specs
+            next_cells[(row, column)] = key
             left_px = int(round(rect[0] * canvas_width_px))
             right_px = int(round((rect[0] + rect[2]) * canvas_width_px))
             bottom_px = int(round(rect[1] * canvas_height_px))
@@ -232,6 +351,11 @@ class FigureMatplotlibRenderer:
             canvas_size_px=(canvas_width_px, canvas_height_px),
         )
         self._render_pin_connectors_from_geometry(figure, pin_geometries)
+        pin_geometries.update(retained_pins)
+        if self._reuse_page:
+            self._preview_layout = layout_key
+            self._preview_cells = next_cells
+            self._preview_pins = pin_geometries
         pin_rects = {
             cell: {annotation_id: geometry.bbox_px for annotation_id, geometry in annotations.items()}
             for cell, annotations in pin_geometries.items()
@@ -260,49 +384,88 @@ class FigureMatplotlibRenderer:
             ),
         )
 
-    def _render_plot_cell(
-        self,
-        axes: Any,
-        cell: PlotCell,
-        settings: FigurePlotSettings,
-    ) -> dict[str, dict[str, Any]]:
-        if cell.coordinates:
-            xs = [point[0] for point in cell.coordinates]
-            ys = [point[1] for point in cell.coordinates]
-            colors = self._point_colors_from_state(cell.render_state, cell.metadata_ids, cell.metadata)
-            edge_colors, border_width = self._point_border_from_state(cell.render_state, cell.metadata_ids, cell.metadata, settings, axes.figure.dpi)
-            markers = self._point_markers_from_state(cell.render_state, cell.metadata_ids, cell.metadata)
-            point_size = self._point_size_from_state(cell.render_state, settings, axes.figure.dpi)
-            if markers is None:
-                axes.scatter(
-                    xs,
-                    ys,
-                    s=point_size,
-                    c=colors,
-                    linewidths=border_width,
-                    edgecolors=edge_colors if border_width > 0 else "none",
-                )
-            else:
-                for marker in dict.fromkeys(markers):
-                    indices = [index for index, value in enumerate(markers) if value == marker]
-                    axes.scatter(
-                        [xs[index] for index in indices],
-                        [ys[index] for index in indices],
-                        s=point_size,
-                        c=[colors[index] for index in indices],
-                        marker=marker,
-                        linewidths=border_width,
-                        edgecolors=[edge_colors[index] for index in indices] if border_width > 0 else "none",
-                    )
+    def _dataset_summary(self, cell, render_data):
+        if cell.data_ref:
+            cell.data_key = cell.data_ref
+        requested_ids = set()
+        annotations = self._safe_dict(cell.render_state.get("pinboard")).get("annotations")
+        for annotation in annotations if isinstance(annotations, list) else []:
+            if isinstance(annotation, dict):
+                try:
+                    requested_ids.add(int(annotation.get("metadata_id")))
+                except (TypeError, ValueError):
+                    pass
+        identity = cell.data_ref or cell.data_key
+        key = (identity, tuple(sorted(requested_ids)))
+        summary = self._dataset_summaries.pop(key, None) if identity else None
+        if summary is None:
+            self._data_cache.hydrate(cell, render_data=render_data)
+            coordinates = np.asarray(cell.coordinates, dtype=np.float64)
+            limits = (self._axis_limits(coordinates[:, 0]), self._axis_limits(coordinates[:, 1])) if len(coordinates) else None
+            valid_ids = requested_ids.intersection(map(int, cell.metadata_ids)) if requested_ids else set()
+            summary = (limits, valid_ids)
+        if identity:
+            self._dataset_summaries[key] = summary
+            while len(self._dataset_summaries) > 256:
+                self._dataset_summaries.popitem(last=False)
+        return summary
+
+    def _render_plot_cell(self, axes, cell, settings, *, render_data=None):
+        if render_data is None:
+            render_data = {}
+        limits, pin_ids = self._dataset_summary(cell, render_data)
+        if limits is not None:
             camera = self._safe_dict(cell.render_state.get("camera"))
-            axes.set_xlim(*self._camera_or_axis_limits(camera, "x", xs))
-            axes.set_ylim(*self._camera_or_axis_limits(camera, "y", ys))
-        # Figure cells use Matplotlib's standard fill behavior. The camera
-        # bounds choose the visible data; they do not letterbox the plot cell.
+            axes.set_xlim(*self._camera_or_axis_limits(camera, "x", limits[0]))
+            axes.set_ylim(*self._camera_or_axis_limits(camera, "y", limits[1]))
+            create_collections = self._point_collections_factory(axes, cell, settings, render_data)
+            if self._point_cache is None:
+                create_collections()
+            else:
+                self._point_cache.add(axes, cell, settings, create_collections)
         axes.set_aspect("auto")
         axes.margins(0)
         self._apply_grid_mode(axes, settings)
-        return self._render_pin_annotations(axes, cell, settings)
+        return self._render_pin_annotations(axes, cell, settings, metadata_ids=pin_ids)
+
+    def _point_collections_factory(self, axes, cell, settings, render_data):
+        def create_collections():
+            # Called only on a cache miss, including changed overlapping content.
+            self._data_cache.hydrate(cell, render_data=render_data)
+            coordinates = np.asarray(cell.coordinates, dtype=np.float64)
+            return self._render_points(axes, cell, settings, coordinates[:, 0], coordinates[:, 1])
+        return create_collections
+
+    def _render_points(self, axes, cell, settings, xs, ys):
+        colors = self._point_colors_from_state(cell.render_state, cell.metadata_ids, cell.metadata)
+        edge_colors, border_width = self._point_border_from_state(cell.render_state, cell.metadata_ids, cell.metadata, settings, axes.figure.dpi)
+        markers = self._point_markers_from_state(cell.render_state, cell.metadata_ids, cell.metadata)
+        point_size = self._point_size_from_state(cell.render_state, settings, axes.figure.dpi)
+        colors = np.asarray(colors)
+        edge_colors = np.asarray(edge_colors)
+        collections = []
+        if markers is None:
+            collections.append(axes.scatter(
+                xs,
+                ys,
+                s=point_size,
+                c=colors,
+                linewidths=border_width,
+                edgecolors=edge_colors if border_width > 0 else "none",
+            ))
+        else:
+            for marker in dict.fromkeys(markers):
+                indices = np.asarray(markers) == marker
+                collections.append(axes.scatter(
+                    xs[indices],
+                    ys[indices],
+                    s=point_size,
+                    c=colors[indices],
+                    marker=marker,
+                    linewidths=border_width,
+                    edgecolors=edge_colors[indices] if border_width > 0 else "none",
+                ))
+        return collections
 
     @staticmethod
     def _subplot_margin_inches(settings: FigurePlotSettings) -> float:
@@ -419,6 +582,7 @@ class FigureMatplotlibRenderer:
         for element in sorted(composition.figure_elements.values(), key=lambda item: item.order):
             if not element.visible or element.kind == "legend":
                 continue
+            text_count = len(figure.texts)
             rect = self._element_rect(element, plot_rects, canvas_size_px, composition.settings)
             element_rects[element.element_id] = rect
             center_x, center_y, horizontal_alignment, vertical_alignment = self._text_anchor_for_element(
@@ -439,6 +603,10 @@ class FigureMatplotlibRenderer:
                     fontfamily=element.font_family,
                     rotation=self._text_rotation_for_element(element),
                 )
+            if self._partial_page is not None:
+                for text in figure.texts[text_count:]:
+                    text.set_gid(element.element_id)
+                self._preview_draw_keys[element.element_id] = repr(element)
         return element_rects
 
     def _render_caption_element(
@@ -1059,9 +1227,13 @@ class FigureMatplotlibRenderer:
             width = pixels_to_points(max(float(border.get("width", 0.0)), 0.0) * scale, dpi)
         except (TypeError, ValueError):
             width = 0.0
+        if width == 0.0:
+            return [], width
         opacity = self._clamped_float(border.get("opacity", 1.0), 0.0, 1.0, 1.0)
         fallback = "#666666"
-        base_color = self._mapped_color(border, metadata_ids[0] if metadata_ids else None, metadata, fallback)
+        base_color = self._mapped_color(border, metadata_ids[0] if len(metadata_ids) else None, metadata, fallback)
+        if isinstance(metadata, CompactMetadata):
+            return self._compact_colors(border, metadata_ids, metadata, base_color, opacity), width
         edge_colors = [to_rgba(base_color, opacity) for _ in metadata_ids]
         for index, metadata_id in enumerate(metadata_ids):
             edge_colors[index] = to_rgba(self._mapped_color(border, metadata_id, metadata, base_color), opacity)
@@ -1079,13 +1251,20 @@ class FigureMatplotlibRenderer:
         point = self._safe_dict(appearance.get("point"))
         point_colors = self._safe_dict(appearance.get("point_colors"))
         opacity = self._clamped_float(point.get("opacity", 1.0), 0.0, 1.0, 1.0)
-        base_color = self._mapped_color(point_colors, metadata_ids[0] if metadata_ids else None, metadata, "#2f6fed")
-        colors = [to_rgba(base_color, opacity) for _ in metadata_ids]
-        if str(point_colors.get("mode") or "categorical").lower() == "continuous":
-            colors = self._continuous_point_colors(point_colors, metadata_ids, metadata, colors, opacity)
+        base_color = self._mapped_color(point_colors, metadata_ids[0] if len(metadata_ids) else None, metadata, "#2f6fed")
+        if isinstance(metadata, CompactMetadata):
+            if str(point_colors.get("mode") or "categorical").lower() == "continuous":
+                colors = np.tile(to_rgba(base_color, opacity), (len(metadata_ids), 1))
+                colors = self._continuous_point_colors(point_colors, metadata_ids, metadata, colors, opacity)
+            else:
+                colors = self._compact_colors(point_colors, metadata_ids, metadata, base_color, opacity)
         else:
-            for index, metadata_id in enumerate(metadata_ids):
-                colors[index] = to_rgba(self._mapped_color(point_colors, metadata_id, metadata, base_color), opacity)
+            colors = [to_rgba(base_color, opacity) for _ in metadata_ids]
+            if str(point_colors.get("mode") or "categorical").lower() == "continuous":
+                colors = self._continuous_point_colors(point_colors, metadata_ids, metadata, colors, opacity)
+            else:
+                for index, metadata_id in enumerate(metadata_ids):
+                    colors[index] = to_rgba(self._mapped_color(point_colors, metadata_id, metadata, base_color), opacity)
         filter_mask = self._filter_mask_from_state(state, metadata_ids, metadata)
         if filter_mask is None:
             return colors
@@ -1095,10 +1274,21 @@ class FigureMatplotlibRenderer:
             1.0,
             1.0,
         )
+        if isinstance(colors, np.ndarray):
+            colors[~np.asarray(filter_mask, dtype=bool), 3] = filtered_opacity
+            return colors
         return [
             color if bool(filter_mask[index]) else (color[0], color[1], color[2], filtered_opacity)
             for index, color in enumerate(colors)
         ]
+
+    def _compact_colors(self, style, ids, metadata, fallback, opacity):
+        column = str(style.get('column') or 'Global')
+        if column == 'Global':
+            color = to_rgba(self._mapped_color(style, None, {}, fallback), opacity)
+            return np.tile(color, (len(ids), 1))
+        return metadata.map_values(column, ids, lambda value: to_rgba(
+            self._mapped_color(style, 0, {0: {column: value}}, fallback), opacity))
 
     @staticmethod
     def _continuous_point_colors(
@@ -1112,6 +1302,24 @@ class FigureMatplotlibRenderer:
         column = str(point_colors.get("column") or "").strip()
         if not column:
             return fallback_colors
+        if isinstance(metadata, CompactMetadata):
+            def number(value):
+                try:
+                    result = float(value)
+                    return result if math.isfinite(result) else np.nan
+                except (TypeError, ValueError):
+                    return np.nan
+            values = metadata.map_values(column, metadata_ids, number)
+            valid = np.isfinite(values)
+            if not valid.any():
+                return fallback_colors
+            minimum, maximum = np.min(values[valid]), np.max(values[valid])
+            ratio = (values[valid] - minimum) / max(maximum - minimum, 1e-9)
+            start = np.asarray(to_rgba(str(point_colors.get('gradient_start') or '#3b82f6'), opacity))
+            end = np.asarray(to_rgba(str(point_colors.get('gradient_end') or '#ef4444'), opacity))
+            colors = np.asarray(fallback_colors).copy()
+            colors[valid] = start + ratio[:, None] * (end - start)
+            return colors
         values: list[float | None] = []
         for metadata_id in metadata_ids:
             try:
@@ -1150,6 +1358,9 @@ class FigureMatplotlibRenderer:
         if column == "Global":
             marker = self._matplotlib_marker(mapping.get("Global") or mapping.get("global") or default_shape)
             return [marker for _ in metadata_ids]
+        if isinstance(metadata, CompactMetadata):
+            return metadata.map_values(column, metadata_ids, lambda value: self._matplotlib_marker(
+                mapping.get(value) or mapping.get(str(value)) or mapping.get('(missing)') or default_shape))
         markers: list[str] = []
         for metadata_id in metadata_ids:
             value = metadata.get(metadata_id, {}).get(column, "")
@@ -1161,6 +1372,7 @@ class FigureMatplotlibRenderer:
         axes: Any,
         cell: PlotCell,
         settings: FigurePlotSettings,
+        *, metadata_ids=None,
     ) -> dict[str, dict[str, Any]]:
         pin_specs: dict[str, dict[str, Any]] = {}
         if not bool(getattr(settings, "pins_visible", True)):
@@ -1173,7 +1385,8 @@ class FigureMatplotlibRenderer:
         if not isinstance(annotations, list) or not annotations:
             return pin_specs
         style = self._pin_style_for_settings(self._normalized_pin_style(self._safe_dict(pinboard.get("style"))), settings)
-        metadata_ids = {int(value) for value in cell.metadata_ids}
+        if metadata_ids is None:
+            metadata_ids = {int(value) for value in cell.metadata_ids}
         for annotation in annotations:
             if not isinstance(annotation, dict) or not bool(annotation.get("visible", True)):
                 continue
@@ -1374,8 +1587,9 @@ class FigureMatplotlibRenderer:
     ) -> dict[tuple[int, int], dict[str, FigurePinGeometry]]:
         if not pin_specs:
             return {}
-        canvas = FigureCanvasAgg(figure)
-        canvas.draw()
+        canvas = figure.canvas if isinstance(figure.canvas, FigureCanvasAgg) else FigureCanvasAgg(figure)
+        # Axes positions are explicit. AnnotationBbox.get_window_extent updates
+        # its own layout using font metrics; measuring pins needs no point draw.
         renderer = canvas.get_renderer()
         canvas_width, canvas_height = canvas_size_px
         output: dict[tuple[int, int], dict[str, FigurePinGeometry]] = {}
@@ -1693,6 +1907,8 @@ class FigureMatplotlibRenderer:
         columns, numeric_columns = required_filter_columns(active)
         text_values = {
             column: np.asarray(
+                metadata.map_values(column, metadata_ids, lambda value: str(value))
+                if isinstance(metadata, CompactMetadata) else
                 [metadata.get(metadata_id, {}).get(column, "") for metadata_id in metadata_ids],
                 dtype=str,
             )
@@ -1720,10 +1936,13 @@ class FigureMatplotlibRenderer:
         slicer_values = slicer.get("values")
         if slicer_column and isinstance(slicer_values, list):
             active_values = {str(value) for value in slicer_values}
-            slicer_mask = [
-                metadata.get(metadata_id, {}).get(slicer_column, "") in active_values
-                for metadata_id in metadata_ids
-            ]
+            slicer_mask = (
+                metadata.map_values(slicer_column, metadata_ids, lambda value: value in active_values)
+                if isinstance(metadata, CompactMetadata) else [
+                    metadata.get(metadata_id, {}).get(slicer_column, "") in active_values
+                    for metadata_id in metadata_ids
+                ]
+            )
             mask = (
                 slicer_mask
                 if mask is None
@@ -1736,10 +1955,10 @@ class FigureMatplotlibRenderer:
 
     @staticmethod
     def _axis_limits(values: list[float]) -> tuple[float, float]:
-        if not values:
+        if not len(values):
             return -0.5, 0.5
-        low = min(values)
-        high = max(values)
+        low = float(np.min(values))
+        high = float(np.max(values))
         if low == high:
             return low - 0.5, high + 0.5
         return low, high

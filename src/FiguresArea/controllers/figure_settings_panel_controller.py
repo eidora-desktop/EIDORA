@@ -59,6 +59,11 @@ class FigureSettingsPanelController(UiPanelController):
         self._menu_load_recent: QtWidgets.QMenu | None = None
         self._settings_unapplied = False
         self._operation: str | None = None
+        self._export_future = None
+        self._export_activity = None
+        self._export_timer = QtCore.QTimer(self._widget)
+        self._export_timer.setInterval(50)
+        self._export_timer.timeout.connect(self._poll_export)
         self._wire_page_buttons()
         self._populate_figure_settings_tree()
         self._configure_options_menu()
@@ -759,6 +764,15 @@ class FigureSettingsPanelController(UiPanelController):
                         ),
                     )
                 self._settings_unapplied = False
+            export_async = getattr(self._active_plot_tab, "export_figure_async", None)
+            if callable(export_async):
+                self._export_future = export_async(destination)
+                if self._export_future is not None:
+                    self._export_activity = activity
+                    if activity is not None:
+                        activity.update(message="Exporting figure…", value=0, total=0)
+                    self._export_timer.start()
+                    return
             if activity is None:
                 self._active_plot_tab.export_figure(destination)
             else:
@@ -783,10 +797,39 @@ class FigureSettingsPanelController(UiPanelController):
         else:
             self._show_status(f"Exported figure to {destination}")
         finally:
+            if self._export_future is None:
+                if activity is not None:
+                    activity.finish()
+                self._operation = None
+                self._refresh_action_buttons()
+
+    def _poll_export(self) -> None:
+        if self._export_future is None or not self._export_future.done():
+            return
+        future, self._export_future = self._export_future, None
+        activity, self._export_activity = self._export_activity, None
+        self._export_timer.stop()
+        try:
+            result = future.result()
+            self._show_status(f"Exported figure to {result['export']}")
+        except Exception as error:
+            if activity is not None:
+                activity.retain_failed(f"Figure export failed: {error}")
+            self._show_status(f"Figure export failed: {error}")
+        finally:
             if activity is not None:
                 activity.finish()
             self._operation = None
             self._refresh_action_buttons()
+
+    def shutdown(self) -> None:
+        self._export_timer.stop()
+        if self._export_future is not None:
+            self._export_future.cancel()
+            self._export_future = None
+        if self._export_activity is not None:
+            self._export_activity.finish()
+            self._export_activity = None
 
     def _wire_parameter_change_tracking(self) -> None:
         for widget in self._figure_setting_widgets.values():

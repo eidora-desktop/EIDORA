@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -127,9 +128,14 @@ class PlotCell:
     snapshot_label: str | None = None
     coordinates: list[tuple[float, float]] = field(default_factory=list)
     metadata_ids: list[int] = field(default_factory=list)
-    metadata: dict[int, dict[str, str]] = field(default_factory=dict)
+    metadata: Mapping[int, Mapping[str, str]] = field(default_factory=dict)
     render_state: dict[str, Any] = field(default_factory=dict)
     element_ids: list[str] = field(default_factory=list)
+    data_ref: str | None = None
+    point_count: int = 0
+    # Transient identity of immutable data buffers; never serialized as settings.
+    data_key: str = field(default="", repr=False, compare=False)
+    data_sources: tuple = field(default=(), repr=False, compare=False)
 
 
 @dataclass

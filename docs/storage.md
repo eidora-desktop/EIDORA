@@ -119,3 +119,18 @@ from its chosen folder again.
 data. `application_storage/service.py` owns inspection, verified copying, and
 cleanup. MainWindow's Designer forms and controllers own interaction and
 background progress. Model downloads always record ownership receipts.
+
+
+## Figure documents
+
+`state/figures_area_state.json` version 6 stores editable figure compositions.
+Large frozen datasets live in `state/figure_data/<sha256>.npz`, with numeric
+coordinates and permanent IDs plus dictionary-encoded metadata columns with UTF-8
+JSON values (no pickled objects). Older row-JSON datasets remain readable. Encoding
+reduces decoded memory; compressed file size depends on metadata cardinality.
+Matching data is shared between plot cells. These artifacts belong to the project,
+not a disposable global cache, and travel with project relocation and bundles.
+Small datasets remain inline. Older state versions remain readable and large
+inline data migrates atomically before the compact manifest is published.
+Closing a tab preserves its document. Unreferenced generated figure data is
+removed only after all workspace readers and writers stop, with a valid manifest.

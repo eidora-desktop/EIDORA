@@ -12,6 +12,7 @@ from FiguresArea.domain import (
     PlotCell,
 )
 from FiguresArea.template_settings import default_plot_settings
+from FiguresArea.data_repository import FigureDataRepository
 from project.portable_paths import ProjectPaths
 from shared.persistence import json_store
 
@@ -20,17 +21,24 @@ class FigureTabsRepository:
     """Project-local persistence boundary for saved FiguresArea compositions."""
 
     _FILENAME = "figures_area_state.json"
-    _VERSION = 5
+    _VERSION = 6
     _KINDS = {"journal", "presentation", "snapshot_animation", "animation"}
 
     def __init__(self, state_root: Path) -> None:
         self._path = state_root / self._FILENAME
         self._paths = ProjectPaths(state_root.parent)
+        self.data = FigureDataRepository(state_root / "figure_data")
 
     def save(self, tabs: list[dict[str, Any]], current_index: int | None) -> None:
+        records = []
+        for tab in tabs:
+            record = dict(tab)
+            if isinstance(record.get("composition"), FigureComposition):
+                record["composition"] = self.composition_payload(record["composition"], data=self.data)
+            records.append(self._composition_paths(record, encode=True))
         json_store.write_json(
             self._path,
-            {"version": self._VERSION, "tabs": [self._composition_paths(tab, encode=True) for tab in tabs], "current_index": current_index},
+            {"version": self._VERSION, "tabs": records, "current_index": current_index},
         )
 
     def load(self) -> tuple[list[dict[str, Any]], int | None]:
@@ -38,7 +46,7 @@ class FigureTabsRepository:
             payload = json_store.read_json(self._path, default={})
         except (OSError, ValueError):
             return [], None
-        if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3, 4, self._VERSION}:
+        if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3, 4, 5, self._VERSION}:
             return [], None
         raw_tabs = payload.get("tabs")
         if not isinstance(raw_tabs, list):
@@ -47,6 +55,57 @@ class FigureTabsRepository:
         current_index = payload.get("current_index")
         valid_index = current_index if isinstance(current_index, int) and not isinstance(current_index, bool) else None
         return [self._composition_paths(tab, encode=False) for tab in tabs], valid_index
+
+    def load_compact(self):
+        """Migrate large legacy inline datasets before returning documents to Qt."""
+        records, index = self.load()
+        large = False
+        for record in records:
+            composition = record.get("composition")
+            cells = composition.get("plot_cells") if isinstance(composition, dict) else None
+            if isinstance(cells, list):
+                large |= any(isinstance(cell, dict) and isinstance(cell.get("coordinates"), list)
+                             and len(cell["coordinates"]) > 2000 for cell in cells)
+        if large:
+            from FiguresArea.composition_service import snapshot_composition
+            for record in records:
+                composition = self.composition_from_payload(
+                    record.get("composition"),
+                    settings=self.settings_from_payload(record.get("settings"), figure_kind=record["kind"]),
+                )
+                if composition is not None:
+                    record["composition"] = snapshot_composition(composition)
+            self.save(records, index)
+            return self.load()
+        return records, index
+
+    def remove_unused_data(self) -> None:
+        """Run only after readers/writers stop; closed figures remain referenced."""
+        if not self._path.exists() or not self.data.root.exists():
+            return
+        raw = json_store.read_json(self._path)
+        if not isinstance(raw, dict) or raw.get("version") != self._VERSION or not isinstance(raw.get("tabs"), list):
+            return
+        records, _ = self.load()
+        if len(records) != len(raw["tabs"]):
+            return
+        if any(record.get("composition") is not None and not isinstance(record["composition"], dict) for record in records):
+            return
+        referenced = set()
+        for record in records:
+            cells = (record.get("composition") or {}).get("plot_cells", [])
+            if not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells):
+                return
+            for cell in cells:
+                reference = cell.get("data_ref")
+                if reference is not None:
+                    if not isinstance(reference, str) or not reference:
+                        return
+                    referenced.add(str(Path(reference).resolve()))
+        for path in self.data.root.glob("*.npz"):
+            owned = len(path.stem) == 64 and all(c in "0123456789abcdef" for c in path.stem)
+            if (owned and str(path.resolve()) not in referenced) or path.name.startswith(".figure-data-"):
+                path.unlink(missing_ok=True)
 
     def _composition_paths(self, tab: dict[str, Any], *, encode: bool) -> dict[str, Any]:
         """Keep static figure preset references portable, like animation references."""
@@ -59,6 +118,8 @@ class FigureTabsRepository:
                 continue
             if isinstance(cell.get('snapshot_path'), str) and cell['snapshot_path']:
                 cell['snapshot_path'] = convert(cell['snapshot_path'])
+            if isinstance(cell.get('data_ref'), str) and cell['data_ref']:
+                cell['data_ref'] = convert(cell['data_ref'])
             state = cell.get('render_state')
             paths = state.get('preset_paths') if isinstance(state, dict) else None
             if isinstance(paths, dict):
@@ -72,7 +133,17 @@ class FigureTabsRepository:
         return asdict(settings)
 
     @staticmethod
-    def composition_payload(composition: FigureComposition) -> dict[str, Any]:
+    def composition_payload(composition: FigureComposition, *, data: FigureDataRepository | None = None) -> dict[str, Any]:
+        shared = {}
+        def point_data(cell):
+            reference = data.store(cell, shared=shared) if data is not None else cell.data_ref
+            if reference:
+                return {"data_ref": reference, "point_count": max(len(cell.coordinates), cell.point_count)}
+            return {
+                "coordinates": [list(map(float, point)) for point in cell.coordinates],
+                "metadata_ids": [int(value) for value in cell.metadata_ids],
+                "metadata": {str(key): copy.deepcopy(dict(value)) for key, value in cell.metadata.items()},
+            }
         return {
             "plot_cells": [
                 {
@@ -80,12 +151,7 @@ class FigureTabsRepository:
                     "column": cell.column,
                     "snapshot_path": cell.snapshot_path,
                     "snapshot_label": cell.snapshot_label,
-                    "coordinates": [list(point) for point in cell.coordinates],
-                    "metadata_ids": list(cell.metadata_ids),
-                    "metadata": {
-                        str(metadata_id): copy.deepcopy(values)
-                        for metadata_id, values in cell.metadata.items()
-                    },
+                    **point_data(cell),
                     "render_state": copy.deepcopy(cell.render_state),
                     "element_ids": list(cell.element_ids),
                 }
@@ -254,6 +320,9 @@ class FigureTabsRepository:
                 }
         render_state = payload.get("render_state")
         element_ids = payload.get("element_ids")
+        point_count = payload.get("point_count", len(coordinates))
+        if not isinstance(point_count, int) or isinstance(point_count, bool):
+            point_count = len(coordinates)
         return PlotCell(
             row=row,
             column=column,
@@ -270,6 +339,8 @@ class FigureTabsRepository:
             coordinates=coordinates,
             metadata_ids=metadata_ids,
             metadata=metadata,
+            data_ref=str(payload["data_ref"]) if payload.get("data_ref") else None,
+            point_count=max(point_count, 0),
             render_state=copy.deepcopy(render_state) if isinstance(render_state, dict) else {},
             element_ids=[
                 str(value) for value in element_ids
