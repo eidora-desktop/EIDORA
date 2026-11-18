@@ -22,7 +22,7 @@ from shared.qt.widgets import require_child
 from MetadataArea.values import display_value
 
 
-class MetadataImportDialogController:
+class MetadataImportDialogController(QtCore.QObject):
     """UI binder for metadata imports, additions, and full-table replacement."""
 
     _VALUE_TYPES = (
@@ -62,6 +62,7 @@ class MetadataImportDialogController:
         *,
         process_manager=None,
     ) -> None:
+        super().__init__()
         if preset not in {
             MetadataImportPreset.INITIAL,
             MetadataImportPreset.MERGE,
@@ -86,7 +87,6 @@ class MetadataImportDialogController:
         self.conflict_combo = self._widget(QtWidgets.QComboBox, "combo_conflict_policy")
         for label,key in [("Resolve different metadata values…", "ask"), ("Keep existing values", "keep"), ("Use incoming nonempty values", "incoming")]:
             self.conflict_combo.addItem(label,key)
-        self.conflict_combo.currentIndexChanged.connect(self._configuration_changed)
         self.preview_stack = self._widget(QtWidgets.QStackedWidget, "stack_preview")
         self.preview_error = self._widget(QtWidgets.QLabel, "label_preview_error")
         self.data_preview = self._widget(QtWidgets.QTableWidget, "table_data_preview")
@@ -157,6 +157,7 @@ class MetadataImportDialogController:
         ):
             self.encoding_combo.addItem(label, value)
 
+        self._connect(self.conflict_combo.currentIndexChanged, self._configuration_changed)
         self._connect(self.table_combo.currentIndexChanged, self._structure_changed)
         self._connect(self.options_button.toggled, self._toggle_options)
         self._connect(self.record_edit.editingFinished, self._structure_changed)
@@ -171,33 +172,37 @@ class MetadataImportDialogController:
         self._connect(self.mapping_table.itemChanged, self._configuration_changed)
         self._connect(self.import_button.clicked, self._commit)
         self._connect(self.cancel_button.clicked, self._cancel)
-        self.dialog.installEventFilter(self._close_guard())
+        self.dialog.installEventFilter(self)
         self.table_label.hide()
         self.table_combo.hide()
         self.progress.hide()
 
     def exec(self) -> MetadataImportResult | None:
-        if self.source_path is not None:
-            source_path = self.source_path
-            QtCore.QTimer.singleShot(0, lambda: self._load_source(source_path))
-        else:
-            self.file_label.setText("Choose a metadata source")
-            self.format_label.setText("—")
-            self.status_label.setText("Choose a file or TEI folder to begin.")
         try:
+            if self.source_path is not None:
+                self._load_source(self.source_path)
+            else:
+                self.file_label.setText("Choose a metadata source")
+                self.format_label.setText("—")
+                self.status_label.setText("Choose a file or TEI folder to begin.")
             self.dialog.exec()
             return self.result
         finally:
             self.timer.stop()
             self.cancel_event.set()
-            self.executor.shutdown(wait=True, cancel_futures=True)
-            self._release_publication()
-            self.service.cleanup_import(self.inspection)
-            for signal, callback in reversed(self.connections):
-                try:
-                    signal.disconnect(callback)
-                except (RuntimeError, TypeError):
-                    pass
+            try:
+                self.executor.shutdown(wait=True, cancel_futures=True)
+                self._release_publication()
+                self.service.cleanup_import(self.inspection)
+            finally:
+                self.dialog.removeEventFilter(self)
+                for signal, callback in reversed(self.connections):
+                    try:
+                        signal.disconnect(callback)
+                    except (RuntimeError, TypeError):
+                        pass  # Mapping controls can be replaced during import.
+                self.connections.clear()
+                self.dialog.deleteLater()
 
     def _load_source(self, path: Path) -> None:
         if self.future is not None:
@@ -756,21 +761,14 @@ class MetadataImportDialogController:
             widget.setEnabled(enabled)
         self._update_match_controls()
 
-    def _close_guard(self):
-        controller = self
-
-        class Guard(QtCore.QObject):
-            def eventFilter(self, watched, event):
-                if event.type() == QtCore.QEvent.Type.Close and controller.future is not None:
-                    controller._cancel()
-                    return True
-                if event.type() == QtCore.QEvent.Type.KeyPress and event.key() == QtCore.Qt.Key.Key_Escape and controller.future is not None:
-                    controller._cancel()
-                    return True
-                return False
-
-        self.guard = Guard(self.dialog)
-        return self.guard
+    def eventFilter(self, watched, event):
+        if self.future is not None and (
+            event.type() == QtCore.QEvent.Type.Close
+            or (event.type() == QtCore.QEvent.Type.KeyPress and event.key() == QtCore.Qt.Key.Key_Escape)
+        ):
+            self._cancel()
+            return True
+        return False
 
     def _update_source_summary(self) -> None:
         if self.probe is None:

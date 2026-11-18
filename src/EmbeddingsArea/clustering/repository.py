@@ -1,8 +1,10 @@
 """Clustering records share the groups database for atomic publication."""
 from __future__ import annotations
+from contextlib import closing
 import json
 from project.portable_paths import repository_paths
 from MetadataArea.group_repository import MetadataGroupRepository
+from shared.persistence.sqlite import connect_read_only
 
 ACTIVE = ("running", "saving")
 _RESULTS = """FROM clustering_runs AS runs
@@ -21,14 +23,14 @@ class ClusteringRepository:
             connection.execute("CREATE INDEX IF NOT EXISTS index_clustering_run ON clustering_runs(run_id)")
 
     def list(self, run_id=None):
-        with self.groups.transaction() as connection:
+        with closing(connect_read_only(self.groups.database_path)) as connection:
             query = "SELECT runs.payload, groups.name " + _RESULTS + " WHERE runs.deleted = 0"
             rows = connection.execute(query + (" AND runs.run_id = ?" if run_id else "") + " ORDER BY runs.rowid",
                                       (run_id,) if run_id else ()).fetchall()
         return [self._record(row) for row in rows]
 
     def get(self, result_id):
-        with self.groups.transaction() as connection:
+        with closing(connect_read_only(self.groups.database_path)) as connection:
             row = connection.execute(
                 "SELECT runs.payload, groups.name " + _RESULTS + " WHERE runs.id = ? AND runs.deleted = 0",
                 (result_id,),

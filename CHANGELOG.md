@@ -4,6 +4,14 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Keep clustering status and result lists responsive while groups are being saved. Source validation now reads only the item identities needed to verify the embeddings.
+
+- Metadata table deletion now tolerates unrelated Discovery appearance autosaves. Confirmation still checks for new dependencies and edits to data scheduled for removal.
+
+- Closing a metadata import or update releases its dialog and selection popups, preventing widgets from accumulating during repeated imports.
+
+- Discovery returns to points when the active thumbnail set is deleted from Assets.
+
 - Open the bundled starter and older version 5 media databases with their existing asset links and saved matching choices intact.
 
 - Mac builds use upstream Qt fixes for accessibility elements retained after list and table changes. Discovery reuses its palette menus, and deleting Figures releases their tab close buttons.

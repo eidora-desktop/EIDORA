@@ -811,7 +811,8 @@ class DiscoveryAreaController:
 
         layers_panel = self._panel(LayersSettingPanelController)
         if layers_panel is not None:
-            layers_panel.refresh_thumbnail_variants()
+            variants = layers_panel.refresh_thumbnail_variants()
+            self._disable_missing_thumbnail_variant(variants)
 
     def set_metadata_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._metadata_changed_callback = callback
@@ -1968,7 +1969,7 @@ class DiscoveryAreaController:
         available_ids = {str(getattr(variant, "variant_id", "") or "") for variant in variants}
         if self._canvas_thumbnail_variant_id in available_ids:
             return
-        self._handle_render_selection_changed("points_fast")
+        self._disable_previews_layer()
 
     def _handle_fit_view(self) -> None:
         if self._canvas_widget is None:

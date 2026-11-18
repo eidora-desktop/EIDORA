@@ -30,9 +30,8 @@ def source_snapshot(project, run_id):
     from project.item_repository import ItemRepository
 
     valid_ids = set(ItemRepository(metadata.database_path).active_ids())
-    inputs = runs.fetch_run_inputs(run_id, limit=runs.count_run_inputs(run_id), offset=0)
-    mapping = {int(item.ordinal): int(item.metadata_row_id) for item in inputs
-               if item.metadata_row_id is not None and item.metadata_row_id in valid_ids}
+    _, linked_ids = runs.input_metadata_ids_by_ordinal(run_id)
+    mapping = {ordinal: item_id for ordinal, item_id in linked_ids.items() if item_id in valid_ids}
     signature = hashlib.sha256(json.dumps([artifacts, sorted(mapping.items())]).encode()).hexdigest()
     return path, mapping, signature
 

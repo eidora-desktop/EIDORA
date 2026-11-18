@@ -277,7 +277,7 @@ class LayersSettingPanelController(UiPanelController):
         super().set_project(project)
         self.refresh_thumbnail_variants()
 
-    def refresh_thumbnail_variants(self) -> None:
+    def refresh_thumbnail_variants(self) -> list[ThumbnailVariant]:
         render_value = self._preview_settings.render_value
         pin_value = str(self._pin_thumbnail_field or "none")
         tooltip_value = str(self._tooltip_thumbnail_field or "none")
@@ -307,6 +307,7 @@ class LayersSettingPanelController(UiPanelController):
             )
         finally:
             self._suspend_pin_display_changed = False
+        return variants
 
     def _populate_marked_areas(
         self,
