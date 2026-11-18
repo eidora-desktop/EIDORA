@@ -9,6 +9,7 @@ from DiscoveryArea.domain import DiscoveryPinDisplaySettings
 from DiscoveryArea.palettes import palette_options
 from DiscoveryArea.thumbnails.repository import ThumbnailVariant
 from DiscoveryArea.thumbnails.repository import ThumbnailVariantRepository
+from shared.qt.item_views import clear_list_items
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
@@ -900,7 +901,7 @@ class LayersSettingPanelController(UiPanelController):
 
     def _populate_field_list(self, list_widget: QtWidgets.QListWidget, *, checked_fields: list[str]) -> None:
         with QtCore.QSignalBlocker(list_widget):
-            list_widget.clear()
+            clear_list_items(list_widget)
             checked = {str(field).strip() for field in checked_fields if str(field).strip()}
             for field in self._available_metadata_fields:
                 item = QtWidgets.QListWidgetItem(self._metadata_field_labels.get(field, field))

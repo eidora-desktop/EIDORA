@@ -38,6 +38,10 @@ def excluded_resource(path: Path) -> bool:
 _, release_resource_paths, _ = release_resources(ROOT)
 datas = [(str(ROOT / "CITATION.cff"), ".")]
 if sys.platform == "darwin":
+    cocoa_plugin = NATIVE_STAGE / "platforms/libqcocoa.dylib"
+    if not cocoa_plugin.is_file():
+        raise SystemExit(f"Missing patched Qt Cocoa plugin at {cocoa_plugin}. Rebuild the native stage.")
+    datas.append((str(NATIVE_STAGE / "licenses/qt-cocoa"), "licenses/qt-cocoa"))
     macos_icons = ROOT / "packaging/icons/macos"
     validate_macos_icon(macos_icons)
     datas.append((str(macos_icons / "Assets.car"), "."))
@@ -114,6 +118,15 @@ analysis = Analysis(
     noarchive=False,
     optimize=1,
 )
+
+if sys.platform == "darwin":
+    # Replace the wheel's collected Cocoa plugin in its standard location so
+    # the app and all of its Qt worker processes use the same backend.
+    destination = "PySide6/Qt/plugins/platforms/libqcocoa.dylib"
+    cocoa_entries = [i for i, entry in enumerate(analysis.binaries) if entry[0] == destination]
+    if len(cocoa_entries) != 1:
+        raise SystemExit(f"Expected one Qt Cocoa plugin in PyInstaller's binary inventory: {cocoa_entries}")
+    analysis.binaries[cocoa_entries[0]] = (destination, str(cocoa_plugin), "BINARY")
 
 # PyInstaller's QtQml hook deliberately collects every QML module shipped by
 # PySide. EIDORA's two QML files use only the QtQuick core module. Keeping that

@@ -6,6 +6,7 @@ from EmbeddingsArea.domain import MediaContentType, MediaLinkRequest
 from MetadataArea.repository import MetadataRepository
 from MetadataArea.service import MetadataService
 from AssetsArea.media_service import preview_links, suggest_links
+from shared.qt.item_views import clear_list_items
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
 
@@ -130,6 +131,8 @@ class MediaLinkDialogController:
         for signal, handler in self._connections:
             signal.disconnect(handler)
         self._connections.clear()
+        clear_list_items(self.columns)
+        self._column_checks.clear()
 
     def _destroyed(self):
         self._alive = False

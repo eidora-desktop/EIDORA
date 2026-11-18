@@ -10,7 +10,7 @@ from EmbeddingsArea.controllers.vector_data_card_controller import VectorDataCar
 from EmbeddingsArea.domain import EmbeddingRunState
 from shared.qt.item_views import configure_panel_item_view, minimum_panel_row_size
 from shared.qt.panel_controller import UiPanelController
-from shared.qt.widgets import require_child
+from shared.qt.widgets import delete_removed_widgets, require_child
 
 _ACTIVE = {"queued", "running", "cancelling"}
 _RECOVERABLE = {EmbeddingRunState.PAUSED, EmbeddingRunState.INTERRUPTED, EmbeddingRunState.FAILED}
@@ -430,7 +430,8 @@ class VectorDataPanelController(UiPanelController):
     def _remove_card(self, run_id):
         item, card = self._items.pop(run_id, None), self._cards.pop(run_id, None)
         if item is not None and self._list.row(item) >= 0: self._list.takeItem(self._list.row(item))
-        if card is not None: card.widget.deleteLater()
+        if card is not None:
+            delete_removed_widgets(self._list, [card.widget])
 
     def _clear_cards(self):
         for identity in tuple(self._cards): self._remove_card(identity)

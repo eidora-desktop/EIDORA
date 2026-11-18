@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.presets_repository import PresetEntry, PresetRepository
-from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, configure_panel_item_view
+from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, clear_list_items, configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.widgets import require_child
 
@@ -96,7 +96,7 @@ class SnapshotSourcesPanelController(UiPanelController):
 
     def set_snapshot_entries(self, entries: list[PresetEntry]) -> None:
         self._entries = list(entries)
-        self._list.clear()
+        clear_list_items(self._list)
         icon_size = self._list.iconSize()
         if not self._entries:
             return

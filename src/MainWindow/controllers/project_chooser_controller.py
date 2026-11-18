@@ -10,6 +10,7 @@ from MainWindow.controllers.project_chooser_row import (
     ProjectRowWidget,
 )
 from project.service import ProjectService
+from shared.qt.item_views import clear_list_items
 from shared.qt.branding import branding_pixmap, branding_svg_pixmap
 from shared.qt.message_dialogs import show_error
 from shared.qt.ui_loader import load_ui
@@ -231,7 +232,7 @@ class ProjectChooserController:
     def refresh(self) -> None:
         selected_path = self._selected_project_path()
         recent_projects = self._project_service.list_recent_project_entries()
-        self._list_projects.clear()
+        clear_list_items(self._list_projects)
         self._projects_by_path = {
             entry.project.root: entry.project for entry in recent_projects
         }
@@ -278,6 +279,7 @@ class ProjectChooserController:
         for signal, slot in self._connections:
             signal.disconnect(slot)
         self._connections.clear()
+        clear_list_items(self._list_projects)
         # Row callbacks also retain this controller. Delete the entire transient
         # tree on the GUI thread rather than relying on collection of Qt cycles.
         self.dialog.deleteLater()

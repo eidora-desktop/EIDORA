@@ -29,6 +29,7 @@ from FiguresArea.domain import (
     SlicerAnimationFrame,
     SnapshotAnimationFrame,
 )
+from shared.qt.item_views import clear_list_items
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import add_widget_to_container, require_child
@@ -277,7 +278,7 @@ class AnimationTabController(QtCore.QObject):
         self._update_play_icon()
         self._update_slicer_import_state()
         self._update_control_states()
-        QtCore.QTimer.singleShot(0, self._widget, self._position_apply_changes_button)
+        self._position_apply_changes_button()
         self.set_project(project)
         apply_icon_color(self._widget)
 
@@ -402,6 +403,8 @@ class AnimationTabController(QtCore.QObject):
         self._cancel_thumbnail_generation()
         self._plot.shutdown()
         self._playback_timer.stop()
+        with QtCore.QSignalBlocker(self._list):
+            clear_list_items(self._list)
         self._set_preview_animation_note_visible(False)
         self._preview_cache.close()
         self._thumbnail_directory.cleanup()
@@ -608,7 +611,7 @@ class AnimationTabController(QtCore.QObject):
         self._remove_cached_rendered_thumbnails()
         self._reset_preview_cache()
         self._list.blockSignals(True)
-        self._list.clear()
+        clear_list_items(self._list)
         self._list.blockSignals(False)
         self._state.frames = []
         self._state.current_frame_id = None
@@ -707,7 +710,7 @@ class AnimationTabController(QtCore.QObject):
             self.restore_size_overrides(payload.get("plot_sizes"))
             self._cancel_thumbnail_generation()
             self._reset_preview_cache()
-            self._list.clear()
+            clear_list_items(self._list)
             self._state.frames.clear()
             self._state.pending_apply_frame_ids.clear()
             base_snapshot = self._resolved_path(payload.get("base_snapshot_path"))

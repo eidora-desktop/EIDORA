@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from shared.qt.widgets import delete_removed_widgets
+
 
 PANEL_ITEM_ROW_HEIGHT = 36
 
@@ -41,6 +43,17 @@ def configure_panel_item_view(
         header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Fixed)
         header.setMinimumSectionSize(height)
         header.setDefaultSectionSize(height)
+
+
+def clear_list_items(view: QtWidgets.QListWidget) -> None:
+    """Keep item wrappers alive until Qt finishes deleting the native rows."""
+    # PySide detaches each wrapper before calling QListWidget::clear(). Losing
+    # the last reference there can delete a row while the binding walks the list.
+    items = [view.item(row) for row in range(view.count())]
+    widgets = [widget for item in items if (widget := view.itemWidget(item)) is not None]
+    view.clear()
+    delete_removed_widgets(view, widgets)
+    del items
 
 
 def minimum_panel_row_size(size: QtCore.QSize) -> QtCore.QSize:

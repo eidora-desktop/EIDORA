@@ -1,8 +1,23 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
+
+
+def delete_removed_widgets(host: QtWidgets.QWidget, widgets: Sequence[QtWidgets.QWidget]) -> None:
+    """Release removed forms and their Python wrappers on the next Qt deletion pass."""
+    if not widgets:
+        return
+    owner = QtWidgets.QWidget(host)
+    owner.hide()
+    for widget in widgets:
+        widget.setParent(owner)
+    # PySide's recursive lookups can leave a wrapper owned by the window that
+    # queried it, even after its native widget dies. Bind the entire removed
+    # subtree to this short-lived owner before Qt processes deferred deletes.
+    owner.findChildren(QtCore.QObject)
+    owner.deleteLater()
 
 
 def require_child(parent: QtWidgets.QWidget, widget_type: type, object_name: str):

@@ -14,7 +14,7 @@ from DiscoveryArea.discovery_importer import DiscoveryImportPreview, import_disc
 from DiscoveryArea.discovery_methods.base import DiscoveryMethodDefinition
 from DiscoveryArea.controllers.methods_citations_dialog_controller import MethodsCitationsDialogController
 from DiscoveryArea.provenance import MethodsReport, PROVENANCE_SCHEMA_VERSION
-from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, configure_panel_item_view
+from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, clear_list_items, configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
@@ -125,7 +125,7 @@ class DiscoveryPanelController(UiPanelController):
     ) -> None:
         self._options_by_key = {option.key: option for option in options}
         with QtCore.QSignalBlocker(self._list):
-            self._list.clear()
+            clear_list_items(self._list)
             saved_items: dict[str, QtWidgets.QListWidgetItem] = {}
             random_option = next((option for option in options if option.is_random), None)
             projection_options = [option for option in options if not option.is_random]

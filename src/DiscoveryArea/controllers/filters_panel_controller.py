@@ -24,9 +24,9 @@ from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from DiscoveryArea.range_slider import RangeSlider, ThresholdSlider
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
-from shared.qt.item_views import configure_panel_item_view, minimum_panel_row_size
+from shared.qt.item_views import clear_list_items, configure_panel_item_view, minimum_panel_row_size
 from shared.qt.ui_loader import load_ui
-from shared.qt.widgets import require_child
+from shared.qt.widgets import delete_removed_widgets, require_child
 
 if TYPE_CHECKING:
     from project.domain import Project
@@ -735,7 +735,7 @@ class FiltersPanelController(UiPanelController):
                 yield widget
 
     def _clear_filter_rules(self) -> None:
-        self._list.clear()
+        clear_list_items(self._list)
         self._add_rule_button = None
         self._ensure_add_rule_button()
 
@@ -1055,6 +1055,7 @@ class FiltersPanelController(UiPanelController):
                 item = self._list.item(row)
                 if self._list.itemWidget(item) is widget:
                     self._list.takeItem(row)
+                    delete_removed_widgets(self._list, [widget])
                     self._show_status("Deleted filter row.")
                     break
             if self._filter_rule_count() == 0:

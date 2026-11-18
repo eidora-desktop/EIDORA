@@ -1217,9 +1217,14 @@ class MediaRepository:
             if _table_exists(connection, "schema_meta"):
                 row = connection.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
                 version = int(row[0]) if row else 0
+            link_settings_info = "PRAGMA table_info(media_link_settings)"
             if version == MEDIA_SCHEMA_VERSION:
-                return
-            if version or _table_exists(connection, "media_sources"):
+                # Published v5 projects predate multi-column and related-table
+                # matching. They remain readable by older EIDORA versions.
+                columns = {row[1] for row in connection.execute(link_settings_info)}
+                if {"metadata_columns_json", "table_id"}.issubset(columns):
+                    return
+            elif version or _table_exists(connection, "media_sources"):
                 raise ValueError("Unsupported media database schema; automatic migration is not supported.")
             connection.execute("BEGIN IMMEDIATE")
             _execute_statements(connection,
@@ -1313,9 +1318,11 @@ class MediaRepository:
                 );
                 """
             )
-            if "metadata_columns_json" not in {row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")}:
+            # Recheck under the write lock in case another opener upgraded first.
+            columns = {row[1] for row in connection.execute(link_settings_info)}
+            if "metadata_columns_json" not in columns:
                 connection.execute("ALTER TABLE media_link_settings ADD COLUMN metadata_columns_json TEXT NOT NULL DEFAULT '[]'")
-            if "table_id" not in {row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")}:
+            if "table_id" not in columns:
                 connection.execute("ALTER TABLE media_link_settings ADD COLUMN table_id TEXT NOT NULL DEFAULT 'metadata'")
             _execute_statements(connection,
                 """

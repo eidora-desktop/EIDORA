@@ -1479,6 +1479,7 @@ class AppearancePanelController(UiPanelController):
             table.horizontalHeader().sectionClicked.connect(
                 lambda column, table_name=name: self._on_color_table_header_clicked(table_name, column)
             )
+            self._install_palette_header_button(table, name)
             table.setProperty("appearance_header_connected", True)
         conditional_target = {"table_fill_color_conditions": "point", "table_border_color_conditions": "border"}.get(name)
         table.setColumnCount(3)
@@ -1557,7 +1558,6 @@ class AppearancePanelController(UiPanelController):
                     label_item.setToolTip(warning)
 
         self._adjust_color_columns(table)
-        self._install_palette_header_button(table, name)
 
     def _wire_style_controls(self) -> None:
         for name in (
@@ -2070,8 +2070,6 @@ class AppearancePanelController(UiPanelController):
 
     def _install_palette_header_button(self, table: QtWidgets.QTableWidget, table_name: str) -> None:
         header = table.horizontalHeader()
-        for existing in header.findChildren(QtWidgets.QToolButton, f"button_{table_name}_palette"):
-            existing.deleteLater()
         button = QtWidgets.QToolButton(header)
         button.setObjectName(f"button_{table_name}_palette")
         button.setAutoRaise(True)

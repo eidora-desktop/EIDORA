@@ -14,7 +14,7 @@ from shared.qt.item_views import configure_panel_item_view
 from shared.qt.message_dialogs import show_error
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
-from shared.qt.widgets import require_child
+from shared.qt.widgets import delete_removed_widgets, require_child
 
 
 class MediaSourcesPanelController(UiPanelController):
@@ -81,8 +81,7 @@ class MediaSourcesPanelController(UiPanelController):
         self._states.clear()
         self._inspections.clear()
         self._pending_registrations.clear()
-        self._table.setRowCount(0)
-        self._rows.clear()
+        self._clear_rows()
         self._summaries.clear()
         self._column_labels.clear()
         self._refresh_pending = False
@@ -125,7 +124,9 @@ class MediaSourcesPanelController(UiPanelController):
             source_id = str(item.data(QtCore.Qt.ItemDataRole.UserRole) or "") if item else ""
             if source_id not in wanted:
                 self._table.removeRow(row)
-                self._rows.pop(source_id, None)
+                removed = self._rows.pop(source_id, None)
+                if removed is not None:
+                    delete_removed_widgets(self._table, [removed.widget])
         if not wanted:
             self._render_empty("No media sources imported")
         elif selected in wanted:
@@ -582,9 +583,14 @@ class MediaSourcesPanelController(UiPanelController):
     def _render_no_project(self) -> None:
         self._render_empty("Open or create a project to import media.")
 
-    def _render_empty(self, text: str) -> None:
+    def _clear_rows(self):
+        widgets = [row.widget for row in self._rows.values()]
         self._table.setRowCount(0)
         self._rows.clear()
+        delete_removed_widgets(self._table, widgets)
+
+    def _render_empty(self, text: str) -> None:
+        self._clear_rows()
         self._table.insertRow(0)
         item = QtWidgets.QTableWidgetItem(text)
         item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsSelectable & ~QtCore.Qt.ItemFlag.ItemIsEnabled)

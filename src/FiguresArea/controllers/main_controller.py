@@ -16,7 +16,7 @@ from FiguresArea.work_service import FigureWorkService
 from DiscoveryArea.presets_repository import PresetRepository
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
-from shared.qt.widgets import add_widget_to_container, connect_placeholder_buttons, require_child
+from shared.qt.widgets import add_widget_to_container, connect_placeholder_buttons, delete_removed_widgets, require_child
 
 if TYPE_CHECKING:
     from FiguresArea.controllers.plot_tab_controller import PlotTabController
@@ -278,6 +278,7 @@ class FiguresAreaController:
                 )
             )
         page = plot.widget
+        plot.setParent(page)
         page.setObjectName(f"page_figure_{normalized_kind}_{len(self._plot_tabs) + 1}")
         page.setProperty("figureKind", normalized_kind)
         page.setProperty("figureTitle", title)
@@ -365,28 +366,40 @@ class FiguresAreaController:
         if self._disposed or page not in self._plot_tabs:
             return
         index = tabs.indexOf(page)
-        tabs.removeTab(index)
+        self._remove_tab_page(tabs, index, page)
         plot = self._plot_tabs.pop(page, None)
         shutdown = getattr(plot, "shutdown", None)
         if callable(shutdown):
             shutdown()
-        page.deleteLater()
+        delete_removed_widgets(tabs, [page])
         self._hide_add_tab_close_button(tabs)
         self._sync_settings_panel_with_current_tab()
         self._save_project_tab_state(wait=False)
 
+    @staticmethod
+    def _remove_tab_page(tabs: QtWidgets.QTabWidget, index: int, page: QtWidgets.QWidget) -> None:
+        bar = tabs.tabBar()
+        buttons = [bar.tabButton(index, side) for side in QtWidgets.QTabBar.ButtonPosition]
+        tabs.removeTab(index)
+        # The bar schedules its close buttons for deletion. Move their PySide
+        # ownership to the retiring page before those deferred deletes run.
+        for button in buttons:
+            if button is not None:
+                button.setParent(page)
+
     def _clear_figure_tabs(self) -> None:
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
-        for page in tuple(self._plot_tabs):
+        pages = list(self._plot_tabs)
+        for page in pages:
             plot = self._plot_tabs.get(page)
             shutdown = getattr(plot, "shutdown", None)
             if callable(shutdown):
                 shutdown()
             index = tabs.indexOf(page)
             if index >= 0:
-                tabs.removeTab(index)
-            page.deleteLater()
+                self._remove_tab_page(tabs, index, page)
         self._plot_tabs.clear()
+        delete_removed_widgets(tabs, pages)
         self._hide_add_tab_close_button(tabs)
 
     def _save_project_tab_state(self, *, wait: bool = True) -> None:

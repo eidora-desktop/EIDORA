@@ -4,6 +4,16 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Open the bundled starter and older version 5 media databases with their existing asset links and saved matching choices intact.
+
+- Mac builds use upstream Qt fixes for accessibility elements retained after list and table changes. Discovery reuses its palette menus, and deleting Figures releases their tab close buttons.
+
+- Release deleted Figures controllers and the Python wrappers for removed pages, media rows, filter rules and vector cards during long editing sessions.
+
+- Release the embedding import dialog and its four selection popups after each import or cancellation, reducing memory use during repeated imports.
+
+- Fix a native crash when refreshing Discovery metadata fields, snapshots, and other lists during project switches and repeated imports.
+
 - Keep GUI-thread garbage collection progressing after short-lived allocation bursts and during idle periods, including in packaged GUI self-tests. Explicitly delete disposed project-chooser widget trees so row callbacks cannot retain closed dialogs and their controllers.
 
 - Schedule cyclic garbage collection on the GUI thread so background allocations cannot finalize abandoned Qt widget cycles during event dispatch. Retire Vector Data card controllers with their widgets on project switches instead of retaining them in the persistent list.

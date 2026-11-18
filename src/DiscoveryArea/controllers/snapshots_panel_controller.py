@@ -7,7 +7,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.presets_repository import PresetEntry
-from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, configure_panel_item_view
+from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, clear_list_items, configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
@@ -64,7 +64,7 @@ class SnapshotsPanelController(UiPanelController):
         self._entries = list(entries)
         selected_path = self._preferred_snapshot_path or self.selected_snapshot_path()
         with QtCore.QSignalBlocker(self._list):
-            self._list.clear()
+            clear_list_items(self._list)
             self._update_buttons.clear()
             self._row_icon_labels.clear()
             icon_size = self._list.iconSize()
