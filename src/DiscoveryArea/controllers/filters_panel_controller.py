@@ -123,16 +123,13 @@ class FiltersPanelController(UiPanelController):
     ui_path = "ui/filters_panel.ui"
     _ADD_RULE_ITEM_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 1
     _SLIDER_POSITION_STEPS = 1_000
-    _QUERY_VALUE_BUTTON_NAMES = {
-        "button_query_equals",
-        "button_query_not_equals",
-        "button_query_less",
-        "button_query_less_equal",
-        "button_query_greater",
-        "button_query_greater_equal",
-        "button_query_contains",
-        "button_query_starts_with",
-        "button_query_ends_with",
+    _QUERY_VALUE_OPERATORS = {
+        "equals",
+        "not_equals",
+        "less",
+        "less_equal",
+        "greater",
+        "greater_equal",
     }
     _UNQUOTED_METADATA_TYPES = {
         "bool",
@@ -203,9 +200,12 @@ class FiltersPanelController(UiPanelController):
             QtWidgets.QToolButton,
             "button_hide_tooltip",
         )
-        self._hide_filtered_tooltips_button.toggled.connect(
-            self._emit_hide_filtered_tooltips_changed
+        self._hide_filtered_tooltips_buttons = (
+            self._hide_filtered_tooltips_button,
+            require_child(self._widget, QtWidgets.QToolButton, "button_hide_tooltip_advanced"),
         )
+        for button in self._hide_filtered_tooltips_buttons:
+            button.toggled.connect(self._emit_hide_filtered_tooltips_changed)
         self._ensure_add_rule_button()
         self._list.currentRowChanged.connect(self._on_current_rule_changed)
         self._filtered_opacity_spins = (
@@ -354,21 +354,38 @@ class FiltersPanelController(UiPanelController):
             QtWidgets.QPushButton,
             "button_apply_advanced_query",
         )
-        self._query_token_buttons = [
-            button
-            for button in self._advanced_filter_page.findChildren(QtWidgets.QPushButton)
-            if button.property("queryToken") is not None
-        ]
-        for button in self._query_token_buttons:
-            button.setToolTip("Click to insert, or drag into the query editor")
-            button.clicked.connect(
-                lambda _checked=False, source=button: self._insert_query_token(
-                    self._query_token_for_button(source)
-                )
+        self._advanced_operator_combo = require_child(
+            self._widget, QtWidgets.QComboBox, "combo_query_operator"
+        )
+        self._advanced_operator_button = require_child(
+            self._widget, QtWidgets.QPushButton, "button_query_insert_operator"
+        )
+        for name, label, token in (
+            ("equals", '==', ' == '),
+            ("not_equals", '!=', ' != '),
+            ("less", '<', ' < '),
+            ("less_equal", '<=', ' <= '),
+            ("greater", '>', ' > '),
+            ("greater_equal", '>=', ' >= '),
+            ("and", 'AND', ' AND '),
+            ("or", 'OR', ' OR '),
+            ("not", 'NOT', 'NOT '),
+            ("parenthesis", '( )', '('),
+            ("in", 'IN', ' IN ("")'),
+            ("contains", 'contains', ' CONTAINS ""'),
+            ("starts_with", 'starts with', ' STARTS WITH ""'),
+            ("ends_with", 'ends with', ' ENDS WITH ""'),
+            ("is_empty", 'is empty', ' IS EMPTY'),
+        ):
+            self._advanced_operator_combo.addItem(label, (name, token))
+        self._advanced_operator_button.clicked.connect(
+            lambda _checked=False: self._insert_query_token(
+                self._query_token_for_source(self._advanced_operator_button)
             )
+        )
         self._advanced_field_button.clicked.connect(
             lambda _checked=False: self._insert_query_token(
-                self._query_token_for_button(self._advanced_field_button)
+                self._query_token_for_source(self._advanced_field_button)
             )
         )
         self._advanced_field_combo.currentTextChanged.connect(
@@ -376,10 +393,10 @@ class FiltersPanelController(UiPanelController):
         )
         self._advanced_value_button.clicked.connect(self._insert_advanced_query_value)
         self._query_token_drag_filter = _QueryTokenDragFilter(
-            self._query_token_for_button,
+            self._query_token_for_source,
             self._widget,
         )
-        for button in [*self._query_token_buttons, self._advanced_field_button]:
+        for button in (self._advanced_field_button, self._advanced_operator_button):
             button.installEventFilter(self._query_token_drag_filter)
         self._advanced_query_editor.textChanged.connect(
             self._update_advanced_query_validation
@@ -442,22 +459,25 @@ class FiltersPanelController(UiPanelController):
                 self._update_rule_apply_button_icon(apply_button)
         self._paused_simple_apply_buttons.clear()
 
-    def _query_token_for_button(self, button: QtWidgets.QAbstractButton) -> str:
-        if button is self._advanced_field_button:
-            field = self._advanced_field_combo.currentText().strip()
+    def _query_token_for_source(self, source: QtCore.QObject) -> str:
+        if source is self._advanced_field_button:
+            field = str(self._advanced_field_combo.currentData() or self._advanced_field_combo.currentText()).strip()
+            label = self._advanced_field_combo.currentText().strip()
+            labels = self._metadata_field_labels
+            if list(labels.values()).count(label) == 1 and label not in self._metadata_columns:
+                field = label
             return f"[{field}]" if field else ""
-        token = str(button.property("queryToken") or "")
-        button_name = button.objectName()
-        if button_name == "button_query_parenthesis":
+        source_name, token = self._advanced_operator_combo.currentData()
+        if source_name == "parenthesis":
             return "()"
-        if button_name == "button_query_in":
+        if source_name == "in":
             return ' IN ("")' if self._query_field_uses_text_values() else " IN ()"
-        if button_name in self._QUERY_VALUE_BUTTON_NAMES and self._query_field_uses_text_values():
+        if source_name in self._QUERY_VALUE_OPERATORS and self._query_field_uses_text_values():
             return f'{token}""'
         return token
 
     def _query_field_uses_text_values(self) -> bool:
-        field = self._advanced_field_combo.currentText().strip()
+        field = str(self._advanced_field_combo.currentData() or self._advanced_field_combo.currentText()).strip()
         if not field:
             return False
         value_type = self._metadata_value_types.get(field, "").strip().casefold()
@@ -504,7 +524,7 @@ class FiltersPanelController(UiPanelController):
 
     def _refresh_advanced_query_values(self) -> None:
         current = self._advanced_value_combo.currentText()
-        field = self._advanced_field_combo.currentText().strip()
+        field = str(self._advanced_field_combo.currentData() or self._advanced_field_combo.currentText()).strip()
         values = self._metadata_values_for_column(field) if field else []
         self._advanced_value_combo.setProperty('metadataLoading', values is None)
         if values is None:
@@ -941,8 +961,8 @@ class FiltersPanelController(UiPanelController):
         self._advanced_field_combo.setEnabled(enabled)
         self._advanced_field_button.setEnabled(enabled)
         self._advanced_clear_button.setEnabled(enabled)
-        for button in self._query_token_buttons:
-            button.setEnabled(enabled)
+        self._advanced_operator_combo.setEnabled(enabled)
+        self._advanced_operator_button.setEnabled(enabled)
         for widget_name in (
             "spin_filtered_point_size",
             "spin_border_width",
@@ -1107,6 +1127,9 @@ class FiltersPanelController(UiPanelController):
         return self._hide_filtered_tooltips_button.isChecked()
 
     def _emit_hide_filtered_tooltips_changed(self, checked: bool) -> None:
+        for button in self._hide_filtered_tooltips_buttons:
+            with QtCore.QSignalBlocker(button):
+                button.setChecked(checked)
         if self._hide_filtered_tooltips_changed_callback is not None:
             self._hide_filtered_tooltips_changed_callback(bool(checked))
 

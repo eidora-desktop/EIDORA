@@ -4,6 +4,12 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Align Simple and Advanced filter footer controls and expose the shared hide-tooltip setting beside Apply Query.
+
+- Resolve Advanced filter metadata by stable field identity and remove the metadata-loading retry button.
+
+- Compact the Advanced filter operators into one combobox with an insert operator button, aligned with field and value insertion.
+
 - Keep clustering status and result lists responsive while groups are being saved. Source validation now reads only the item identities needed to verify the embeddings.
 
 - Metadata table deletion now tolerates unrelated Discovery appearance autosaves. Confirmation still checks for new dependencies and edits to data scheduled for removal.

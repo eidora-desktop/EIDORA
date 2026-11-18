@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, field, replace
 from threading import RLock
 from typing import TYPE_CHECKING
@@ -80,6 +80,11 @@ class DiscoveryMetadataAccess:
             return cached
         from MetadataArea.related_fields import discovery_columns
         physical, related_aliases = discovery_columns(self._repository.database_path)
+        label_counts = Counter(column.label for column in physical)
+        canonical_names = {column.name for column in physical}
+        for column in physical:
+            if label_counts[column.label] == 1 and column.label not in canonical_names:
+                related_aliases[column.label] = column.name
         used_labels = {column.label.casefold() for column in physical}
         virtual: list[MetadataColumn] = []
         fields: dict[str, tuple[str, str]] = {}

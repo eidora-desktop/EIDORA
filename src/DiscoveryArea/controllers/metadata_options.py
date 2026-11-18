@@ -3,8 +3,7 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from PySide6 import QtCore, QtWidgets
-from shiboken6 import isValid
+from PySide6 import QtCore
 
 
 @dataclass
@@ -23,7 +22,6 @@ class MetadataOptions(QtCore.QObject):
         self._failed = failed
         self._requests = {}
         self._failures = {}
-        self._retry_button = None
         self._pending = OrderedDict()
         self._watched = set()
         self._active = None
@@ -43,7 +41,6 @@ class MetadataOptions(QtCore.QObject):
             previous.ready = ready
             return previous.result
         self._failures.pop(owner, None)
-        self._update_retry_button()
         if isinstance(owner, QtCore.QObject) and owner not in self._watched:
             self._watched.add(owner)
             owner.destroyed.connect(lambda: self._forget(owner))
@@ -59,7 +56,6 @@ class MetadataOptions(QtCore.QObject):
         self._requests.pop(owner, None)
         self._pending.pop(owner, None)
         self._failures.pop(owner, None)
-        self._update_retry_button()
 
     def _forget(self, owner):
         self.cancel(owner)
@@ -69,7 +65,6 @@ class MetadataOptions(QtCore.QObject):
         self._requests.clear()
         self._pending.clear()
         self._failures.clear()
-        self._update_retry_button()
 
     def retry_failed(self):
         for owner, request in list(self._failures.items()):
@@ -78,16 +73,6 @@ class MetadataOptions(QtCore.QObject):
     def is_pending(self, owner):
         request = self._requests.get(owner)
         return owner in self._failures or (request is not None and request.result is None)
-
-    def _update_retry_button(self):
-        # This transient action exists only after an actual read failure.
-        if self._failures and self._retry_button is None:
-            self._retry_button = QtWidgets.QPushButton('Retry metadata loading', self.parent())
-            self._retry_button.setObjectName('button_retry_metadata')
-            self._retry_button.clicked.connect(self.retry_failed)
-            self.parent().layout().addWidget(self._retry_button)
-        if self._retry_button is not None and isValid(self._retry_button):
-            self._retry_button.setVisible(bool(self._failures))
 
     def _start(self):
         if self._active is None and self._pending and not self._closed:
@@ -105,7 +90,6 @@ class MetadataOptions(QtCore.QObject):
             except Exception as exc:
                 self._requests.pop(owner, None)
                 self._failures[owner] = request
-                self._update_retry_button()
                 self._failed(f'Could not load metadata choices: {exc}')
             else:
                 request.load = None
