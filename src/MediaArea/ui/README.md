@@ -1,7 +1,7 @@
-# Assets workspace forms
+# Media workspace forms
 
-`assets_area.ui` owns one horizontal splitter:
-Media Sources on the left, Thumbnails on the right. `new_thumbnails_dialog.ui`
+`media_area.ui` owns one horizontal splitter:
+Media Sources on the left, Preview Assets on the right. `new_thumbnails_dialog.ui`
 retains all thumbnail options. `media_link_dialog.ui` exposes only the source key,
 one metadata column, and a bounded preview. Artifacts forms have been removed.
 

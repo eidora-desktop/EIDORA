@@ -415,7 +415,6 @@ class DiscoveryPanelController(UiPanelController):
             )
         self._reset_discovery_dialog(dialog)
         dialog.show()
-        self._show_status("New projection dialog opened.")
 
     def _reset_discovery_dialog(self, dialog: QtWidgets.QWidget) -> None:
         combo_method = dialog.findChild(QtWidgets.QComboBox, "combo_discovery_method")

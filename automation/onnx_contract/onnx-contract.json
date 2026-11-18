@@ -18,7 +18,7 @@
     "src/EmbeddingsArea/preparation_contract.py": "f7c7b78af39180a435302ece8015b223965f2f4b04115a414cbd52f93cee5dc2",
     "src/EmbeddingsArea/runtime/adapters/base.py": "9ead4dac21475e262fdcfff50ddd27568e993833820324b94b4298a0803d3e72",
     "src/EmbeddingsArea/runtime/adapters/onnx.py": "a2c08aeb5fb16b7777856e142401fcffd9d5e6bf537be572d9282f156fade136",
-    "src/EmbeddingsArea/runtime/contracts.py": "f5f20a85881bb0447977804b21ab5ce47307eda03fa85ffe7934255c9629b300",
+    "src/EmbeddingsArea/runtime/contracts.py": "da9da2419c48576afd7cdc8d8df0c6e72d6f0776e27f3d9609bd57d31c4cf394",
     "src/EmbeddingsArea/runtime/coreml.py": "398e92a7472e30118e5a31c015eb4e73c192456035405a9f81b9c1cd22bd3366",
     "src/EmbeddingsArea/runtime/cuda-downloads.json": "4ffb4d14734fe473f80fe49c8b7f558657e0a875841b8cc2b7f627f1b0e3d598",
     "src/EmbeddingsArea/runtime/cuda.py": "711152df2e228ff46d6b5198379128284a5e6a95a1b8c7f69c677d7f4ef4663c",

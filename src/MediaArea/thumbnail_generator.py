@@ -15,7 +15,7 @@ from uuid import uuid4
 
 from PIL import Image, ImageOps
 
-from AssetsArea.thumbnail_images import write_thumbnail_sizes
+from MediaArea.thumbnail_images import write_thumbnail_sizes
 from shared.internal_workers import internal_worker_command, read_worker_result
 
 from DiscoveryArea.thumbnails.repository import (
@@ -117,11 +117,11 @@ def create_thumbnail_variant(
         seen_ids.add(metadata_id)
         item_media_type = str(item.media_type or normalized_media_type).strip().lower()
         if item_media_type != normalized_media_type:
-            raise ValueError("A thumbnail variant cannot mix image and video inputs.")
+            raise ValueError("Preview Assets cannot mix image and video inputs.")
         matched.append(ThumbnailGenerationInput(Path(item.path), metadata_id, item_media_type))
     check_cancelled()
     if not matched:
-        raise RuntimeError("No linked media files are available for thumbnail creation.")
+        raise RuntimeError("No linked media files are available for creating Preview Assets.")
 
     entries: list[ThumbnailVariantItem] = []
     errors: list[str] = []
@@ -132,7 +132,7 @@ def create_thumbnail_variant(
     last_reported = 0
     last_reported_at = time.monotonic()
     current_file = ""
-    _emit(progress_callback, "start", len(matched), 0, "Generating thumbnails…")
+    _emit(progress_callback, "start", len(matched), 0, "Generating Preview Assets…")
 
     with repo.stage_variant(variant_id) as staging:
         # Waiting for workers precedes staging cleanup, including on cancellation.
@@ -196,7 +196,7 @@ def create_thumbnail_variant(
 
         check_cancelled()
         if not entries:
-            raise RuntimeError(f"No thumbnails created: {failed} failed, {missing} missing.\n" + "\n".join(errors))
+            raise RuntimeError(f"No Preview Assets created: {failed} failed, {missing} missing.\n" + "\n".join(errors))
         generated = done - failed - missing
         variant = ThumbnailVariant(
             variant_id=variant_id,
@@ -216,13 +216,13 @@ def create_thumbnail_variant(
             input_kind=str(input_kind).strip(),
             input_label=str(input_label).strip(),
         )
-        _emit(progress_callback, "index", len(entries), 0, "Saving the thumbnail index…")
+        _emit(progress_callback, "index", len(entries), 0, "Saving Preview Assets…")
         check_cancelled()
         # This is the completion boundary. Cancellation during commit does not
         # turn an already published result into an aborted job.
         repo.publish_variant(variant, entries, staging)
 
-    _emit(progress_callback, "complete", generated, failed + missing, "Thumbnail variant is ready.")
+    _emit(progress_callback, "complete", generated, failed + missing, "Preview Assets are ready.")
     return ThumbnailGenerationResult(variant_id, normalized_label, generated, failed, missing, tuple(errors))
 
 

@@ -1,6 +1,6 @@
 """Choose a shared source; persistence belongs to the assignment service."""
 from PySide6 import QtWidgets
-from AssetsArea.record_link_service import assign_source
+from MediaArea.record_link_service import assign_source
 
 
 def assign_source_dialog(parent, project, record_ids):

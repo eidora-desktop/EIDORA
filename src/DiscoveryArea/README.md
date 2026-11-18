@@ -55,7 +55,7 @@ without evaluating data or loading coordinates.
 
 Hover tooltips show up to 300 characters per metadata value, with an ellipsis
 for longer values. Text wraps within a maximum 360 px section, including URLs
-and identifiers without spaces. Short tooltips remain compact; thumbnail size
+and identifiers without spaces. Short tooltips remain compact; preview size
 and placement are independent. Full metadata stays unchanged.
 
 Individual-item dialogs show the selected permanent item's metadata through the

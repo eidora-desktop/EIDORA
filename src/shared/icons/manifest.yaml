@@ -129,7 +129,7 @@ icons:
     material: line_weight
     style: outlined
     size: 40
-  media_sources:
+  media:
     material: perm_media
     style: outlined
     size: 40

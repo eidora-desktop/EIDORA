@@ -244,7 +244,7 @@
               </sizepolicy>
              </property>
              <property name="text">
-              <string>No thumbnail selected</string>
+              <string>No Preview Assets selected</string>
              </property>
              <property name="scaledContents">
               <bool>false</bool>
@@ -651,7 +651,7 @@
           <item alignment="Qt::AlignmentFlag::AlignRight">
            <widget class="QComboBox" name="combo_neighbor_thumbnail_source">
             <property name="toolTip">
-             <string>Neighbor thumbnail source</string>
+             <string>Preview Assets for neighbors</string>
             </property>
             <property name="sizePolicy">
              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
@@ -661,7 +661,7 @@
             </property>
             <item>
              <property name="text">
-              <string>thumbnails source</string>
+              <string>Preview Assets</string>
              </property>
             </item>
            </widget>

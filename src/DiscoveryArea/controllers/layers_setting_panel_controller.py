@@ -532,9 +532,9 @@ class LayersSettingPanelController(UiPanelController):
             if self._render_variants:
                 self._render_combo.insertSeparator(self._render_combo.count())
             else:
-                self._render_combo.addItem("no thumbnails available", "none")
+                self._render_combo.addItem("No Preview Assets available", "none")
                 self._render_combo.insertSeparator(self._render_combo.count())
-            self._render_combo.addItem("create new thumbnails", "create")
+            self._render_combo.addItem("Create Preview Assets…", "create")
             target = str(selected or self._preview_settings.render_value or "none")
             if target == "create":
                 target = "none"
@@ -743,7 +743,7 @@ class LayersSettingPanelController(UiPanelController):
     def _emit_all_preview_settings_or_status(self) -> None:
         self._sync_thumbnail_controls()
         if not self._preview_settings_active():
-            self._show_status("Create thumbnails before enabling previews.")
+            self._show_status("Create Preview Assets in Media before enabling previews.")
             return
         self._emit_preview_thumbnail_size()
         self._emit_preview_thumbnail_density()
@@ -755,14 +755,12 @@ class LayersSettingPanelController(UiPanelController):
         render_value = self._preview_settings.render_value
         if callable(self._render_selection_changed_callback):
             self._render_selection_changed_callback(render_value)
-        self._show_preview_status()
 
     def _emit_preview_thumbnail_size(self) -> None:
         if not self._preview_settings_active():
             return
         if callable(self._thumbnail_size_changed_callback):
             self._thumbnail_size_changed_callback(int(self._preview_settings.thumbnail_size_px))
-        self._show_preview_status()
 
     def _emit_preview_thumbnail_density(self) -> None:
         if not self._preview_settings_active():
@@ -771,19 +769,6 @@ class LayersSettingPanelController(UiPanelController):
             self._thumbnail_density_changed_callback(
                 int(self._preview_settings.thumbnail_limit)
             )
-        self._show_preview_status()
-
-    def _show_preview_status(self) -> None:
-        settings = self._preview_settings
-        render_value = settings.render_value
-        if render_value in {"", "none"}:
-            return
-        self._show_status(
-            f"Previews: {self._render_combo.currentText()}, "
-            f"{int(settings.thumbnail_size_px)} px, "
-            f"up to {int(settings.thumbnail_limit):,} visible previews"
-            f"{' (auto)' if self._thumbnail_density_automatic else ''}."
-        )
 
     def _bind_fields_selection(self, host: QtWidgets.QWidget | str, *, mode: str) -> QtWidgets.QWidget | None:
         if isinstance(host, str):
@@ -1026,7 +1011,6 @@ class LayersSettingPanelController(UiPanelController):
             if source.item(row).checkState() == QtCore.Qt.CheckState.Checked
         ]
         self._populate_field_list(target, checked_fields=checked)
-        self._show_status("Layers setting field selection synced.")
         self._handle_field_list_changed(target_mode)
 
     def _handle_field_list_changed(self, mode: str) -> None:
@@ -1590,7 +1574,7 @@ class LayersSettingPanelController(UiPanelController):
         for variant_id, label in self._thumbnail_variant_entries():
             combo.addItem(label, variant_id)
         combo.insertSeparator(combo.count())
-        combo.addItem("create new thumbnails", "create")
+        combo.addItem("Create Preview Assets…", "create")
 
     def _set_combo_data(self, combo: QtWidgets.QComboBox, target: str) -> None:
         normalized = self._normalize_thumbnail_selection(target)
@@ -1786,10 +1770,10 @@ class LayersSettingPanelController(UiPanelController):
 
     def _request_create_thumbnails(self) -> None:
         if self._project is None:
-            self._show_status("Load a project before creating thumbnails.")
+            self._show_status("Open a project before creating Preview Assets.")
             return
         if self._create_thumbnails_requested_callback is None:
-            self._show_status("Open Datasets Area to create thumbnails.")
+            self._show_status("Open Media to create Preview Assets.")
             return
         self._create_thumbnails_requested_callback()
 

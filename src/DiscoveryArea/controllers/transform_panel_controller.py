@@ -42,7 +42,7 @@ class TransformPanelController(UiPanelController):
         spacing_tooltip = (
             "Minimum center-to-center spacing. A value of 0.10 corresponds to 0.01 "
             "normalized projection units. Independent of zoom, point size, and "
-            "thumbnail size. Zero disables spreading."
+            "Preview Assets size. Zero disables spreading."
         )
         self._spacing_spin.setRange(0.0, 1.0)
         self._spacing_spin.setDecimals(3)

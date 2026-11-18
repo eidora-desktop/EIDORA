@@ -1,7 +1,7 @@
-# Assets workspace controllers
+# Media workspace controllers
 
-The main controller composes Media Sources and Thumbnails side by side and
-publishes narrow change callbacks to the main window. Thumbnails owns its saved
+The main controller composes Media Sources and Preview Assets side by side and
+publishes narrow change callbacks to the main window. The thumbnail controller owns its saved
 sets, creation dialog, progress, cancellation, and unfinished-job recovery.
 Link opens one exact-key preview dialog. Its replacement checkbox starts
 unchecked on each visit and controls whether unmatched existing source links

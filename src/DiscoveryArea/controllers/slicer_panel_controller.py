@@ -11,6 +11,32 @@ from shared.qt.panel_controller import UiPanelController
 from shared.qt.widgets import require_child
 
 
+class _SlicerInteractionFilter(QtCore.QObject):
+    def __init__(self, parent, activate) -> None:
+        super().__init__(parent)
+        self._activate = activate
+
+    def eventFilter(self, watched, event) -> bool:
+        event_type = event.type()
+        using_control = (
+            event_type == QtCore.QEvent.Type.MouseButtonPress
+            and event.button() == QtCore.Qt.MouseButton.LeftButton
+        ) or event_type == QtCore.QEvent.Type.Wheel
+        if event_type == QtCore.QEvent.Type.KeyPress:
+            using_control = event.key() in (
+                QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Right,
+                QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Down,
+                QtCore.Qt.Key.Key_PageUp, QtCore.Qt.Key.Key_PageDown,
+                QtCore.Qt.Key.Key_Home, QtCore.Qt.Key.Key_End,
+                QtCore.Qt.Key.Key_Space, QtCore.Qt.Key.Key_Return,
+                QtCore.Qt.Key.Key_Enter, QtCore.Qt.Key.Key_Backspace,
+                QtCore.Qt.Key.Key_Delete,
+            ) or bool(event.text().strip())
+        if using_control and watched.isEnabled():
+            self._activate()
+        return super().eventFilter(watched, event)
+
+
 class SlicerPanelController(UiPanelController):
     package = "DiscoveryArea"
     ui_path = "ui/slicer_panel.ui"
@@ -46,6 +72,7 @@ class SlicerPanelController(UiPanelController):
         self._update_apply_button_icon()
         self._save_preset_callback: Callable[[str, dict], bool] | None = None
         self._load_preset_callback: Callable[[str], dict | None] | None = None
+        self._create_animation_callback = None
         self._slicer_changed_callback: Callable[[], None] | None = None
         self._menu_load_recent: QtWidgets.QMenu | None = None
         self._distinct_values_by_column: dict[str, list[str]] = {}
@@ -73,6 +100,12 @@ class SlicerPanelController(UiPanelController):
         self._forward_button.released.connect(self._stop_navigation_repeat)
         self._apply_button.clicked.connect(self._on_apply_button_clicked)
         self._configure_menu()
+        self._interaction_filter = _SlicerInteractionFilter(self._widget, self._activate_from_interaction)
+        for control in (self._scrollbar, self._backward_button, self._forward_button,
+                        self._start_spin, self._spread_spin, self._step_spin):
+            control.installEventFilter(self._interaction_filter)
+            if isinstance(control, QtWidgets.QSpinBox):
+                control.lineEdit().installEventFilter(self._interaction_filter)
 
     def set_project(self, project) -> None:
         self._metadata_options.reset()
@@ -141,7 +174,6 @@ class SlicerPanelController(UiPanelController):
         self._update_active_range()
         self._update_enabled_state()
         self._emit_slicer_changed()
-        self._show_status(f"Slicer {'enabled' if self._slicer_enabled else 'disabled'}.")
 
     def _set_values_loading(self, loading: bool) -> None:
         self._values_loading = loading
@@ -181,9 +213,16 @@ class SlicerPanelController(UiPanelController):
             self._scrollbar.blockSignals(False)
         self._update_active_range()
         self._emit_slicer_changed()
-        self._show_status(f"Slicer position: {self._scrollbar.value()}")
+
+    def _activate_from_interaction(self) -> None:
+        if (self._slicer_enabled or self._applying_state or self._values_loading
+                or not self._current_column() or not self._column_values):
+            return
+        self._apply_button.setChecked(True)
+        self._on_apply_button_clicked()
 
     def _start_navigation_repeat(self, direction: int) -> None:
+        self._activate_from_interaction()
         self._navigation_direction = direction
         self._navigation_repeated = False
         self._navigation_repeat_timer.start()
@@ -214,7 +253,6 @@ class SlicerPanelController(UiPanelController):
         self._update_enabled_state()
         self._update_active_range()
         self._emit_slicer_changed()
-        self._show_status(f"Slicer {'enabled' if self._slicer_enabled else 'disabled'}.")
 
     def _configure_scrollbar(self, values_count: int, *, reset_position: bool = False) -> None:
         spread = self._current_spread()
@@ -261,7 +299,7 @@ class SlicerPanelController(UiPanelController):
     def _update_enabled_state(self) -> None:
         has_column = bool(self._current_column())
         has_values = bool(self._column_values)
-        self._scrollbar.setEnabled(has_column and has_values and self._slicer_enabled)
+        self._scrollbar.setEnabled(has_column and has_values and not self._values_loading)
         self._start_spin.setEnabled(has_column and has_values)
         navigation_enabled = self._scrollbar.isEnabled()
         self._backward_button.setEnabled(navigation_enabled)
@@ -394,6 +432,9 @@ class SlicerPanelController(UiPanelController):
 
     def _configure_menu(self) -> None:
         menu = QtWidgets.QMenu(self._menu_button)
+        animation_action = menu.addAction("Create animation…")
+        animation_action.triggered.connect(self._create_animation)
+        menu.addSeparator()
         self._menu_load_recent = menu.addMenu("Load Recent")
         save_action = menu.addAction("Save Preset…")
         save_action.triggered.connect(self._save_current_preset)
@@ -415,6 +456,20 @@ class SlicerPanelController(UiPanelController):
         self._menu_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._menu_button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
         self.set_recent_preset_labels([])
+
+    def set_create_animation_callback(self, callback) -> None:
+        self._create_animation_callback = callback
+
+    def _create_animation(self) -> None:
+        if self._values_loading or not self._current_column() or not self._column_values:
+            self._show_status("Select a Slicer field with values before creating an animation.")
+            return
+        if self._create_animation_callback is None:
+            self._show_status("Animation creation is unavailable.")
+            return
+        payload = dict(self.slicer_state_payload())
+        payload["enabled"] = True
+        self._create_animation_callback(payload, list(self._column_values))
 
     def _set_navigation_repeat_interval(self, interval_ms: int) -> None:
         self._navigation_repeat_interval_ms = min(

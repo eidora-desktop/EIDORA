@@ -18,8 +18,8 @@ from DiscoveryArea.thumbnails.repository import (
 )
 from EmbeddingsArea.domain import MediaContentType, MediaSourceSummary
 from EmbeddingsArea.session import EmbeddingsAreaSession
-from AssetsArea.controllers.new_thumbnails_dialog_controller import NewThumbnailsDialogController
-from AssetsArea.domain import (
+from MediaArea.controllers.new_thumbnails_dialog_controller import NewThumbnailsDialogController
+from MediaArea.domain import (
     THUMBNAIL_RESIZE_MODES,
     THUMBNAIL_VIDEO_FRAME_MODES,
     ProcessInputKind,
@@ -28,7 +28,7 @@ from AssetsArea.domain import (
     ProcessRequest,
     ProcessState,
 )
-from AssetsArea.process_repository import ProcessRepository
+from MediaArea.process_repository import ProcessRepository
 from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT
 from shared.qt.item_views import configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
@@ -36,7 +36,7 @@ from shared.qt.tree_details import DetailSection, create_tree_details_panel
 from shared.qt.widgets import require_child
 
 if TYPE_CHECKING:
-    from AssetsArea.thumbnail_generator import ThumbnailGenerationResult
+    from MediaArea.thumbnail_generator import ThumbnailGenerationResult
 
 
 _PROCESS_PARAMETER_LABELS = {
@@ -50,7 +50,7 @@ _PROCESS_PARAMETER_LABELS = {
 def _create_source_thumbnails(*args: Any, **kwargs: Any) -> ThumbnailGenerationResult:
     """Import thumbnail computation inside the admitted worker."""
 
-    from AssetsArea.thumbnail_service import create_source_thumbnails
+    from MediaArea.thumbnail_service import create_source_thumbnails
 
     return create_source_thumbnails(*args, **kwargs)
 
@@ -58,7 +58,7 @@ def _create_source_thumbnails(*args: Any, **kwargs: Any) -> ThumbnailGenerationR
 def _create_artifact_thumbnails(*args: Any, **kwargs: Any) -> ThumbnailGenerationResult:
     """Import thumbnail computation inside the admitted worker."""
 
-    from AssetsArea.thumbnail_service import create_artifact_thumbnails
+    from MediaArea.thumbnail_service import create_artifact_thumbnails
 
     return create_artifact_thumbnails(*args, **kwargs)
 
@@ -91,7 +91,7 @@ def _now() -> str:
 
 
 class ThumbnailsPanelController(UiPanelController):
-    package = "AssetsArea"
+    package = "MediaArea"
     ui_path = "ui/thumbnails_panel.ui"
 
     def __init__(self, *args, **kwargs) -> None:
@@ -125,7 +125,7 @@ class ThumbnailsPanelController(UiPanelController):
         self._poll = QtCore.QTimer(self._widget)
         self._poll.setInterval(50)
         self._poll.timeout.connect(self._poll_jobs)
-        self._render_empty("Open or create a project to view thumbnails.")
+        self._render_empty("Open or create a project to view Preview Assets.")
 
     def set_session(self, session: EmbeddingsAreaSession | None) -> None:
         self._session = session
@@ -168,7 +168,7 @@ class ThumbnailsPanelController(UiPanelController):
             self._source_inputs = ()
             self._thumbnail_inputs = ()
             self._add_button.setEnabled(False)
-            self._render_empty("Open or create a project to view thumbnails.")
+            self._render_empty("Open or create a project to view Preview Assets.")
             return
         self._source_summaries = list(self._session.media_library.list_source_summaries())
         self._source_inputs = tuple(
@@ -208,7 +208,7 @@ class ThumbnailsPanelController(UiPanelController):
     def start_embedding_thumbnails(self, run_id: str) -> bool:
         if self._session is None or self._repo is None or self._active:
             return False
-        from AssetsArea.thumbnail_service import default_embedding_thumbnail_request
+        from MediaArea.thumbnail_service import default_embedding_thumbnail_request
 
         self.refresh()
         configuration = self._session.service.get_embedding_run_configuration(run_id)
@@ -225,7 +225,7 @@ class ThumbnailsPanelController(UiPanelController):
         initial_parameters: dict[str, object] | None = None,
     ) -> None:
         if self._project is None or self._process_repo is None:
-            self._show_status("Open a project before creating thumbnails.")
+            self._show_status("Open a project before creating Preview Assets.")
             return
         if not isinstance(preselected_input, ProcessInputReference):
             preselected_input = None
@@ -295,7 +295,7 @@ class ThumbnailsPanelController(UiPanelController):
         )
         if eligible_input is None:
             self._show_status(
-                "The selected input is no longer available for thumbnail creation."
+                "The selected input is no longer available for creating Preview Assets."
             )
             return
         request = replace(request, input=eligible_input, parameters={
@@ -309,14 +309,14 @@ class ThumbnailsPanelController(UiPanelController):
             active.record.output_name.strip().casefold()
             for active in self._active.values()
         } or self._process_repo.output_name_exists(request.output_name):
-            self._show_status("A thumbnail set or pending output already uses that name.")
+            self._show_status("That name is already used for Preview Assets or a pending job.")
             return
         if request.operation_id != "create_thumbnails":
             raise ValueError(f"Unsupported thumbnail operation: {request.operation_id}")
         record = ProcessRecord(
             id=uuid4().hex,
             operation_id=request.operation_id,
-            operation_label="Create Thumbnails",
+            operation_label="Create Preview Assets",
             input=request.input,
             output_id=request.output_id,
             output_name=request.output_name,
@@ -340,8 +340,8 @@ class ThumbnailsPanelController(UiPanelController):
 
         if self._activity_manager is not None and hasattr(self._activity_manager, "processes"):
             active.admission = self._activity_manager.processes.submit(
-                panel="Project Thumbnails",
-                footer_label="Creating thumbnails",
+                panel="Preview Assets",
+                footer_label="Creating Preview Assets",
                 title=record.output_name,
                 start=start,
                 cancel=lambda: self._cancel(record.id),
@@ -423,7 +423,7 @@ class ThumbnailsPanelController(UiPanelController):
             except CancelledError:
                 self._finish_cancelled(active)
             except Exception as exc:  # noqa: BLE001
-                from AssetsArea.thumbnail_generator import ThumbnailGenerationCancelled
+                from MediaArea.thumbnail_generator import ThumbnailGenerationCancelled
 
                 if isinstance(exc, ThumbnailGenerationCancelled):
                     self._finish_cancelled(active)
@@ -501,12 +501,12 @@ class ThumbnailsPanelController(UiPanelController):
             admission.finish()
         self._active.pop(record.id, None)
         if current_project:
-            self._show_status(f"Created thumbnail set '{record.output_name}'.")
+            self._show_status(f"Created Preview Assets '{record.output_name}'.")
 
     def _finish_failed(self, active: _ActiveProcess, message: str) -> None:
         from shared.diagnostics.service import record_failure
 
-        guidance = record_failure("Thumbnail creation failed", message)
+        guidance = record_failure("Could not create Preview Assets", message)
         if guidance:
             message = f"{message}\n\n{guidance}"
         current_project = active.generation == self._project_generation
@@ -561,7 +561,7 @@ class ThumbnailsPanelController(UiPanelController):
         admission = active.admission
         if admission is not None and hasattr(admission, "cancel"):
             admission.cancel()
-            admission.update(message="Cancelling thumbnails…", value=active.record.progress)
+            admission.update(message="Cancelling Preview Assets job…", value=active.record.progress)
         if active.future is not None:
             active.future.cancel()
         elif active.record.id in self._active:
@@ -575,7 +575,7 @@ class ThumbnailsPanelController(UiPanelController):
 
     def _render_records(self, *, select_id: str = "") -> None:
         if self._process_repo is None:
-            self._render_empty("Open or create a project to view thumbnails.")
+            self._render_empty("Open or create a project to view Preview Assets.")
             return
         old_items = [
             self._tree.topLevelItem(index)
@@ -611,7 +611,7 @@ class ThumbnailsPanelController(UiPanelController):
         self._rows = {}
         if not records:
             self._render_empty(
-                "No thumbnails yet. Use Add New… to create one.",
+                "No Preview Assets yet. Use Add New… to create them.",
                 old_items=old_items,
             )
             return
@@ -659,7 +659,7 @@ class ThumbnailsPanelController(UiPanelController):
         return ProcessRecord(
             id=f"saved:{variant.variant_id}",
             operation_id="create_thumbnails",
-            operation_label="Create Thumbnails",
+            operation_label="Create Preview Assets",
             input=ProcessInputReference(
                 input_kind,
                 variant.source_id,
@@ -884,14 +884,14 @@ class ThumbnailsPanelController(UiPanelController):
         }
         menu = QtWidgets.QMenu(self._widget)
         if is_saved:
-            create_from = menu.addAction("Create Thumbnails From…")
+            create_from = menu.addAction("Create Preview Assets From…")
             run_again = menu.addAction("Run Again…")
             rename = menu.addAction("Rename…")
             menu.addSeparator()
             remove = menu.addAction("Remove…")
             if self.input_in_use(record.output_id):
                 remove.setEnabled(False)
-                remove.setToolTip("This thumbnail set is used by queued or running work.")
+                remove.setToolTip("These Preview Assets are used by queued or running work.")
         elif record.state.terminal:
             retry = menu.addAction("Retry…")
             dismiss = menu.addAction("Dismiss")
@@ -935,7 +935,7 @@ class ThumbnailsPanelController(UiPanelController):
             return
         name, accepted = QtWidgets.QInputDialog.getText(
             self._widget,
-            "Rename Thumbnails",
+            "Rename Preview Assets",
             "Name:",
             text=variant.label,
         )
@@ -944,7 +944,7 @@ class ThumbnailsPanelController(UiPanelController):
         try:
             self._repo.rename_variant(variant_id, name.strip())
         except Exception as exc:  # noqa: BLE001
-            self._show_status(f"Could not rename thumbnails: {exc}")
+            self._show_status(f"Could not rename Preview Assets: {exc}")
             return
         self.refresh()
         if self._changed_callback is not None:
@@ -961,7 +961,7 @@ class ThumbnailsPanelController(UiPanelController):
             return
         answer = QtWidgets.QMessageBox.question(
             self._widget,
-            "Remove Thumbnails",
+            "Remove Preview Assets",
             f"Remove '{variant.label}' and its generated files?",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.No,

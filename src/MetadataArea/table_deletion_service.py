@@ -91,7 +91,7 @@ class MetadataTableDeletionService:
         # Remove associations, preserving the source assets and records in other tables.
         specs=[(self.project.paths.media/'media_index.db','media_links','metadata_row_id','Media links'),
                (self.project.paths.metadata_groups_database,'group_memberships','metadata_id','Group memberships'),
-               (self.project.root/'thumbnails/variants.db','thumbnail_variant_items','metadata_id','Thumbnail associations'),
+               (self.project.root/'thumbnails/variants.db','thumbnail_variant_items','metadata_id','Preview Assets associations'),
                (self.project.paths.state/'discovery_pins.db','discovery_pins','metadata_id','Pins'),
                (self.project.paths.state/'discovery_areas.db','polygon_area_members','metadata_id','Marked-area memberships')]
         for database,table,field,label in specs:

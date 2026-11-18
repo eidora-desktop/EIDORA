@@ -16,7 +16,7 @@ class MediaSourceRowController(QtCore.QObject):
     """Bind one source row, keeping progress separate from its name and actions."""
 
     def __init__(self, table, source_id):
-        self.widget = load_ui("AssetsArea", "ui/media_source_row.ui", table)
+        self.widget = load_ui("MediaArea", "ui/media_source_row.ui", table)
         super().__init__(self.widget)
         self._table = table
         self.item = QtWidgets.QTableWidgetItem()

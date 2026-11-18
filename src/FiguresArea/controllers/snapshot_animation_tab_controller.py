@@ -202,7 +202,7 @@ class AnimationTabController(QtCore.QObject):
         )
         self._timeline_progress.setRange(0, 1)
         self._timeline_progress.setValue(0)
-        self._timeline_progress.setFormat("Updating thumbnails… %v / %m")
+        self._timeline_progress.setFormat("Updating Preview Assets… %v / %m")
         self._timeline_progress.hide()
         self._list_viewport = self._list.viewport()
         self._drop_indicator = QtWidgets.QFrame(self._list_viewport)
@@ -604,6 +604,17 @@ class AnimationTabController(QtCore.QObject):
         self._show_status(
             f"Imported slicer preset '{label}' with {len(frames)} frames."
         )
+
+    def set_slicer_frames(
+        self, frames: list[AnimationFrame], snapshot_path: Path, *, interval_ms: int
+    ) -> None:
+        self._speed.setValue(interval_ms)
+        self._replace_timeline(frames)
+        self._show_timeline_state()
+        self.set_base_snapshot(snapshot_path)
+        self._list.setCurrentRow(0)
+        self._update_waiting_for_snapshot_state()
+        self._notify_state_changed()
 
     def _replace_timeline(self, frames: list[AnimationFrame]) -> None:
         self._pause()
@@ -1297,7 +1308,7 @@ class AnimationTabController(QtCore.QObject):
             self._refreshing_all_thumbnails = False
             self._state.thumbnails_dirty = False
             self._notify_state_changed()
-            self._show_status("Updated all animation timeline thumbnails.")
+            self._show_status("Updated all animation Preview Assets.")
         if self._timeline_progress.isVisible():
             self._timeline_progress.setValue(self._thumbnail_progress_total)
             self._flush_thumbnail_progress()
@@ -1314,7 +1325,7 @@ class AnimationTabController(QtCore.QObject):
         self._timeline_progress.setVisible(self._thumbnail_progress_total > 1)
         if self._activity_manager is not None and self._thumbnail_progress_total > 0:
             self._thumbnail_activity = self._activity_manager.busy(
-                "Updating animation thumbnails…"
+                "Updating animation Preview Assets…"
             )
 
     def _sync_thumbnail_activity_total(self) -> None:
@@ -1328,7 +1339,7 @@ class AnimationTabController(QtCore.QObject):
         if self._thumbnail_activity is None:
             if total > 0 and self._activity_manager is not None:
                 self._thumbnail_activity = self._activity_manager.busy(
-                    "Updating animation thumbnails…"
+                    "Updating animation Preview Assets…"
                 )
 
     def _finish_thumbnail_activity(self) -> None:

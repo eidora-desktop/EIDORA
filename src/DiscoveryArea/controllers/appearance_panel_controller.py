@@ -2074,10 +2074,13 @@ class AppearancePanelController(UiPanelController):
         button.setObjectName(f"button_{table_name}_palette")
         button.setAutoRaise(True)
         button.setProperty("iconName", "color_swatch")
-        button.setIconSize(QtCore.QSize(14, 14))
+        button.setIconSize(QtCore.QSize(18, 18))
         button.setFixedSize(18, 18)
         button.setToolTip("Set color palette")
-        button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
+        button.setStyleSheet(
+            "QToolButton { padding: 0px; }"
+            "QToolButton::menu-indicator { image: none; width: 0px; }"
+        )
         menu = QtWidgets.QMenu(button)
         for label, palette in palette_options():
             action = menu.addAction(label)

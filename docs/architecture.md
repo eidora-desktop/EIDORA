@@ -1,7 +1,7 @@
 # Architecture
 
 EIDORA Desktop is a PySide desktop application organized around product areas.
-Assets, metadata, embeddings, Discovery, and Figures workflows are implemented.
+Media, metadata, embeddings, Discovery, and Figures workflows are implemented.
 See the public [source guide](../src/README.md) for concise contributor rules.
 
 The goal of this structure is to keep the project readable as it grows. UI wiring, application behavior, persistence, and computation should stay separate so each part can be tested and changed without pulling the whole application into the change.
@@ -12,7 +12,7 @@ Implemented now:
 
 - Application startup through `app`.
 - Main window navigation between area pages.
-- Feature-sliced area packages for assets, metadata, embeddings, discovery, and figures.
+- Feature-sliced area packages for media, metadata, embeddings, discovery, and figures.
 - Designer-owned `.ui` files loaded at runtime.
 - Area-level and panel-level controllers for UI composition.
 - Shared Qt helpers for loading UI files, wiring panels, icons, deferred calls, worker signals, and cross-area activity feedback.
@@ -38,7 +38,7 @@ Top-level package:
 src/
   app.py                  Application entry point
   MainWindow/             Main shell and navigation
-  AssetsArea/            Active-project media sources and thumbnail preparation
+  MediaArea/              Media source linking and preview preparation
   MetadataArea/           Metadata import, table, and metadata workflows
   EmbeddingsArea/         Embedding runs, models, and clustering
   DiscoveryArea/         Discovery generation, canvas, filters, snapshots
@@ -178,7 +178,7 @@ Source-file provenance remains independent of editable tab names.
 
 ## Computation And Long-Running Work
 
-Thumbnail creation uses `AssetsArea/thumbnail_service.py` to resolve linked
+Thumbnail creation uses `MediaArea/thumbnail_service.py` to resolve linked
 image or video media to canonical metadata IDs. `thumbnail_generator.py` resizes
 images with a bounded worker pool and launches at most two isolated video workers
 to decode first, middle, last, or deterministic-random stills through PyAV.
@@ -305,12 +305,12 @@ Surface palettes also expose the current background to custom painters. Native
 palette changes alone must not own surface painting: stylesheet-backed panels
 and detached settings windows need the shared rules to repaint live.
 
-## Simplified Assets and metadata workflows
+## Simplified Media and metadata workflows
 
-Assets composes Media Sources and Thumbnails in one horizontal splitter. The
-Artifacts UI is removed; internal thumbnail/embedding artifacts remain. Assets
-matching reads resolved Item fields and previews explicit path/identifier rules,
-with separate Match Items and source-scoped Relink actions. Registration is usable
+The Media workspace contains Media Sources and Preview Assets in one horizontal
+splitter. Create and manage Preview Assets from linked images and still frames from video. Media source matching reads resolved Item fields and
+previews explicit path/identifier rules, with separate Match Items and
+source-scoped Relink actions. Registration is usable
 without matching. Scanning and matching never create rows. Source relocation
 publishes the new path with its indexed assets while preserving IDs.
 

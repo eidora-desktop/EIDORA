@@ -94,7 +94,7 @@
       <item>
        <widget class="QComboBox" name="combo_thumbnail_field">
         <property name="toolTip">
-         <string>Thumbnail source</string>
+         <string>Preview Assets</string>
         </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Expanding" vsizetype="Fixed">

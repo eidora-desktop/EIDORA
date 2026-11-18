@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from AssetsArea.domain import ProcessInputKind, ProcessInputReference, ProcessRecord, ProcessState
+from MediaArea.domain import ProcessInputKind, ProcessInputReference, ProcessRecord, ProcessState
 
 
 class ProcessRepository:

@@ -227,7 +227,6 @@ class MetadataAreaController:
 
         self._render_table()
         self._update_search()
-        self._show_status(f"Loaded {self._row_count} metadata rows")
 
     def _on_groups_changed(self) -> None:
         if self._groups_changed_callback is not None:

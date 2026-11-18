@@ -38,7 +38,7 @@ See [Embeddings](../README.md) for persistence and identity contracts.
 
 The model dialog only saves the run configuration. The embedding worker owns input
 preparation, progress, pause and cancellation. After successful worker completion,
-the coordinator requests optional thumbnails through the main window. Assets owns
+the coordinator requests optional thumbnails through the main window. Media owns
 that separate job and its errors; the current workspace stays open and the footer
 tracks the background job. Project changes and shutdown suppress
 the handoff. Existing or pending thumbnails suppress duplicate default jobs.

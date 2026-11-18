@@ -458,6 +458,7 @@ class DiscoveryAreaController:
         self._activity_manager = activity_manager
         self._metadata_changed_callback: Callable[[], None] | None = None
         self._groups_changed_callback: Callable[[], None] | None = None
+        self._create_slicer_animation_callback = None
         self._snapshots_changed_callback: Callable[[], None] | None = None
         self._open_metadata_callback: Callable[[int], None] | None = None
         self._create_thumbnails_requested_callback: Callable[[], None] | None = None
@@ -820,6 +821,35 @@ class DiscoveryAreaController:
     def set_groups_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._groups_changed_callback = callback
 
+    def set_create_slicer_animation_callback(self, callback) -> None:
+        self._create_slicer_animation_callback = callback
+
+    def _create_slicer_animation(self, payload: dict, values: list[str]) -> None:
+        project = self._project
+        if project is None or self._active_dataset is None:
+            self._show_status("Open a Discovery view before creating an animation.")
+            return
+        if self._create_slicer_animation_callback is None:
+            self._show_status("Animation creation is unavailable.")
+            return
+        snapshots = PresetRepository(project.paths.snapshot_presets)
+        presets = PresetRepository(project.paths.slicer_presets)
+        number = 1
+        label = "Slicer animation"
+        while snapshots.exists_label(label) or presets.exists_label(label):
+            number += 1
+            label = f"Slicer animation {number}"
+        if not self._save_snapshot_by_label(label) or self._project is not project or self._shutting_down:
+            return
+        try:
+            preset_path = self._service.save_slicer_preset(project, label, payload)
+        except (OSError, ValueError) as exc:
+            self._show_status(f"Could not save the animation Slicer settings: {exc}")
+            return
+        self._create_slicer_animation_callback(
+            snapshots.path_for_label(label), preset_path, payload, values
+        )
+
     def set_snapshots_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._snapshots_changed_callback = callback
 
@@ -1066,6 +1096,7 @@ class DiscoveryAreaController:
             self._filtered_opacity = filters_panel.filtered_opacity()
         slicer_panel = self._panel(SlicerPanelController)
         if slicer_panel is not None:
+            slicer_panel.set_create_animation_callback(self._create_slicer_animation)
             slicer_panel.set_save_preset_callback(self._save_slicer_preset)
             slicer_panel.set_load_preset_callback(self._load_slicer_preset_by_label)
             slicer_panel.set_slicer_changed_callback(self._handle_slicer_changed)
@@ -1287,7 +1318,9 @@ class DiscoveryAreaController:
         if self._canvas_widget is not None:
             self._canvas_widget.clear_find_item_blink()
 
-    def _reload_discovery_options(self, *, selected_key: str | None = None) -> None:
+    def _reload_discovery_options(
+        self, *, selected_key: str | None = None, reload_selection: bool = True
+    ) -> None:
         discovery_panel = self._panel(DiscoveryPanelController)
         if discovery_panel is None:
             return
@@ -1340,7 +1373,8 @@ class DiscoveryAreaController:
         discovery_panel.set_discovery_options(options, enabled=True, selected_key=resolved_key)
         # Load the same fallback selection that is highlighted in the list.
         resolved_key = discovery_panel.current_selection_key() or resolved_key
-        self._handle_discovery_selection(resolved_key)
+        if reload_selection:
+            self._handle_discovery_selection(resolved_key)
         self._refresh_preset_menus()
 
     def _restored_discovery_key(self, options: list[DiscoveryOption]) -> str:
@@ -1529,8 +1563,6 @@ class DiscoveryAreaController:
         self._render_active_dataset(preserve_view=False, fit_view=True)
         if had_saved_transform and restored_transform is None:
             self._show_status("Projection coordinates changed; saved arrangement was reset.")
-        else:
-            self._show_status(f"Discovery loaded: {option.label}")
         self._discovery_debug("discovery_selection_done", selection_key=selection_key, option_label=option.label)
         self._refresh_current_snapshot_update_state()
         if self._pending_discovery_canvas_key == selection_key and self._canvas_widget is None:
@@ -1975,7 +2007,6 @@ class DiscoveryAreaController:
         if self._canvas_widget is None:
             return
         self._canvas_widget.fit_view()
-        self._show_status("Canvas fit to view.")
         self._refresh_current_snapshot_update_state()
 
     def _handle_mode_changed(self, mode: str) -> None:
@@ -2447,7 +2478,6 @@ class DiscoveryAreaController:
             self._canvas_widget.set_pinned_annotations_visible(bool(visible))
         if not self._applying_project_layer_state and not self._restoring_project_state:
             self._persist_canvas_pins()
-        self._show_status(f"Pins layer {'shown' if visible else 'hidden'}.")
         self._refresh_current_snapshot_update_state()
 
     def _handle_tooltips_visibility_toggled(self, visible: bool) -> None:
@@ -2817,7 +2847,7 @@ class DiscoveryAreaController:
     @QtCore.Slot(int, str)
     def _on_thumbnail_plan_failed(self, revision: int, message: str) -> None:
         del revision
-        self._show_status(f"Thumbnail planning failed: {message}")
+        self._show_status(f"Could not prepare Preview Assets: {message}")
 
     @QtCore.Slot()
     def _on_thumbnail_plan_stale_result(self) -> None:
@@ -2844,7 +2874,7 @@ class DiscoveryAreaController:
         if active:
             self._canvas_widget.set_thumbnail_loading_indicator(
                 True,
-                f"Preparing thumbnails ({pending_count})",
+                f"Preparing Preview Assets ({pending_count})",
             )
         else:
             self._canvas_widget.set_thumbnail_loading_indicator(False)
@@ -3001,7 +3031,7 @@ class DiscoveryAreaController:
             return
         if payload.failed_message:
             self._thumbnail_loading_pending_ids.difference_update(payload.requested_metadata_ids)
-            self._show_status(f"Thumbnail source lookup failed: {payload.failed_message}")
+            self._show_status(f"Could not find Preview Assets: {payload.failed_message}")
             self._update_thumbnail_loading_indicator()
             return
         missing = {int(value) for value in payload.missing_metadata_ids}
@@ -4190,8 +4220,6 @@ class DiscoveryAreaController:
         self._apply_snapshot_pinboard_state(snapshot.pinboard_state)
         if failures:
             self._show_status(f"Snapshot loaded with partial fallback: {', '.join(failures)}")
-        else:
-            self._show_status(f"Snapshot loaded: {snapshot.name}")
         self._current_snapshot_path = path
         self._current_snapshot_baseline = self._current_snapshot_comparison_state(path.stem)
         self._refresh_current_snapshot_update_state()
@@ -4975,26 +5003,29 @@ class DiscoveryAreaController:
             self._finish_active_discovery_run()
             return
         self._discovery_debug("discovery_completion_reload_start", option_key=option_key)
-        self._pending_discovery_canvas_key = option_key
-        self._pending_discovery_canvas_ready = False
-        self._pending_discovery_reload_complete = False
         if discovery_panel is not None:
             discovery_panel.bind_run_to_projection(run.run_id, option_key)
-            discovery_panel.set_run_progress(run.run_id, 95, "Reloading saved projection...")
         try:
-            self._reload_discovery_options(selected_key=option_key)
+            # Publishing a result must not change the user's current canvas view.
+            self._reload_discovery_options(
+                selected_key=self._active_discovery_key, reload_selection=False
+            )
         except Exception as exc:
             self._fail_pending_discovery_display(
-                f"Projection was saved but could not be reloaded: {exc}"
+                f"Projection was saved but the list could not be refreshed: {exc}"
             )
             return
         if self._active_discovery_run is not run:
             return
-        if self._active_discovery_key != option_key:
-            self._fail_pending_discovery_display("Saved projection is no longer available for display.")
+        if option_key not in self._discovery_options:
+            self._fail_pending_discovery_display("Saved projection is no longer available.")
             return
-        self._pending_discovery_reload_complete = True
-        self._complete_pending_discovery_display_if_ready()
+        if discovery_panel is not None:
+            discovery_panel.set_run_finished(run.run_id)
+        option = self._discovery_options.get(option_key)
+        if option is not None:
+            self._show_status(f"Projection ready: {option.label}")
+        self._finish_active_discovery_run()
 
     def _handle_discovery_run_failed(self, message: str) -> None:
         from shared.diagnostics.service import record_failure

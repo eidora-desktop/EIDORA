@@ -36,7 +36,7 @@ def failure_guidance(error: BaseException | str) -> str:
     if errno.ENOENT in codes or windows_codes & {2, 3} or isinstance(error, FileNotFoundError):
         return ("A required file or folder could not be found. Check whether it was moved or deleted, "
                 "reconnect external drives, and make cloud files available locally. For a media "
-                "source, update its location in Assets. The error alone cannot identify which of these happened.")
+                "source, update its location in Media. The error alone cannot identify which of these happened.")
     if codes & {errno.EACCES, errno.EPERM, errno.EROFS} or windows_codes & {5, 19}:
         return ("Access was denied or the location is read-only. Check the folder's permissions "
                 "and whether the drive allows writing, or choose a writable location.")

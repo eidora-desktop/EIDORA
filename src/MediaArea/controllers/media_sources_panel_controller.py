@@ -6,10 +6,10 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from EmbeddingsArea.domain import MediaContentType, MediaProgress
 from EmbeddingsArea.media_sources import cleanup_media_source_inspection, source_id_for_path
 from EmbeddingsArea.session import EmbeddingsAreaSession
-from AssetsArea.controllers.media_link_dialog_controller import MediaLinkDialogController
-from AssetsArea.controllers.media_source_jobs_controller import MediaSourceJobsController
-from AssetsArea.controllers.media_source_row_controller import MediaSourceRowController
-from AssetsArea import media_service
+from MediaArea.controllers.media_link_dialog_controller import MediaLinkDialogController
+from MediaArea.controllers.media_source_jobs_controller import MediaSourceJobsController
+from MediaArea.controllers.media_source_row_controller import MediaSourceRowController
+from MediaArea import media_service
 from shared.qt.item_views import configure_panel_item_view
 from shared.qt.message_dialogs import show_error
 from shared.qt.panel_controller import UiPanelController
@@ -18,7 +18,7 @@ from shared.qt.widgets import delete_removed_widgets, require_child
 
 
 class MediaSourcesPanelController(UiPanelController):
-    package = "AssetsArea"
+    package = "MediaArea"
     ui_path = "ui/media_sources_panel.ui"
 
     def __init__(self, *args, **kwargs):
@@ -406,7 +406,7 @@ class MediaSourcesPanelController(UiPanelController):
         return Path(file_path) if file_path else None
 
     def _choose_detected_media_type(self, counts) -> MediaContentType | None:
-        dialog = load_ui("AssetsArea", "ui/media_type_dialog.ui", None)
+        dialog = load_ui("MediaArea", "ui/media_type_dialog.ui", None)
         dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
         prompt = require_child(dialog, QtWidgets.QLabel, "label_media_type_prompt")
         combo = require_child(dialog, QtWidgets.QComboBox, "combo_media_type")
@@ -535,7 +535,7 @@ class MediaSourcesPanelController(UiPanelController):
         action_link.setEnabled(not self._jobs.busy() and not self._in_use(source_id)
                                and ItemRepository.has_items(self._project.paths.metadata_database))
         menu.addSeparator()
-        action_thumbnails = menu.addAction("Make Thumbnails…")
+        action_thumbnails = menu.addAction("Create Preview Assets…")
         action_thumbnails.setEnabled(can_create)
         action_locate = menu.addAction("Locate Source…")
         from EmbeddingsArea.domain import MediaSourceKind

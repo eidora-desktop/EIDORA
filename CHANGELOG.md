@@ -4,11 +4,41 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Resolve animation Slicer frames through Discovery’s field and relationship catalog so linked-table fields produce distinct frame selections.
+
+- Add Create animation… to the Slicer menu to capture the current Discovery view and generate a new Figures animation from the current Slicer settings.
+
+- Let snapshot preview backgrounds follow light/dark mode when the snapshot uses the default canvas background, including existing MET_Example previews.
+
 - Align Simple and Advanced filter footer controls and expose the shared hide-tooltip setting beside Apply Query.
+
+- Match Transform play-button spacing to Filters.
+
+- Enlarge Appearance palette icons within their existing buttons.
+
+- Quiet routine footer messages for workspace navigation, selections, and canvas controls; retain progress, warnings, errors, and operation results.
 
 - Resolve Advanced filter metadata by stable field identity and remove the metadata-loading retry button.
 
+- Activate the Discovery Slicer when users operate its slider, navigation buttons, or range controls, while preserving inactive saved settings.
+
+- Clicking empty space in the Discovery snapshot list deselects the snapshot and disables update/overwrite actions; list refreshes preserve deselection.
+
+- Size Metadata tabs with standard Qt tab icons and wider padding so long labels and link icons stay inside the tab.
+
+- Keep the current Discovery canvas view when a projection finishes; select the new projection from the list to display it.
+
 - Compact the Advanced filter operators into one combobox with an insert operator button, aligned with field and value insertion.
+
+- Correct the failed execution message to reference Error details without assuming their position in the report.
+
+- Show focus outlines only after keyboard navigation and hide them on mouse click.
+
+- Use Preview Assets terminology across the app, including Discovery settings, tooltips, and job progress.
+
+- Rename the Assets workspace to Media and update the tour to cover Media Sources and Preview Assets.
+
+- Move the project chooser's example project, storage, and diagnostics actions into More Options.
 
 - Keep clustering status and result lists responsive while groups are being saved. Source validation now reads only the item identities needed to verify the embeddings.
 
@@ -16,7 +46,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Closing a metadata import or update releases its dialog and selection popups, preventing widgets from accumulating during repeated imports.
 
-- Discovery returns to points when the active thumbnail set is deleted from Assets.
+- Discovery returns to points when the active thumbnail set is deleted from Media.
 
 - Open the bundled starter and older version 5 media databases with their existing asset links and saved matching choices intact.
 
@@ -80,7 +110,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Replace cached dataset identities when loading snapshot data so direct animation-frame exports cannot reuse another frame's axis bounds.
 
-- Simplify the thumbnail footer to “Creating thumbnails” with the same progress state as the Assets panel.
+- Simplify the thumbnail footer to “Creating Preview Assets” with the same progress state as the Media workspace.
 
 - Prioritize visible figure previews across the workspace, supersede queued stale draws, and deliver completion directly through the GUI event loop. Hidden previews still publish durable datasets, and exports retain their full-quality rendering and reliable queue order.
 
@@ -90,7 +120,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Update figure controls only when their geometry or visible preset selection changes, and share transformation and decoded-animation cache budgets across tabs. Preserve full-resolution previews, document data and export quality.
 
-- Close Run Model immediately and prepare inputs in the embedding card with pause/cancel support. After successful embedding completion, run optional default thumbnails as a separate Assets job with aspect-preserving previews, tracked in the footer without changing workspaces.
+- Close Run Model immediately and prepare inputs in the embedding card with pause/cancel support. After successful embedding completion, run optional default thumbnails as a separate Media job with aspect-preserving previews, tracked in the footer without changing workspaces.
 
 - Simplify the batch selector by removing its explanatory paragraph; Auto now prefers faster batches when the throughput gap exceeds 2%, matching High's tolerance.
 
@@ -190,7 +220,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Offer metadata linking only when Items exist, restrict automatic and manual links to Items–source pairs, and add Unlink for a source’s saved relationships without deleting records.
 
-- Rename the Project workspace to Assets and move the active project name and project actions into the main window, with Switching Projects first. Project storage and bundle formats remain unchanged.
+- Move the active project name and project actions into the main window, with Switching Projects first. Project storage and bundle formats remain unchanged.
 
 - Align Media Source matching with the Metadata Link dialog: suggest settings from actual matches, preview source and item values together, and keep manual adjustments in collapsed Link options.
 

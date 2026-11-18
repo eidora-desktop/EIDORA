@@ -52,9 +52,6 @@
    </property>
    <item>
     <widget class="QGroupBox" name="info_field_group">
-     <property name="toolTip">
-      <string>Show metadata text</string>
-     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
        <horstretch>0</horstretch>
@@ -66,6 +63,9 @@
        <width>16777215</width>
        <height>16777215</height>
       </size>
+     </property>
+     <property name="toolTip">
+      <string>Show metadata text</string>
      </property>
      <property name="title">
       <string>Info Field</string>
@@ -91,14 +91,14 @@
       </property>
       <item>
        <widget class="QListWidget" name="list_pin_selected_metadata_fields_tooltip">
-        <property name="toolTip">
-         <string>Choose and order tooltip fields</string>
-        </property>
         <property name="maximumSize">
          <size>
           <width>16777215</width>
           <height>16777215</height>
          </size>
+        </property>
+        <property name="toolTip">
+         <string>Choose and order tooltip fields</string>
         </property>
         <property name="alternatingRowColors">
          <bool>true</bool>
@@ -164,9 +164,6 @@
             </property>
             <item>
              <widget class="QToolButton" name="button_pin_move_up_tooltip">
-              <property name="toolTip">
-               <string>Move field up</string>
-              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -184,6 +181,9 @@
                 <width>22</width>
                 <height>22</height>
                </size>
+              </property>
+              <property name="toolTip">
+               <string>Move field up</string>
               </property>
               <property name="styleSheet">
                <string notr="true">m</string>
@@ -202,9 +202,6 @@
             </item>
             <item>
              <widget class="QToolButton" name="button_pin_move_down_tooltip">
-              <property name="toolTip">
-               <string>Move field down</string>
-              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -222,6 +219,9 @@
                 <width>22</width>
                 <height>22</height>
                </size>
+              </property>
+              <property name="toolTip">
+               <string>Move field down</string>
               </property>
               <property name="text">
                <string/>
@@ -288,7 +288,7 @@
       </size>
      </property>
      <property name="title">
-      <string>Thumbnail</string>
+      <string>Preview Assets</string>
      </property>
      <property name="checkable">
       <bool>true</bool>
@@ -372,19 +372,19 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>thumbnail source</string>
+               <string>Preview Assets</string>
               </property>
               <property name="text">
                <string/>
               </property>
               <property name="pixmap">
-               <pixmap>../../shared/icons/material/image.svg</pixmap>
+               <pixmap>../../shared/icons/material/preview_assets.svg</pixmap>
               </property>
               <property name="iconSize" stdset="0">
                <number>20</number>
               </property>
               <property name="iconName" stdset="0">
-               <string>image</string>
+               <string>preview_assets</string>
               </property>
              </widget>
             </item>
@@ -406,14 +406,14 @@
          </item>
          <item>
           <widget class="QComboBox" name="combo_tooltip_thumbnail_field">
-           <property name="toolTip">
-            <string>Tooltip thumbnail source</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
+           </property>
+           <property name="toolTip">
+            <string>Preview Assets source</string>
            </property>
           </widget>
          </item>
@@ -486,7 +486,7 @@
                   </size>
                  </property>
                  <property name="toolTip">
-                  <string>align thumbnail left</string>
+                  <string>Align Preview Assets left</string>
                  </property>
                  <property name="text">
                   <string/>
@@ -518,7 +518,7 @@
                   </size>
                  </property>
                  <property name="toolTip">
-                  <string>align thumbnail right</string>
+                  <string>Align Preview Assets right</string>
                  </property>
                  <property name="text">
                   <string/>
@@ -553,7 +553,7 @@
                   </size>
                  </property>
                  <property name="toolTip">
-                  <string>align thumbnail top</string>
+                  <string>Align Preview Assets top</string>
                  </property>
                  <property name="text">
                   <string/>
@@ -585,7 +585,7 @@
                   </size>
                  </property>
                  <property name="toolTip">
-                  <string>align thumbnail bottom</string>
+                  <string>Align Preview Assets bottom</string>
                  </property>
                  <property name="text">
                   <string/>
@@ -674,7 +674,7 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>thumbnail size</string>
+               <string>Preview Assets size</string>
               </property>
               <property name="text">
                <string/>
@@ -708,9 +708,6 @@
          </item>
          <item>
           <widget class="QSlider" name="slider_tooltip_thumbnail_size">
-           <property name="toolTip">
-            <string>Tooltip thumbnail size</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -728,6 +725,9 @@
              <width>16777215</width>
              <height>16777215</height>
             </size>
+           </property>
+           <property name="toolTip">
+            <string>Tooltip Preview Assets size</string>
            </property>
            <property name="minimum">
             <number>32</number>

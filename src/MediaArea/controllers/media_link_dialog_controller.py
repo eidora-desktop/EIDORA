@@ -5,7 +5,7 @@ from PySide6 import QtCore, QtWidgets
 from EmbeddingsArea.domain import MediaContentType, MediaLinkRequest
 from MetadataArea.repository import MetadataRepository
 from MetadataArea.service import MetadataService
-from AssetsArea.media_service import preview_links, suggest_links
+from MediaArea.media_service import preview_links, suggest_links
 from shared.qt.item_views import clear_list_items
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
@@ -15,7 +15,7 @@ class MediaLinkDialogController:
     """Suggest a match, preview it, and let the user adjust before applying."""
 
     def __init__(self, project, source, columns, saved_request, jobs):
-        self.dialog = load_ui("AssetsArea", "ui/media_link_dialog.ui", None)
+        self.dialog = load_ui("MediaArea", "ui/media_link_dialog.ui", None)
         self.dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
         self.dialog.setWindowTitle("Link Items")
         self._project, self._source, self._jobs = project, source, jobs

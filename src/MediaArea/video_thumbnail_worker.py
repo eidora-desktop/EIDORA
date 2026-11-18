@@ -14,7 +14,7 @@ from typing import Any, Iterable
 
 from PIL import Image, ImageOps
 
-from AssetsArea.thumbnail_images import write_thumbnail_sizes
+from MediaArea.thumbnail_images import write_thumbnail_sizes
 
 
 FRAME_MODES = frozenset({"first", "middle", "last", "random"})

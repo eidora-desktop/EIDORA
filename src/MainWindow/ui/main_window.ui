@@ -58,13 +58,16 @@
         <number>0</number>
        </property>
        <item>
-        <widget class="QPushButton" name="button_assets_area">
+        <widget class="QPushButton" name="button_media_area">
+         <property name="toolTip">
+          <string>Link images, video, audio, and text to Items and create Preview Assets from images and video.</string>
+         </property>
          <property name="text">
-          <string>Assets</string>
+          <string>Media</string>
          </property>
          <property name="icon">
           <iconset>
-           <normaloff>../../shared/icons/material/assets.svg</normaloff>../../shared/icons/material/assets.svg</iconset>
+           <normaloff>../../shared/icons/material/media.svg</normaloff>../../shared/icons/material/media.svg</iconset>
          </property>
          <property name="iconSize">
           <size>
@@ -82,7 +85,7 @@
           <bool>true</bool>
          </property>
          <property name="iconName" stdset="0">
-          <string>assets</string>
+          <string>media</string>
          </property>
          <attribute name="buttonGroup">
           <string notr="true">btngroup_components</string>

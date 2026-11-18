@@ -71,9 +71,9 @@ snapshots and service-level compatibility.
 **Run Model** saves the configuration and closes the dialog immediately. The
 embedding card opens with input preparation running in its background job, followed
 by inference. Preparation supports pause/cancel and reports failures on the card
-for retry. Optional default thumbnails start as a separate Assets job only after
+for retry. Optional Preview Assets creation starts as a separate Media job only after
 the embedding completes and releases its worker. The current workspace stays open;
-the footer tracks the thumbnail job. They use the same visual source,
+the footer tracks the Preview Assets job. The assets use the same visual source,
 original aspect ratio, and the middle frame for video; model tensor resizing does
 not affect previews. The Designer-owned
 focused form presents the model heading, Media Source, output name, and execution

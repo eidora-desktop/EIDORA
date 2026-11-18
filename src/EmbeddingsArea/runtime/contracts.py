@@ -57,7 +57,7 @@ class RuntimeProgress:
 
     @property
     def message(self) -> str:
-        label = {"embedding": "Embedding", "saving": "Saving embeddings", "complete": "Embeddings saved", "thumbnails": "Creating thumbnails"}.get(self.stage, self.stage)
+        label = {"embedding": "Embedding", "saving": "Saving embeddings", "complete": "Embeddings saved", "thumbnails": "Creating Preview Assets"}.get(self.stage, self.stage)
         text = f"{label}: {self.completed:,} / {self.total:,}"
         if self.batch_size and self.stage == "embedding":
             text += f" · Batch {self.batch_size} · {self.batch_mode}"

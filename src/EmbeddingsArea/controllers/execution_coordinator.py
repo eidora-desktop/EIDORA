@@ -410,7 +410,7 @@ class ExecutionCoordinator(QtCore.QObject):
             guidance = record_failure(f"{kind} job failed", error)
             if guidance:
                 state.pending_error += "\n\n" + guidance
-            self._append_report(state, "Execution failed. See error details below.")
+            self._append_report(state, "Execution failed. See ‘Error details’ in this report.")
 
     def _thread_finished(self, kind: str, identity: str) -> None:
         state = self.state(kind, identity)

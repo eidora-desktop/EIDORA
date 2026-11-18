@@ -193,11 +193,14 @@ class ProjectChooserController:
         self._button_import_project = self._find_required(
             QtWidgets.QPushButton, "button_import_project"
         )
-        self._button_storage = self._find_required(QtWidgets.QPushButton, "button_storage")
-        self._button_report = self._find_required(QtWidgets.QPushButton, "button_report")
+        button_more_options = self._find_required(QtWidgets.QPushButton, "button_more_options")
+        self._more_options_menu = QtWidgets.QMenu(button_more_options)
+        self._action_starter = self._more_options_menu.addAction("Create MET Example…")
+        self._action_storage = self._more_options_menu.addAction("Storage…")
+        self._action_report = self._more_options_menu.addAction("Diagnostics…")
+        button_more_options.setMenu(self._more_options_menu)
         self._diagnostics_notice = self._find_required(QtWidgets.QLabel, "label_diagnostics_notice")
         self._diagnostics_notice.setVisible(report_repository().has_unreviewed_problem())
-        self._button_starter = self._find_required(QtWidgets.QPushButton, "button_starter")
         from project.starter_collection import bundled_resources, read_manifest
 
         manifest_path = bundled_resources()
@@ -206,7 +209,7 @@ class ProjectChooserController:
             starter_available = (manifest_path.parent / manifest["archive"]).is_file()
         except (OSError, ValueError):
             starter_available = False
-        self._button_starter.setVisible(starter_available)
+        self._action_starter.setVisible(starter_available)
         self._refresh_branding()
         self._palette_filter = _ChooserPaletteFilter(self.dialog, self._refresh_branding)
 
@@ -310,9 +313,9 @@ class ProjectChooserController:
             (self._button_open_project.clicked, self._open_selected_project),
             (self._list_projects.itemSelectionChanged, self._update_open_button),
             (self._list_projects.itemDoubleClicked, lambda _item: self._open_selected_project()),
-            (self._button_storage.clicked, self._open_storage),
-            (self._button_report.clicked, self._show_report),
-            (self._button_starter.clicked, self._create_starter),
+            (self._action_storage.triggered, self._open_storage),
+            (self._action_report.triggered, self._show_report),
+            (self._action_starter.triggered, self._create_starter),
         ]
         for signal, slot in self._connections:
             signal.connect(slot)

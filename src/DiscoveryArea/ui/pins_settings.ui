@@ -52,14 +52,14 @@
    </property>
    <item>
     <widget class="QGroupBox" name="group_info_field">
-     <property name="toolTip">
-      <string>Show metadata text</string>
-     </property>
      <property name="minimumSize">
       <size>
        <width>0</width>
        <height>0</height>
       </size>
+     </property>
+     <property name="toolTip">
+      <string>Show metadata text</string>
      </property>
      <property name="title">
       <string>Info Field</string>
@@ -176,9 +176,6 @@
                </property>
                <item>
                 <widget class="QToolButton" name="button_pin_move_up">
-                 <property name="toolTip">
-                  <string>Move field up</string>
-                 </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -196,6 +193,9 @@
                    <width>22</width>
                    <height>22</height>
                   </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Move field up</string>
                  </property>
                  <property name="styleSheet">
                   <string notr="true">m</string>
@@ -214,9 +214,6 @@
                </item>
                <item>
                 <widget class="QToolButton" name="button_pin_move_down">
-                 <property name="toolTip">
-                  <string>Move field down</string>
-                 </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -234,6 +231,9 @@
                    <width>22</width>
                    <height>22</height>
                   </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Move field down</string>
                  </property>
                  <property name="text">
                   <string/>
@@ -341,9 +341,6 @@
                </property>
                <item>
                 <widget class="QLabel" name="label_pin_text_size_icon">
-                 <property name="toolTip">
-                  <string>Pin text size</string>
-                 </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
                    <horstretch>0</horstretch>
@@ -355,6 +352,9 @@
                    <width>22</width>
                    <height>22</height>
                   </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Pin text size</string>
                  </property>
                  <property name="text">
                   <string/>
@@ -388,9 +388,6 @@
             </item>
             <item>
              <widget class="QFontComboBox" name="combo_pin_font">
-              <property name="toolTip">
-               <string>Pin font</string>
-              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -403,6 +400,9 @@
                 <height>16777215</height>
                </size>
               </property>
+              <property name="toolTip">
+               <string>Pin font</string>
+              </property>
               <property name="currentFont">
                <font>
                 <family>Arial</family>
@@ -412,14 +412,14 @@
             </item>
             <item>
              <widget class="QSpinBox" name="spin_pin_font_size">
-              <property name="toolTip">
-               <string>Pin text size</string>
-              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
+              </property>
+              <property name="toolTip">
+               <string>Pin text size</string>
               </property>
               <property name="minimum">
                <number>4</number>
@@ -567,9 +567,6 @@
                   </property>
                   <item>
                    <widget class="QToolButton" name="button_hide_pin_label">
-                    <property name="toolTip">
-                     <string>Hide field names</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -588,6 +585,9 @@
                       <height>22</height>
                      </size>
                     </property>
+                    <property name="toolTip">
+                     <string>Hide field names</string>
+                    </property>
                     <property name="text">
                      <string/>
                     </property>
@@ -605,9 +605,6 @@
                   </item>
                   <item>
                    <widget class="QToolButton" name="button_bold_pin_label">
-                    <property name="toolTip">
-                     <string>Bold field names</string>
-                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>22</width>
@@ -619,6 +616,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Bold field names</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -640,9 +640,6 @@
                   </item>
                   <item>
                    <widget class="QToolButton" name="button_italic_pin_label">
-                    <property name="toolTip">
-                     <string>Italic field names</string>
-                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>22</width>
@@ -654,6 +651,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Italic field names</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -672,9 +672,6 @@
                   </item>
                   <item>
                    <widget class="QToolButton" name="button_underline_pin_label">
-                    <property name="toolTip">
-                     <string>Underline field names</string>
-                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>22</width>
@@ -686,6 +683,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Underline field names</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -765,9 +765,6 @@
                   </property>
                   <item>
                    <widget class="QToolButton" name="button_bold_pin_value">
-                    <property name="toolTip">
-                     <string>Bold values</string>
-                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>22</width>
@@ -779,6 +776,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Bold values</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -800,9 +800,6 @@
                   </item>
                   <item>
                    <widget class="QToolButton" name="button_italic_pin_value">
-                    <property name="toolTip">
-                     <string>Italic values</string>
-                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>22</width>
@@ -814,6 +811,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Italic values</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -832,9 +832,6 @@
                   </item>
                   <item>
                    <widget class="QToolButton" name="button_underline_pin_value">
-                    <property name="toolTip">
-                     <string>Underline values</string>
-                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>22</width>
@@ -846,6 +843,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Underline values</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -892,7 +892,7 @@
       </size>
      </property>
      <property name="title">
-      <string>Thumbnail</string>
+      <string>Preview Assets</string>
      </property>
      <property name="checkable">
       <bool>true</bool>
@@ -976,19 +976,19 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>thumbnail source</string>
+               <string>Preview Assets</string>
               </property>
               <property name="text">
                <string/>
               </property>
               <property name="pixmap">
-               <pixmap>../../shared/icons/material/image.svg</pixmap>
+               <pixmap>../../shared/icons/material/preview_assets.svg</pixmap>
               </property>
               <property name="iconSize" stdset="0">
                <number>20</number>
               </property>
               <property name="iconName" stdset="0">
-               <string>image</string>
+               <string>preview_assets</string>
               </property>
              </widget>
             </item>
@@ -1010,14 +1010,14 @@
          </item>
          <item>
           <widget class="QComboBox" name="combo_pin_thumbnail_field">
-           <property name="toolTip">
-            <string>Pin thumbnail source</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
+           </property>
+           <property name="toolTip">
+            <string>Preview Assets source</string>
            </property>
           </widget>
          </item>
@@ -1066,7 +1066,7 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>align thumbnail left</string>
+               <string>Align Preview Assets left</string>
               </property>
               <property name="text">
                <string/>
@@ -1098,7 +1098,7 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>align thumbnail right</string>
+               <string>Align Preview Assets right</string>
               </property>
               <property name="text">
                <string/>
@@ -1133,7 +1133,7 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>align thumbnail top</string>
+               <string>Align Preview Assets top</string>
               </property>
               <property name="text">
                <string/>
@@ -1165,7 +1165,7 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>align thumbnail bottom</string>
+               <string>Align Preview Assets bottom</string>
               </property>
               <property name="text">
                <string/>
@@ -1251,7 +1251,7 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>thumbnail size</string>
+               <string>Preview Assets size</string>
               </property>
               <property name="text">
                <string/>
@@ -1285,9 +1285,6 @@
          </item>
          <item>
           <widget class="QSlider" name="slider_pin_thumbnail_size">
-           <property name="toolTip">
-            <string>Pin thumbnail size</string>
-           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>0</horstretch>
@@ -1305,6 +1302,9 @@
              <width>16777215</width>
              <height>16777215</height>
             </size>
+           </property>
+           <property name="toolTip">
+            <string>Pin Preview Assets size</string>
            </property>
            <property name="minimum">
             <number>32</number>
@@ -1451,14 +1451,14 @@
                   </property>
                   <item>
                    <widget class="QLabel" name="label_pin_background_color_icon">
-                    <property name="toolTip">
-                     <string>Pin background color</string>
-                    </property>
                     <property name="maximumSize">
                      <size>
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Pin background color</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -1526,9 +1526,6 @@
                   </property>
                   <item>
                    <widget class="QLabel" name="label_pin_border_color_icon">
-                    <property name="toolTip">
-                     <string>Pin border color</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -1540,6 +1537,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Pin border color</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -1634,9 +1634,6 @@
                   </property>
                   <item>
                    <widget class="QLabel" name="label_pin_box_opacity_icon">
-                    <property name="toolTip">
-                     <string>Pin box opacity</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -1648,6 +1645,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Pin box opacity</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -1678,14 +1678,14 @@
                   </item>
                   <item>
                    <widget class="QSpinBox" name="spin_pin_opacity">
-                    <property name="toolTip">
-                     <string>Pin box opacity</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                       <horstretch>0</horstretch>
                       <verstretch>0</verstretch>
                      </sizepolicy>
+                    </property>
+                    <property name="toolTip">
+                     <string>Pin box opacity</string>
                     </property>
                     <property name="suffix">
                      <string>%</string>
@@ -1724,9 +1724,6 @@
                   </property>
                   <item>
                    <widget class="QLabel" name="label_pin_outline_width_icon">
-                    <property name="toolTip">
-                     <string>Pin border width</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -1738,6 +1735,9 @@
                       <width>22</width>
                       <height>22</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Pin border width</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -1768,9 +1768,6 @@
                   </item>
                   <item>
                    <widget class="QDoubleSpinBox" name="spin_pin_outline_width">
-                    <property name="toolTip">
-                     <string>Pin border width</string>
-                    </property>
                     <property name="sizePolicy">
                      <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                       <horstretch>0</horstretch>
@@ -1782,6 +1779,9 @@
                       <width>0</width>
                       <height>0</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Pin border width</string>
                     </property>
                     <property name="decimals">
                      <number>1</number>
@@ -1824,9 +1824,6 @@
       </item>
       <item>
        <widget class="QGroupBox" name="group_connector">
-        <property name="toolTip">
-         <string>Connect pins to their points</string>
-        </property>
         <property name="sizePolicy">
          <sizepolicy hsizetype="Fixed" vsizetype="Expanding">
           <horstretch>0</horstretch>
@@ -1838,6 +1835,9 @@
           <width>16777215</width>
           <height>16777215</height>
          </size>
+        </property>
+        <property name="toolTip">
+         <string>Connect pins to their points</string>
         </property>
         <property name="title">
          <string>Connector</string>
@@ -2141,9 +2141,6 @@
                </property>
                <item>
                 <widget class="QLabel" name="label_pin_connector_width_icon">
-                 <property name="toolTip">
-                  <string>Pin connector width</string>
-                 </property>
                  <property name="sizePolicy">
                   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                    <horstretch>0</horstretch>
@@ -2155,6 +2152,9 @@
                    <width>22</width>
                    <height>22</height>
                   </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Pin connector width</string>
                  </property>
                  <property name="text">
                   <string/>
@@ -2188,9 +2188,6 @@
             </item>
             <item>
              <widget class="QDoubleSpinBox" name="spin_connector_width">
-              <property name="toolTip">
-               <string>Pin connector width</string>
-              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
@@ -2202,6 +2199,9 @@
                 <width>40</width>
                 <height>16777215</height>
                </size>
+              </property>
+              <property name="toolTip">
+               <string>Pin connector width</string>
               </property>
               <property name="decimals">
                <number>1</number>

@@ -253,7 +253,7 @@
            </sizepolicy>
           </property>
           <property name="toolTip">
-           <string>Show or hide image previews</string>
+           <string>Show or hide Preview Assets</string>
           </property>
           <property name="accessibleDescription">
            <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
@@ -281,10 +281,10 @@
            </size>
           </property>
           <property name="toolTip">
-           <string>Previews settings</string>
+           <string>Preview Assets settings</string>
           </property>
           <property name="accessibleName">
-           <string>Previews settings</string>
+           <string>Preview Assets settings</string>
           </property>
           <property name="text">
            <string notr="true">▾</string>

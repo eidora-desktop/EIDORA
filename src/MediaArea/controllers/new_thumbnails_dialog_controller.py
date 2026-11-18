@@ -4,7 +4,7 @@ from uuid import uuid4
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from AssetsArea.domain import (
+from MediaArea.domain import (
     THUMBNAIL_RESIZE_MODES,
     THUMBNAIL_VIDEO_FRAME_MODES,
     ProcessInputKind,
@@ -36,9 +36,9 @@ class NewThumbnailsDialogController:
         )
         self._initial_name = initial_name
         self._parameters = dict(initial_parameters or {})
-        self.dialog = load_ui("AssetsArea", "ui/new_thumbnails_dialog.ui", None)
+        self.dialog = load_ui("MediaArea", "ui/new_thumbnails_dialog.ui", None)
         if not isinstance(self.dialog, QtWidgets.QDialog):
-            raise TypeError("Create Thumbnails UI root must be a QDialog")
+            raise TypeError("Create Preview Assets UI root must be a QDialog")
         self.dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
         self._input = require_child(self.dialog, QtWidgets.QComboBox, "combo_thumbnail_source")
         self._name = require_child(self.dialog, QtWidgets.QLineEdit, "edit_thumbnail_variant_name")
@@ -88,7 +88,7 @@ class NewThumbnailsDialogController:
     def _populate(self) -> None:
         for group_label, kind in (
             ("Media Sources", ProcessInputKind.MEDIA_SOURCE),
-            ("Thumbnails", ProcessInputKind.ARTIFACT),
+            ("Preview Assets", ProcessInputKind.ARTIFACT),
         ):
             members = [candidate for candidate in self._inputs if candidate.kind == kind]
             if not members:
@@ -173,7 +173,7 @@ class NewThumbnailsDialogController:
         selected = self._selected_input()
         if selected is None:
             return
-        base = f"{selected.label} (thumbs)"
+        base = f"{selected.label} (Preview Assets)"
         candidate = base
         suffix = 2
         while candidate.casefold() in self._existing_names:
@@ -188,10 +188,10 @@ class NewThumbnailsDialogController:
                 "No eligible input is available. Link an image or video source to metadata first."
             )
         elif selected is None:
-            self._availability.setText("Choose an eligible media source or thumbnail set.")
+            self._availability.setText("Choose an eligible media source or existing Preview Assets.")
         elif selected.kind == ProcessInputKind.ARTIFACT:
             self._availability.setText(
-                "The largest stored thumbnail is used for each metadata ID."
+                "The largest stored Preview Asset is used for each Item."
             )
         else:
             self._availability.setText("Linked media files will be used as input.")

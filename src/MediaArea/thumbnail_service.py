@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from AssetsArea.thumbnail_generator import (
+from MediaArea.thumbnail_generator import (
     CancellationCallback,
     ProgressCallback,
     ThumbnailGenerationCancelled,
@@ -34,7 +34,7 @@ def create_source_thumbnails(
 
     check_cancelled()
     if progress_callback is not None:
-        progress_callback("prepare", 0, 0, "Resolving thumbnail inputs…")
+        progress_callback("prepare", 0, 0, "Finding inputs for Preview Assets…")
     source_content_type = getattr(summary.source, "content_type", MediaContentType.IMAGE)
     from project.item_repository import ItemRepository
     from project.domain import ProjectStoragePaths
@@ -50,7 +50,7 @@ def create_source_thumbnails(
             nonlocal last_report
             now = time.monotonic()
             if progress_callback is not None and (now - last_report >= 0.25 or count == total):
-                progress_callback("prepare", count, total, f"Resolving thumbnail inputs: {count:,}/{total:,} Items…")
+                progress_callback("prepare", count, total, f"Finding inputs for Preview Assets: {count:,}/{total:,} Items…")
                 last_report = now
         try:
             resolved = media_repository.linked_assets_for_metadata_ids(item_ids,
@@ -130,7 +130,7 @@ def create_artifact_thumbnails(
 def default_embedding_thumbnail_request(configuration, available_inputs, repo):
     """Use the completed embedding's visual source with preview defaults."""
     from uuid import uuid4
-    from AssetsArea.domain import ProcessInputKind, ProcessRequest
+    from MediaArea.domain import ProcessInputKind, ProcessRequest
     from EmbeddingsArea.domain import EmbeddingRunState
 
     if configuration.run.state != EmbeddingRunState.COMPLETED or repo.list_variants():
@@ -144,7 +144,7 @@ def default_embedding_thumbnail_request(configuration, available_inputs, repo):
         return None
     return ProcessRequest(
         operation_id="create_thumbnails", input=source, output_id=uuid4().hex,
-        output_name=f"{source.label} (thumbs)",
+        output_name=f"{source.label} (Preview Assets)",
         parameters={"resize_mode": "original_aspect",
                     **({"video_frame_mode": "middle"} if source.media_type == "video" else {})},
     )

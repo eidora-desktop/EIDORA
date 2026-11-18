@@ -218,22 +218,22 @@ class ThumbnailVariantRepository:
         normalized_id = str(variant_id).strip()
         normalized_label = str(label).strip()
         if not normalized_id:
-            raise ValueError("Choose a thumbnail variant to rename.")
+            raise ValueError("Choose which Preview Assets to rename.")
         if not normalized_label:
-            raise ValueError("Thumbnail name cannot be empty.")
+            raise ValueError("Enter a name for the Preview Assets.")
         with closing(sqlite3.connect(self._db_path)) as connection, connection:
             duplicate = connection.execute(
                 "SELECT 1 FROM thumbnail_variants WHERE lower(label) = lower(?) AND variant_id != ?",
                 (normalized_label, normalized_id),
             ).fetchone()
             if duplicate is not None:
-                raise ValueError(f"A thumbnail variant named '{normalized_label}' already exists.")
+                raise ValueError(f"Preview Assets named '{normalized_label}' already exist.")
             cursor = connection.execute(
                 "UPDATE thumbnail_variants SET label = ? WHERE variant_id = ?",
                 (normalized_label, normalized_id),
             )
             if cursor.rowcount == 0:
-                raise ValueError("The thumbnail variant no longer exists.")
+                raise ValueError("The selected Preview Assets no longer exist.")
             connection.commit()
 
     def delete_variant(self, variant_id: str) -> None:

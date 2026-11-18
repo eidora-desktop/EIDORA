@@ -1918,13 +1918,17 @@ class FigureMatplotlibRenderer:
         slicer_values = slicer.get("values")
         if slicer_column and isinstance(slicer_values, list):
             active_values = {str(value) for value in slicer_values}
-            slicer_mask = (
-                metadata.map_values(slicer_column, metadata_ids, lambda value: value in active_values)
-                if isinstance(metadata, CompactMetadata) else [
-                    metadata.get(metadata_id, {}).get(slicer_column, "") in active_values
-                    for metadata_id in metadata_ids
-                ]
-            )
+            matched_ids = slicer.get("matched_metadata_ids")
+            if isinstance(matched_ids, list):
+                slicer_mask = np.isin(metadata_ids, matched_ids).tolist()
+            else:
+                slicer_mask = (
+                    metadata.map_values(slicer_column, metadata_ids, lambda value: value in active_values)
+                    if isinstance(metadata, CompactMetadata) else [
+                        metadata.get(metadata_id, {}).get(slicer_column, "") in active_values
+                        for metadata_id in metadata_ids
+                    ]
+                )
             mask = (
                 slicer_mask
                 if mask is None

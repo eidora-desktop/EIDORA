@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>page_assets_area</class>
- <widget class="QWidget" name="page_assets_area">
+ <class>page_media_area</class>
+ <widget class="QWidget" name="page_media_area">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Assets</string>
+   <string>Media</string>
   </property>
   <property name="surfaceRole" stdset="0">
    <string>area</string>

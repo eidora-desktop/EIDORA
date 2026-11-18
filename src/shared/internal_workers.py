@@ -73,7 +73,7 @@ def dispatch_internal_worker(argv: Sequence[str]) -> int:
 
         return main(worker_args)
     if name == "video-thumbnail":
-        from AssetsArea.video_thumbnail_worker import main
+        from MediaArea.video_thumbnail_worker import main
 
         return main(worker_args)
     return _run_native_probe(worker_args)

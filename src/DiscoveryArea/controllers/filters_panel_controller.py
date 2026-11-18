@@ -207,7 +207,6 @@ class FiltersPanelController(UiPanelController):
         for button in self._hide_filtered_tooltips_buttons:
             button.toggled.connect(self._emit_hide_filtered_tooltips_changed)
         self._ensure_add_rule_button()
-        self._list.currentRowChanged.connect(self._on_current_rule_changed)
         self._filtered_opacity_spins = (
             require_child(
                 self._widget,
@@ -950,10 +949,6 @@ class FiltersPanelController(UiPanelController):
                     )
                 )
         self._update_rule_value_options(rule)
-
-    def _on_current_rule_changed(self, row: int) -> None:
-        if row >= 0:
-            self._show_status(f"Selected filter row {row + 1}.")
 
     def _set_filter_controls_enabled(self, enabled: bool) -> None:
         self._matching_combo.setEnabled(enabled)

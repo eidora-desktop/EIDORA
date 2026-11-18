@@ -1,7 +1,9 @@
-# Assets workspace
+# Media workspace
 
-`AssetsArea` presents Media Sources on the left and Thumbnails on the right
-in one equally divided horizontal splitter. Project storage stays in `project`;
+`MediaArea` presents Media Sources on the left and Preview Assets on the right
+in one equally divided horizontal splitter. In Media Sources, link images, video,
+audio, and text to Items. In Preview Assets, create and manage still images
+from linked images and video frames. Project storage stays in `project`;
 thumbnail persistence stays in `DiscoveryArea.thumbnails`. There is no Artifacts
 panel or creation workflow. Internal thumbnail-reuse and embedding artifact
 contracts remain unchanged.
@@ -92,12 +94,12 @@ remain visible only for the current project session and are deleted from the
 journal after cleanup.
 
 Thumbnail creation resolves active item IDs through approved record paths and
-uses only the selected image/video source, or the largest images of an existing
-thumbnail set. It never writes source-record indexes into an item thumbnail set.
+uses only the selected image/video source, or the largest images of an existing group
+of Preview Assets. Each generated Preview Asset is indexed by Item ID.
 Input resolution uses indexed lookups in bounded batches with SQLite cancellation
 checks and preparation progress. Image jobs omit video frame settings. The footer
 shows the live thumbnail stage and progress; queued and running cancellations
-follow the same cleanup path from the footer and Assets.
+follow the same cleanup path from the footer and Media.
 
 A local 50,000-file synthetic folder benchmark on 2026-11-16 measured inspection
 and publication at 3.54 s before and 1.23 s after removing repeated file checks

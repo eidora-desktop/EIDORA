@@ -1,4 +1,4 @@
-"""Project-area controller exports without eager feature imports.
+"""Media workspace controller exports without eager feature imports.
 
 The main window imports this package during application startup.  Keep the
 individual controller modules lazy so optional processing dependencies are
@@ -9,16 +9,16 @@ from importlib import import_module
 from typing import Any
 
 __all__ = [
-    "AssetsAreaController",
+    "MediaAreaController",
     "MediaSourcesPanelController",
     "ThumbnailsPanelController",
 ]
 
 
 _CONTROLLER_MODULES = {
-    "AssetsAreaController": "AssetsArea.controllers.main_controller",
-    "MediaSourcesPanelController": "AssetsArea.controllers.media_sources_panel_controller",
-    "ThumbnailsPanelController": "AssetsArea.controllers.thumbnails_panel_controller",
+    "MediaAreaController": "MediaArea.controllers.main_controller",
+    "MediaSourcesPanelController": "MediaArea.controllers.media_sources_panel_controller",
+    "ThumbnailsPanelController": "MediaArea.controllers.thumbnails_panel_controller",
 }
 
 

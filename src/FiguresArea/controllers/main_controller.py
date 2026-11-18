@@ -52,6 +52,7 @@ class FiguresAreaController:
         self._cache_budgets = FigureCacheBudgets()
         self._save_future = None
         self._load_future = None
+        self._pending_slicer_animations = []
         self._disposed = False
         self._state_save_timer = QtCore.QTimer(self._widget)
         self._state_save_timer.setSingleShot(True)
@@ -87,6 +88,7 @@ class FiguresAreaController:
         project_changed = self._project is None or self._project.root != incoming_root
         self._project = project
         if project_changed:
+            self._pending_slicer_animations.clear()
             # The retiring service owns its final write. A new project's
             # autosave must never cancel that queued write.
             self._save_future = None
@@ -214,6 +216,38 @@ class FiguresAreaController:
             )
         apply_icon_color(self._widget)
 
+    def create_slicer_animation(self, snapshot_path, preset_path, payload, values) -> None:
+        if self._project is None or self._disposed:
+            return
+        self._pending_slicer_animations.append((snapshot_path, preset_path, payload, values))
+        self._ensure_project_state_loaded()
+        self._create_pending_slicer_animations()
+
+    def _create_pending_slicer_animations(self) -> None:
+        if (self._project is None or self._disposed or self._load_future is not None
+                or self._restored_project_root != self._project.root):
+            return
+        pending, self._pending_slicer_animations = self._pending_slicer_animations, []
+        for snapshot_path, preset_path, payload, values in pending:
+            from FiguresArea.animation_service import AnimationSequenceService
+
+            try:
+                frames = AnimationSequenceService.build_slicer_frames(
+                    preset_path=str(preset_path), preset_label=snapshot_path.stem,
+                    preset_payload=payload, available_values=values,
+                )
+                if not frames:
+                    raise ValueError("The Slicer generated no animation frames.")
+            except ValueError as exc:
+                self._show_status(f"Could not create animation: {exc}")
+                continue
+            tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
+            title = f"Animation {self._next_figure_number(tabs)}"
+            animation = self._add_figure_tab("animation", title)
+            animation.set_slicer_frames(
+                frames, snapshot_path, interval_ms=round(float(payload.get("auto_roll_seconds", 0.3)) * 1000)
+            )
+
     def _create_figure_tab(self, figure_kind: str, title_prefix: str) -> None:
         self._ensure_project_state_loaded()
         if self._load_future is not None:
@@ -232,7 +266,7 @@ class FiguresAreaController:
         title: str,
         settings: object | None = None,
         composition: object | None = None,
-    ) -> None:
+    ) -> PlotTabController | AnimationTabController:
         from FiguresArea.controllers.plot_tab_controller import PlotTabController
         from FiguresArea.controllers.snapshot_animation_tab_controller import AnimationTabController
 
@@ -294,6 +328,7 @@ class FiguresAreaController:
         self._hide_add_tab_close_button(tabs)
         self._sync_settings_panel_with_current_tab()
         self._save_project_tab_state(wait=False)
+        return plot
 
     def _show_figure_tab_menu(self, position: QtCore.QPoint) -> None:
         tabs = require_child(self._widget, QtWidgets.QTabWidget, "tabs_figures")
@@ -510,6 +545,7 @@ class FiguresAreaController:
         if not self._disposed and self._project is not None:
             if self._restore_project_tab_state(loaded):
                 self._restored_project_root = self._project.root
+                self._create_pending_slicer_animations()
 
     def _restore_project_tab_state(self, loaded=None) -> bool:
         if self._project is None:

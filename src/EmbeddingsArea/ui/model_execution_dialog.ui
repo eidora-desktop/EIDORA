@@ -122,8 +122,8 @@
           <property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QCheckBox" name="check_create_thumbnails">
-            <property name="text"><string>Create thumbnails (with default settings)</string></property>
-            <property name="toolTip"><string>Create default thumbnails after the embedding run completes.</string></property>
+            <property name="text"><string>Create Preview Assets (with default settings)</string></property>
+            <property name="toolTip"><string>Create Preview Assets after the embedding run completes.</string></property>
            </widget>
           </item>
           <item>

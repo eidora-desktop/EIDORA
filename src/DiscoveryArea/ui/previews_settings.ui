@@ -134,19 +134,19 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>thumbnails</string>
+               <string>Preview Assets</string>
               </property>
               <property name="text">
                <string/>
               </property>
               <property name="pixmap">
-               <pixmap>../../shared/icons/material/image.svg</pixmap>
+               <pixmap>../../shared/icons/material/preview_assets.svg</pixmap>
               </property>
               <property name="iconSize" stdset="0">
                <number>20</number>
               </property>
               <property name="iconName" stdset="0">
-               <string>image</string>
+               <string>preview_assets</string>
               </property>
              </widget>
             </item>
@@ -165,14 +165,14 @@
             </item>
             <item>
              <widget class="QComboBox" name="combo_render_options">
-              <property name="toolTip">
-               <string>Canvas thumbnail source</string>
-              </property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
+              </property>
+              <property name="toolTip">
+               <string>Preview Assets source</string>
               </property>
              </widget>
             </item>
@@ -293,7 +293,7 @@
                            </size>
                           </property>
                           <property name="toolTip">
-                           <string>thumbnails</string>
+                           <string>Preview Assets size</string>
                           </property>
                           <property name="text">
                            <string/>
@@ -348,9 +348,6 @@
                            </property>
                            <item>
                             <widget class="QSlider" name="slider_preview_thumbnail_size">
-                             <property name="toolTip">
-                              <string>Canvas preview size</string>
-                             </property>
                              <property name="sizePolicy">
                               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                                <horstretch>0</horstretch>
@@ -368,6 +365,9 @@
                                <width>16777215</width>
                                <height>16777215</height>
                               </size>
+                             </property>
+                             <property name="toolTip">
+                              <string>Canvas Preview Assets size</string>
                              </property>
                              <property name="minimum">
                               <number>16</number>
@@ -452,7 +452,7 @@
                      </size>
                     </property>
                     <property name="toolTip">
-                     <string>rendering density</string>
+                     <string>Rendering density</string>
                     </property>
                     <property name="text">
                      <string/>
@@ -558,9 +558,6 @@
                            </property>
                            <item>
                             <widget class="QSlider" name="slider_preview_thumbnail_density">
-                             <property name="toolTip">
-                              <string>Maximum visible previews</string>
-                             </property>
                              <property name="sizePolicy">
                               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                                <horstretch>0</horstretch>
@@ -578,6 +575,9 @@
                                <width>16777215</width>
                                <height>16777215</height>
                               </size>
+                             </property>
+                             <property name="toolTip">
+                              <string>Maximum visible Preview Assets</string>
                              </property>
                              <property name="maximum">
                               <number>8</number>

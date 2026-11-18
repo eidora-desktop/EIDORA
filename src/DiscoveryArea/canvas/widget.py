@@ -1631,7 +1631,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._backend_placeholder = placeholder
         self._thumbnail_loading_label = QtWidgets.QLabel(self)
         self._thumbnail_loading_label.setObjectName("label_thumbnail_loading_indicator")
-        self._thumbnail_loading_label.setText("Preparing thumbnails")
+        self._thumbnail_loading_label.setText("Preparing Preview Assets")
         self._thumbnail_loading_label.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignVCenter | QtCore.Qt.AlignmentFlag.AlignLeft
         )
@@ -3390,7 +3390,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._render_backend.set_thumbnail_batch(payload)
 
     def set_thumbnail_loading_indicator(self, active: bool, message: str | None = None) -> None:
-        text = str(message or "Preparing thumbnails").strip() or "Preparing thumbnails"
+        text = str(message or "Preparing Preview Assets").strip() or "Preparing Preview Assets"
         self._thumbnail_loading_label.setText(text)
         self._thumbnail_loading_label.adjustSize()
         self._position_thumbnail_loading_label()

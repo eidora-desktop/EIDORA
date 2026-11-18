@@ -9,7 +9,7 @@ the document for each progress update. `model_execution_dialog.ui` configures on
 selected in the Models panel; it does not provide a second model selector.
 It offers registered file-based Media Sources and a single Run Model action.
 The focused form owns the model heading, stacked source/output/device fields,
-thumbnail option, and footer in Designer. The Designer-owned batch selector and
+Preview Assets creation option, and footer in Designer. The Designer-owned batch selector and
 model preparation options live in the collapsed Advanced settings & parameters
 panel. Its choices are Auto, High, Low, 4, 8, 16, 32 and 64. The first three tune
 adaptively; numbers request fixed sizes. Auto is the default. Existing saved
@@ -20,7 +20,7 @@ that explanation when reopened. Live status names the policy, actual batch,
 provider, resource limits and limited monitoring; saved safety pauses show their
 reason in the activity log and status tooltip.
 Run Model closes after saving configuration; input preparation and its errors
-appear in the embedding card. Optional thumbnails run separately in Assets.
+appear in the embedding card. Optional Preview Assets creation runs separately in Media.
 `model_zoo_dialog.ui` browses the EIDORA Hugging Face collections. Import/export
 and clustering dialogs have dedicated forms.
 

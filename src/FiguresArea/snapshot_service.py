@@ -123,7 +123,37 @@ class FigureSnapshotService:
         self._override_transforms.apply_overrides(prepared, overrides, cancelled=cancelled,
                                                 load_metadata=False, source_projection=source_projection)
         prepared.metadata = self.metadata_for_ids(prepared.metadata_ids, cancelled=cancelled)
+        self._resolve_slicer_membership(prepared, cancelled=cancelled)
         return prepared
+
+    def _resolve_slicer_membership(self, prepared: PlotCell, *, cancelled) -> None:
+        selection = prepared.render_state.get("slicer_selection")
+        if not isinstance(selection, dict) or not selection.get("column") or self._project_root is None:
+            return
+        from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
+        from DiscoveryArea.multiple_values import membership_mask
+        from DiscoveryArea.transforms import TransformCancelled
+        from project.domain import Project
+
+        if cancelled():
+            raise TransformCancelled
+        project = self._project or Project(
+            name=self._project_root.name, root=self._project_root, schema_version=1
+        )
+        access = DiscoveryMetadataAccess(project)
+        column = access.canonical_column_name(str(selection["column"]))
+        if column not in access.column_names():
+            raise ValueError(f"Slicer column is unavailable: {selection['column']}")
+        ids = np.asarray(prepared.metadata_ids, dtype=np.int64)
+        values, _ = access.values_for_ids(ids, columns={column}, numeric_columns=set())
+        multiple = access.multiple_values_for_ids(ids, columns={column})
+        scalars = ids.astype(str) if column == "id" else values[column]
+        mask = membership_mask(scalars, selection.get("values", []), multiple.get(column))
+        if cancelled():
+            raise TransformCancelled
+        # Resolve through the same item/relationship catalog as Discovery. The
+        # renderer's compact metadata contains physical columns only.
+        selection["matched_metadata_ids"] = ids[mask].tolist()
 
     @staticmethod
     def snapshot_label(payload: dict[str, Any], snapshot_path: Path) -> str:

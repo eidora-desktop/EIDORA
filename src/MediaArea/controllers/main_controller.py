@@ -7,8 +7,8 @@ from PySide6 import QtWidgets
 
 from DiscoveryArea.thumbnails.repository import ThumbnailVariantRepository
 from EmbeddingsArea.session import EmbeddingsAreaSession
-from AssetsArea.controllers.media_sources_panel_controller import MediaSourcesPanelController
-from AssetsArea.controllers.thumbnails_panel_controller import ThumbnailsPanelController
+from MediaArea.controllers.media_sources_panel_controller import MediaSourcesPanelController
+from MediaArea.controllers.thumbnails_panel_controller import ThumbnailsPanelController
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import add_widget_to_container, require_child
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from shared.qt.activity import ActivityManager
 
 
-class AssetsAreaController:
+class MediaAreaController:
     """Own the active project's media and thumbnail panels."""
 
     def __init__(
@@ -26,7 +26,7 @@ class AssetsAreaController:
         status_callback: Callable[[str], None] | None = None,
         activity_manager: ActivityManager | None = None,
     ) -> None:
-        self._widget = load_ui("AssetsArea", "ui/assets_area.ui", parent)
+        self._widget = load_ui("MediaArea", "ui/media_area.ui", parent)
         self._project: Project | None = None
         self._status_callback = status_callback
         self._media_changed_callback: Callable[[], None] | None = None

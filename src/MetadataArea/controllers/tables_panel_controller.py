@@ -10,16 +10,6 @@ from MetadataArea.relationship_service import MetadataRelationshipService
 from shared.qt.widgets import require_child
 
 
-class _MetadataTabStyle(QtWidgets.QProxyStyle):
-    """Tighten the status-icon gap without reducing the text rectangle."""
-
-    def drawItemText(self, painter, rect, flags, palette, enabled, text,
-                     text_role=QtGui.QPalette.ColorRole.NoRole):
-        offset = -4 if self.parent().layoutDirection() == QtCore.Qt.LayoutDirection.RightToLeft else 4
-        super().drawItemText(painter, rect.translated(offset, 0), flags, palette,
-                             enabled, text, text_role)
-
-
 class MetadataTablesPanelController(QtCore.QObject):
     def __init__(self, owner):
         super().__init__(owner._table_panel)
@@ -27,9 +17,6 @@ class MetadataTablesPanelController(QtCore.QObject):
         self.owner = owner
         self.widget = owner._table_panel
         self.tabs = require_child(self.widget, QtWidgets.QTabWidget, 'tabs_metadata')
-        self._tab_style = _MetadataTabStyle()
-        self._tab_style.setParent(self.tabs.tabBar())
-        self.tabs.tabBar().setStyle(self._tab_style)
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setElideMode(QtCore.Qt.TextElideMode.ElideNone)
         self.tabs.tabBar().setUsesScrollButtons(True)
@@ -60,16 +47,7 @@ class MetadataTablesPanelController(QtCore.QObject):
         for index in range(self.tabs.count()):
             table_id = bar.tabData(index)
             icon = items if index == 0 else linked if table_id in self._linked_table_ids else unlinked
-            self.tabs.setTabIcon(index, QtGui.QIcon())
-            label = bar.tabButton(index, QtWidgets.QTabBar.ButtonPosition.RightSide)
-            if label is None:
-                label = QtWidgets.QLabel(bar)
-                label.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-                label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-                bar.setTabButton(index, QtWidgets.QTabBar.ButtonPosition.RightSide, label)
-            label.setFixedSize(size)
-            label.setPixmap(icon.pixmap(size))
-            label.setToolTip(self.tabs.tabToolTip(index))
+            self.tabs.setTabIcon(index, icon)
 
     def _open_links(self):
         self._run(self._link_tables)
@@ -218,7 +196,7 @@ class MetadataTablesPanelController(QtCore.QObject):
                 self._changed()
 
     def _assign_source(self):
-        from AssetsArea.controllers.record_link_dialog_controller import assign_source_dialog
+        from MediaArea.controllers.record_link_dialog_controller import assign_source_dialog
         if assign_source_dialog(self.widget, self.owner._project, self._ids()):
             self._changed()
 

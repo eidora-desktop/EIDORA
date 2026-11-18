@@ -98,7 +98,7 @@
         <item>
          <widget class="QLabel" name="label_media_sources_title">
           <property name="text">
-           <string>Media Records</string>
+           <string>Media Sources</string>
           </property>
           <property name="scaledContents">
            <bool>true</bool>

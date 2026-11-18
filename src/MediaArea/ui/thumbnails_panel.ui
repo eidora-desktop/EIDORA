@@ -53,10 +53,10 @@
          <string/>
         </property>
         <property name="pixmap">
-         <pixmap>../../shared/icons/material/thumbnails.svg</pixmap>
+         <pixmap>../../shared/icons/material/preview_assets.svg</pixmap>
         </property>
         <property name="iconName" stdset="0">
-         <string>thumbnails</string>
+         <string>preview_assets</string>
         </property>
         <property name="iconSize" stdset="0">
          <number>20</number>
@@ -66,7 +66,7 @@
       <item>
        <widget class="QLabel" name="label_thumbnails_title">
         <property name="text">
-         <string>Thumbnails</string>
+         <string>Preview Assets</string>
         </property>
        </widget>
       </item>
@@ -86,7 +86,7 @@
       <item>
        <widget class="QPushButton" name="button_add_thumbnails">
         <property name="toolTip">
-         <string>Create a thumbnail set</string>
+         <string>Create Preview Assets</string>
         </property>
         <property name="text">
          <string>Add New…</string>

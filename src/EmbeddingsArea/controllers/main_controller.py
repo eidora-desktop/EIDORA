@@ -92,7 +92,7 @@ class EmbeddingsAreaController:
             try:
                 self._thumbnails_requested_callback(run_id)
             except Exception as exc:  # The embedding has already completed.
-                self._show_status(f"Could not start default thumbnails: {exc}")
+                self._show_status(f"Could not start creating Preview Assets: {exc}")
 
     def refresh_clustering_groups(self):
         if self._vector_data_panel is not None:

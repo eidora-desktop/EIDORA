@@ -34,8 +34,9 @@ Keep feature computation and persistence out of these helpers.
 - Keep ordinary Qt keyboard behavior and a logical Tab order in Designer forms.
   `keyboard_focus.py` enables a solid neutral button outline for keyboard
   navigation, including on checked buttons, in both themes. Other controls use
-  a lightweight Qt focus frame without changing geometry. Mouse presses hide
-  the extra cue; pointer movement does not.
+  a lightweight Qt focus frame without changing geometry. Automatic startup
+  focus leaves the outline hidden until keyboard navigation starts.
+  Mouse presses hide the outline, and pointer movement leaves it visible.
 - Workspace navigation opts into `tabAllButtons` on its exclusive button group
   so each enabled workspace has a Tab stop. Tab leaves the metadata and media
   sources tables; arrow keys continue to navigate their contents.
