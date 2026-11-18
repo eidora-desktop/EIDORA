@@ -36,7 +36,7 @@ dependencies = [
   "tokenizers>=0.19",
   "trimap==1.1.5",
   "PyYAML>=6",
-  "umap-learn>=0.5",
+  "umap-learn>=0.6,<0.7",
 ]
 
 [project.optional-dependencies]

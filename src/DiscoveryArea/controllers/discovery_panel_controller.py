@@ -385,6 +385,9 @@ class DiscoveryPanelController(UiPanelController):
         cancel_button = dialog.findChild(QtWidgets.QPushButton, "button_cancel")
         run_button = dialog.findChild(QtWidgets.QPushButton, "button_run")
         table_parameters = dialog.findChild(QtWidgets.QTableWidget, "table_discovery_parameters")
+        advanced = dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
+        if advanced is not None:
+            advanced.toggled.connect(self._set_advanced_parameters_visible)
         if combo_method is not None:
             combo_method.currentIndexChanged.connect(
                 lambda _index: self._handle_discovery_method_changed(combo_method, table_parameters, edit_name)
@@ -423,12 +426,16 @@ class DiscoveryPanelController(UiPanelController):
         edit_name = dialog.findChild(QtWidgets.QLineEdit, "edit_run_name")
         table_parameters = dialog.findChild(QtWidgets.QTableWidget, "table_discovery_parameters")
         self._configure_parameter_table(table_parameters)
+        advanced = dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
+        if advanced is not None:
+            advanced.setChecked(False)
 
         if combo_method is not None:
             with QtCore.QSignalBlocker(combo_method):
                 combo_method.clear()
                 for method in self._method_definitions:
                     combo_method.addItem(method.name, method.method_id)
+                    combo_method.setItemData(combo_method.count() - 1, method.description, QtCore.Qt.ItemDataRole.ToolTipRole)
                 combo_method.setCurrentIndex(0 if combo_method.count() else -1)
             self._populate_parameter_table(combo_method, table_parameters)
         if combo_vectors is not None:
@@ -1174,12 +1181,32 @@ class DiscoveryPanelController(UiPanelController):
         ]
         table.setRowCount(len(visible_parameters))
         for row, (name, spec) in enumerate(visible_parameters):
-            key_item = self._readonly_item(name)
+            key_item = self._readonly_item(str(spec.get("label") or name))
+            key_item.setData(QtCore.Qt.ItemDataRole.UserRole, name)
             tooltip = str(spec.get("info") or "")
             key_item.setToolTip(tooltip)
             table.setItem(row, 0, key_item)
             table.setCellWidget(row, 1, self._parameter_editor(spec, tooltip))
-        table.resizeColumnsToContents()
+        advanced = (
+            self._dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
+            if self._dialog is not None else None
+        )
+        if advanced is not None:
+            advanced.setVisible(bool(visible_parameters))
+        table.resizeColumnToContents(0)
+        self._set_advanced_parameters_visible(advanced is not None and advanced.isChecked())
+
+    def _set_advanced_parameters_visible(self, expanded: bool) -> None:
+        if self._dialog is None:
+            return
+        button = self._dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
+        panel = self._dialog.findChild(QtWidgets.QWidget, "panel_advanced_settings")
+        if button is None or panel is None:
+            return
+        panel.setVisible(expanded and not button.isHidden())
+        button.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
+        self._dialog.layout().activate()
+        self._dialog.resize(self._dialog.width(), self._dialog.sizeHint().height())
 
     @staticmethod
     def _parameter_editor(spec: dict[str, object], tooltip: str) -> QtWidgets.QWidget:
@@ -1187,13 +1214,16 @@ class DiscoveryPanelController(UiPanelController):
         ui_element = str(spec.get("ui") or "").strip().lower()
         default = spec.get("default", "")
         choices = spec.get("choices")
-        if ui_element == "check_box" or (not ui_element and parameter_type == "bool"):
+        if (spec.get("nullable") and not choices) or parameter_type == "json":
+            text = "None" if default is None else json.dumps(default)
+            editor = QtWidgets.QLineEdit(text)
+        elif ui_element == "check_box" or (not ui_element and parameter_type == "bool"):
             editor = QtWidgets.QCheckBox()
             editor.setChecked(default if isinstance(default, bool) else str(default).strip().lower() in {"1", "true", "yes", "on"})
         elif ui_element == "combo_box" or (not ui_element and isinstance(choices, list) and choices):
             editor = QtWidgets.QComboBox()
             for choice in choices if isinstance(choices, list) else []:
-                editor.addItem(str(choice), choice)
+                editor.addItem("None (automatic)" if choice is None else str(choice), choice)
             index = editor.findData(default)
             editor.setCurrentIndex(index if index >= 0 else 0)
         elif ui_element == "spin_box" or (not ui_element and parameter_type == "int"):
@@ -1209,6 +1239,7 @@ class DiscoveryPanelController(UiPanelController):
         else:  # line_edit and unconfigured parameters
             editor = QtWidgets.QLineEdit(str(default))
         editor.setToolTip(tooltip)
+        editor.setEnabled(not spec.get("readonly", False))
         return editor
 
     def _handle_discovery_method_changed(
@@ -1273,7 +1304,7 @@ class DiscoveryPanelController(UiPanelController):
             key_item = table.item(row, 0)
             if key_item is None:
                 continue
-            key = key_item.text().strip()
+            key = str(key_item.data(QtCore.Qt.ItemDataRole.UserRole) or key_item.text()).strip()
             editor = table.cellWidget(row, 1)
             if not key:
                 continue

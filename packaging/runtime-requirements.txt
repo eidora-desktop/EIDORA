@@ -132,7 +132,7 @@ protobuf==7.36.1
     # via onnxruntime
 pyarrow==25.0.1
     # via eidora-desktop (pyproject.toml)
-pynndescent==0.6.0
+pynndescent==0.7.0
     # via umap-learn
 pyparsing==3.3.2
     # via matplotlib
@@ -192,5 +192,5 @@ typing-extensions==4.16.0
     # via
     #   anyio
     #   huggingface-hub
-umap-learn==0.5.12
+umap-learn==0.6.0
     # via eidora-desktop (pyproject.toml)

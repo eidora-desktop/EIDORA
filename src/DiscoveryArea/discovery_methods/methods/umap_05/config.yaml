@@ -1,0 +1,311 @@
+id: umap_05
+name: UMAP 0.5
+class: UMAP05DiscoveryMethod
+status: available
+execution: subprocess
+supports_transform: false
+supports_arrangement_transform: true
+output_dimensions:
+- 2
+description: UMAP 0.5 pipeline, supplied by umap-learn 0.6 compatibility mode, with the 0.5.12 parameter
+  defaults.
+implementation:
+  distribution: umap-learn
+citations:
+- id: mcinnes2018umap
+  role: method
+  title: 'UMAP: Uniform Manifold Approximation and Projection for Dimension Reduction'
+  authors:
+  - McInnes, Leland
+  - Healy, John
+  - Melville, James
+  year: 2018
+  doi: 10.48550/arXiv.1802.03426
+parameters:
+  n_neighbors:
+    ui: spin_box
+    type: int
+    default: 15
+    min: 2
+    info: Number of neighbors. UMAP adjusts this for small datasets.
+  n_components:
+    ui: spin_box
+    type: int
+    default: 2
+    advanced: true
+    readonly: true
+    info: Discovery displays two-dimensional coordinates.
+  metric:
+    ui: line_edit
+    type: str
+    default: euclidean
+    info: Named input distance metric supported by UMAP (for example euclidean, cosine, correlation or
+      minkowski). Callable metrics are not accepted.
+  metric_kwds:
+    ui: line_edit
+    type: json
+    default: null
+    nullable: true
+    json_kind: object
+    advanced: true
+    info: 'JSON object of input metric arguments, or None; for example {"p": 3} for minkowski.'
+  output_metric:
+    ui: line_edit
+    type: str
+    default: euclidean
+    advanced: true
+    info: Named output-space metric supported by UMAP; non-Euclidean choices require a gradient.
+  output_metric_kwds:
+    ui: line_edit
+    type: json
+    default: null
+    nullable: true
+    json_kind: object
+    advanced: true
+    info: JSON object of output metric arguments, or None.
+  n_epochs:
+    ui: line_edit
+    type: json
+    default: null
+    nullable: true
+    json_kind: epochs
+    info: None chooses automatically. Enter a nonnegative integer or a JSON list of epoch counts; Discovery
+      saves the final coordinates.
+  learning_rate:
+    ui: double_spin_box
+    type: float
+    default: 1.0
+    decimals: 6
+    min: 0
+    info: Initial learning rate.
+  init:
+    ui: combo_box
+    type: str
+    default: spectral
+    choices:
+    - spectral
+    - random
+    - pca
+    - tswspectral
+    info: Named initialization method; spectral is the UMAP 0.5 default. Custom coordinate arrays are
+      not accepted.
+  min_dist:
+    ui: double_spin_box
+    type: float
+    default: 0.1
+    decimals: 6
+    info: Minimum distance between projected points; must not exceed spread.
+  spread:
+    ui: double_spin_box
+    type: float
+    default: 1.0
+    decimals: 6
+    min: 0
+    info: Effective scale of projected points.
+  low_memory:
+    ui: check_box
+    type: bool
+    default: true
+    advanced: true
+    info: Use lower-memory neighbor search. The UMAP 0.6 pipeline always uses this approach.
+  n_jobs:
+    ui: spin_box
+    type: int
+    default: -1
+    min: -1
+    advanced: true
+    info: 'Parallel workers: -1 uses the available projection budget. Positive requests are capped to
+      that budget; 0 is invalid. Seeded UMAP 0.5 uses one worker.'
+  set_op_mix_ratio:
+    ui: double_spin_box
+    type: float
+    default: 1.0
+    decimals: 6
+    min: 0.0
+    max: 1.0
+    advanced: true
+    info: Mix fuzzy intersection (0) and union (1).
+  local_connectivity:
+    ui: double_spin_box
+    type: float
+    default: 1.0
+    decimals: 6
+    advanced: true
+    info: Local connectivity assumed for the manifold.
+  repulsion_strength:
+    ui: double_spin_box
+    type: float
+    default: 1.0
+    decimals: 6
+    advanced: true
+    info: Weight of repulsive forces.
+  negative_sample_rate:
+    ui: spin_box
+    type: int
+    default: 5
+    min: 0
+    advanced: true
+    info: Negative samples per positive sample.
+  transform_queue_size:
+    ui: double_spin_box
+    type: float
+    default: 4.0
+    decimals: 6
+    advanced: true
+    readonly: true
+    info: Discovery creates a new projection and does not transform additional points into a fitted model.
+  a:
+    ui: line_edit
+    type: float
+    default: null
+    nullable: true
+    advanced: true
+    info: Curve parameter a; None derives it from min_dist and spread.
+  b:
+    ui: line_edit
+    type: float
+    default: null
+    nullable: true
+    advanced: true
+    info: Curve parameter b; None derives it from min_dist and spread.
+  random_state:
+    ui: line_edit
+    type: int
+    default: null
+    nullable: true
+    min: 0
+    info: None leaves the run unseeded. Enter an integer seed for repeatability in the same runtime environment.
+      UMAP 0.6 supports parallel seeded runs.
+  angular_rp_forest:
+    ui: check_box
+    type: bool
+    default: false
+    advanced: true
+    info: Use angular random-projection trees; UMAP also enables them for angular metrics.
+  target_n_neighbors:
+    ui: spin_box
+    type: int
+    default: -1
+    advanced: true
+    readonly: true
+    info: Discovery does not supply supervised target labels; this parameter stays at its library default.
+  target_metric:
+    ui: line_edit
+    type: str
+    default: categorical
+    advanced: true
+    readonly: true
+    info: Discovery does not supply supervised target labels; this parameter stays at its library default.
+  target_metric_kwds:
+    ui: line_edit
+    type: json
+    default: null
+    nullable: true
+    json_kind: object
+    advanced: true
+    readonly: true
+    info: Discovery does not supply supervised target labels; this parameter stays at its library default.
+  target_weight:
+    ui: double_spin_box
+    type: float
+    default: 0.5
+    decimals: 6
+    min: 0.0
+    max: 1.0
+    advanced: true
+    readonly: true
+    info: Discovery does not supply supervised target labels; this parameter stays at its library default.
+  transform_seed:
+    ui: spin_box
+    type: int
+    default: 42
+    advanced: true
+    readonly: true
+    info: Discovery creates a new projection and does not transform additional points into a fitted model.
+  transform_mode:
+    ui: line_edit
+    type: str
+    default: embedding
+    advanced: true
+    readonly: true
+    info: Discovery saves embedding coordinates, not a neighbor graph.
+  force_approximation_algorithm:
+    ui: check_box
+    type: bool
+    default: false
+    advanced: true
+    info: Use approximate neighbor search even for small datasets.
+  verbose:
+    ui: check_box
+    type: bool
+    default: false
+    advanced: true
+    info: Write UMAP diagnostics to the projection worker log.
+  tqdm_kwds:
+    ui: line_edit
+    type: json
+    default: null
+    nullable: true
+    json_kind: object
+    advanced: true
+    info: JSON object of progress-bar options, or None.
+  unique:
+    ui: check_box
+    type: bool
+    default: false
+    advanced: true
+    info: Deduplicate input vectors while fitting and restore the original item order in the result.
+  densmap:
+    ui: check_box
+    type: bool
+    default: false
+    advanced: true
+    info: Optimize density preservation as well as neighborhood structure.
+  dens_lambda:
+    ui: double_spin_box
+    type: float
+    default: 2.0
+    decimals: 6
+    advanced: true
+    info: Density-preservation weight.
+  dens_frac:
+    ui: double_spin_box
+    type: float
+    default: 0.3
+    decimals: 6
+    min: 0.0
+    max: 1.0
+    advanced: true
+    info: Fraction of optimization epochs using density preservation.
+  dens_var_shift:
+    ui: double_spin_box
+    type: float
+    default: 0.1
+    decimals: 6
+    advanced: true
+    info: Density variance regularizer.
+  output_dens:
+    ui: check_box
+    type: bool
+    default: false
+    advanced: true
+    readonly: true
+    info: Discovery does not store the additional density-radius arrays.
+  disconnection_distance:
+    ui: line_edit
+    type: float
+    default: null
+    nullable: true
+    advanced: true
+    info: None uses the metric-dependent library default. Otherwise disconnect neighbors at or beyond
+      this distance.
+  precomputed_knn:
+    ui: line_edit
+    type: json
+    default:
+    - null
+    - null
+    - null
+    advanced: true
+    readonly: true
+    info: Discovery supplies vectors; precomputed neighbor arrays and search indexes are not accepted.

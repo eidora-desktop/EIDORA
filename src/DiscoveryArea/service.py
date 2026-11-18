@@ -779,7 +779,8 @@ class DiscoveryService:
             for method in self._method_catalog.list_methods()
             if method.method_id not in hidden_method_ids
         ]
-        return sorted(methods, key=lambda method: (method.method_id != "pca", method.name.casefold()))
+        priority = {"umap": 0, "umap_05": 1, "pca": 2}
+        return sorted(methods, key=lambda method: (priority.get(method.method_id, 3), method.name.casefold()))
 
     def discovery_supports_arrangement_transform(self, method_id: object) -> bool:
         key = str(method_id or "").strip().lower()
@@ -814,6 +815,8 @@ class DiscoveryService:
         status_callback=None,
         output_slug: str | None = None,
     ) -> DiscoveryOption:
+        from DiscoveryArea.discovery_methods.methods.umap.parameters import resolve_legacy_method
+        method_id = resolve_legacy_method(method_id, parameters or {})
         definition = self._method_catalog.get(method_id)
         if definition is None:
             raise ValueError(f"Unknown discovery method: {method_id}")

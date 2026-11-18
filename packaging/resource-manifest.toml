@@ -74,6 +74,7 @@ modules = [
   "DiscoveryArea.discovery_methods.methods.tsne.method",
   "DiscoveryArea.discovery_methods.methods.tsne.worker",
   "DiscoveryArea.discovery_methods.methods.umap.method",
+  "DiscoveryArea.discovery_methods.methods.umap_05.method",
   "EmbeddingsArea.clustering.methods.kmeans.method",
   "EmbeddingsArea.clustering.methods.minibatch_kmeans.method",
   "EmbeddingsArea.clustering.methods.hdbscan.method",

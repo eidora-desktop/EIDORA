@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Offer UMAP 0.6 first and UMAP 0.5 directly below it in New Projection. Expose their complete library parameter sets and defaults, with advanced controls and explicit restrictions for unsupported inputs/outputs. UMAP 0.5 uses the 0.6 library's compatibility pipeline; saved projection coordinates remain unchanged.
+
 - Resolve animation Slicer frames through Discovery’s field and relationship catalog so linked-table fields produce distinct frame selections.
 
 - Add Create animation… to the Slicer menu to capture the current Discovery view and generate a new Figures animation from the current Slicer settings.
