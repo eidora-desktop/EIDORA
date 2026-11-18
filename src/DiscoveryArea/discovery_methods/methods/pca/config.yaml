@@ -6,34 +6,90 @@ execution: subprocess
 supports_transform: false
 supports_arrangement_transform: false
 output_dimensions:
-  - 2
-description: Fast randomized principal component discovery to two dimensions.
+- 2
+description: Principal component projection to two dimensions with automatic solver
+  selection.
 implementation:
   distribution: scikit-learn
 citations:
-  - id: pearson1901pca
-    role: method
-    title: On lines and planes of closest fit to systems of points in space
-    authors:
-      - Pearson, Karl
-    year: 1901
-    journal: Philosophical Magazine
-    volume: "2"
-    issue: "11"
-    pages: 559-572
-    doi: 10.1080/14786440109462720
+- id: pearson1901pca
+  role: method
+  title: On lines and planes of closest fit to systems of points in space
+  authors:
+  - Pearson, Karl
+  year: 1901
+  journal: Philosophical Magazine
+  volume: '2'
+  issue: '11'
+  pages: 559-572
+  doi: 10.1080/14786440109462720
 parameters:
+  svd_solver:
+    ui: combo_box
+    type: str
+    default: auto
+    label: Solver
+    advanced: false
+    info: Let scikit-learn select a solver from the input shape.
+    choices:
+    - auto
+    - full
+    - covariance_eigh
+    - arpack
+    - randomized
+  whiten:
+    ui: check_box
+    type: bool
+    default: false
+    label: Whiten
+    advanced: true
+    info: Scale components to unit variance; this removes their relative variance
+      scales.
   power_iterations:
+    ui: line_edit
+    type: int
+    default: auto
+    label: Power iterations
+    advanced: true
+    info: Automatic accuracy passes for the randomized solver, or a nonnegative integer.
+    automatic: auto
+    min: 0
+  n_oversamples:
     ui: spin_box
     type: int
-    default: 3
+    default: 10
+    label: Oversamples
+    advanced: true
+    info: Extra random vectors used by the randomized solver.
     min: 1
-    max: 10
-    info: Accuracy passes for randomized PCA; lower values are faster.
+  power_iteration_normalizer:
+    ui: combo_box
+    type: str
+    default: auto
+    label: Power normalizer
+    advanced: true
+    info: Numerical normalization for randomized power iterations.
+    choices:
+    - auto
+    - QR
+    - LU
+    - none
+  tol:
+    ui: double_spin_box
+    type: float
+    default: 0.0
+    label: Tolerance
+    advanced: true
+    info: Singular-value tolerance for the ARPACK solver.
+    min: 0.0
+    decimals: 8
   random_state:
-    ui: spin_box
+    ui: line_edit
     type: int
-    default: 42
+    default: null
+    label: Random seed
+    advanced: true
+    info: None uses unseeded library randomness. Set an integer for repeatable results.
+    nullable: true
     min: 0
     max: 2147483647
-    info: Random seed used by the low-rank solver.

@@ -388,6 +388,11 @@ class DiscoveryPanelController(UiPanelController):
         advanced = dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
         if advanced is not None:
             advanced.toggled.connect(self._set_advanced_parameters_visible)
+        reset_button = dialog.findChild(QtWidgets.QPushButton, "button_reset_parameters")
+        if reset_button is not None:
+            reset_button.clicked.connect(
+                lambda: self._populate_parameter_table(combo_method, table_parameters, reset_expansion=False)
+            )
         if combo_method is not None:
             combo_method.currentIndexChanged.connect(
                 lambda _index: self._handle_discovery_method_changed(combo_method, table_parameters, edit_name)
@@ -478,7 +483,7 @@ class DiscoveryPanelController(UiPanelController):
         payload: dict[str, object] = {
             "method": method or "random",
             "name": name or "Projection",
-            "parameters": self._parameter_values_from_table(table_parameters),
+            "parameters": self._projection_parameter_values(table_parameters),
         }
         if self._discovery_name_exists(str(payload["name"])):
             if edit_name is not None:
@@ -1168,6 +1173,8 @@ class DiscoveryPanelController(UiPanelController):
         self,
         combo_method: QtWidgets.QComboBox | None,
         table: QtWidgets.QTableWidget | None,
+        *,
+        reset_expansion: bool = True,
     ) -> None:
         if combo_method is None or table is None:
             return
@@ -1179,21 +1186,48 @@ class DiscoveryPanelController(UiPanelController):
             for name, spec in parameters.items()
             if str(spec.get("ui") or "").strip().lower() != "hidden"
         ]
-        table.setRowCount(len(visible_parameters))
-        for row, (name, spec) in enumerate(visible_parameters):
-            key_item = self._readonly_item(str(spec.get("label") or name))
-            key_item.setData(QtCore.Qt.ItemDataRole.UserRole, name)
-            tooltip = str(spec.get("info") or "")
-            key_item.setToolTip(tooltip)
-            table.setItem(row, 0, key_item)
-            table.setCellWidget(row, 1, self._parameter_editor(spec, tooltip))
+        advanced_table = (
+            self._dialog.findChild(QtWidgets.QTableWidget, "table_advanced_parameters")
+            if self._dialog is not None else None
+        )
+        for target, is_advanced in ((table, False), (advanced_table, True)):
+            if target is None:
+                continue
+            self._configure_parameter_table(target)
+            entries = [(name, spec) for name, spec in visible_parameters
+                       if bool(spec.get("advanced", False)) == is_advanced]
+            # Replaced cell widgets are deleted later by Qt. Hide them now so
+            # changing methods cannot paint old editors over the new defaults.
+            for row in range(target.rowCount()):
+                editor = target.cellWidget(row, 1)
+                if editor is not None:
+                    editor.hide()
+            target.clearContents()
+            target.setRowCount(len(entries))
+            for row, (name, spec) in enumerate(entries):
+                key_item = self._readonly_item(str(spec.get("label") or name))
+                key_item.setData(QtCore.Qt.ItemDataRole.UserRole, name)
+                tooltip = str(spec.get("info") or "")
+                key_item.setToolTip(tooltip)
+                target.setItem(row, 0, key_item)
+                target.setCellWidget(row, 1, self._parameter_editor(spec, tooltip))
+            target.resizeColumnToContents(0)
+        table.setVisible(table.rowCount() > 0)
+        table.setFixedHeight(table.horizontalHeader().height() + 2 * table.frameWidth()
+                             + sum(table.rowHeight(row) for row in range(table.rowCount())))
         advanced = (
             self._dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
             if self._dialog is not None else None
         )
         if advanced is not None:
-            advanced.setVisible(bool(visible_parameters))
-        table.resizeColumnToContents(0)
+            if reset_expansion:
+                with QtCore.QSignalBlocker(advanced):
+                    advanced.setChecked(False)
+            advanced.setVisible(advanced_table is not None and advanced_table.rowCount() > 0)
+        if self._dialog is not None:
+            reset_button = self._dialog.findChild(QtWidgets.QPushButton, "button_reset_parameters")
+            if reset_button is not None:
+                reset_button.setEnabled(bool(visible_parameters))
         self._set_advanced_parameters_visible(advanced is not None and advanced.isChecked())
 
     def _set_advanced_parameters_visible(self, expanded: bool) -> None:
@@ -1320,6 +1354,14 @@ class DiscoveryPanelController(UiPanelController):
                 value_item = table.item(row, 1)
                 if value_item is not None:
                     values[key] = value_item.text().strip()
+        return values
+
+    def _projection_parameter_values(self, table: QtWidgets.QTableWidget | None) -> dict[str, object]:
+        values = self._parameter_values_from_table(table)
+        if self._dialog is not None:
+            values.update(self._parameter_values_from_table(
+                self._dialog.findChild(QtWidgets.QTableWidget, "table_advanced_parameters")
+            ))
         return values
 
     def _default_discovery_name(

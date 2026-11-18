@@ -78,6 +78,10 @@ class DiscoveryMethodCatalog:
         if definition.implementation.get("distribution") == "umap-learn":
             from DiscoveryArea.discovery_methods.methods.umap.parameters import migrate_legacy_parameters
             incoming = migrate_legacy_parameters(incoming)
+        if method_id == "pacmap" and "reproducible" in incoming:
+            incoming = dict(incoming)
+            repeatable = _coerce_bool(incoming.pop("reproducible"))
+            incoming["random_state"] = incoming.get("random_state", 42) if repeatable else None
         normalized = self.default_parameters(method_id)
         for name, spec in definition.parameters.items():
             if name not in incoming:
@@ -160,6 +164,8 @@ class DiscoveryMethodCatalog:
 
     def _coerce_parameter(self, name: str, spec: dict[str, Any], value: object) -> object:
         kind = str(spec.get("type") or "str").strip().lower()
+        if "automatic" in spec and value == spec["automatic"]:
+            return value
         if spec.get("nullable") and (value is None or isinstance(value, str) and value.strip().lower() in {"", "none", "null"}):
             return None
         if kind == "int":

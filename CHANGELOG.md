@@ -4,6 +4,10 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Add a right-aligned Reset button beside Advanced parameters in New Projection to restore the selected method's basic and advanced defaults.
+
+- Match New Projection to the import dialogs, with each method's basic parameters visible and editable advanced parameters collapsed. Initialize both sections from library defaults and preserve edits when collapsing. Align PCA, t-SNE, PaCMAP and TriMAP execution defaults with their libraries, including automatic solver/learning-rate choices, unseeded execution and TriMAP's full default triplet/iteration settings.
+
 - Offer UMAP 0.6 first and UMAP 0.5 directly below it in New Projection. Expose their complete library parameter sets and defaults, with advanced controls and explicit restrictions for unsupported inputs/outputs. UMAP 0.5 uses the 0.6 library's compatibility pipeline; saved projection coordinates remain unchanged.
 
 - Resolve animation Slicer frames through Discovery’s field and relationship catalog so linked-table fields produce distinct frame selections.

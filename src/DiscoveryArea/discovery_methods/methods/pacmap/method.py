@@ -29,21 +29,27 @@ class PaCMAPDiscoveryMethod(DiscoveryMethodBase):
 
         import numba
         import pacmap
+        from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
 
-        reproducible = bool(parameters.get("reproducible", False))
+        parameters = DiscoveryMethodCatalog().normalize_parameters(self.method_id, dict(parameters))
+
+        reproducible = parameters["random_state"] is not None
+        neighbors = parameters["n_neighbors"]
+        if neighbors is not None:
+            neighbors = min(neighbors, data.shape[0] - 1)
         if reproducible:
             numba.set_num_threads(1)
-        total_iterations = int(parameters.get("iterations", 450))
+        total_iterations = int(parameters["iterations"])
         reducer = pacmap.PaCMAP(
             n_components=2,
-            n_neighbors=min(int(parameters.get("n_neighbors", 10)), data.shape[0] - 1),
-            MN_ratio=float(parameters.get("mid_near_ratio", 0.5)),
-            FP_ratio=float(parameters.get("further_ratio", 2.0)),
-            distance=str(parameters.get("distance", "angular")),
-            lr=float(parameters.get("learning_rate", 1.0)),
+            n_neighbors=neighbors,
+            MN_ratio=float(parameters["mid_near_ratio"]),
+            FP_ratio=float(parameters["further_ratio"]),
+            distance=str(parameters["distance"]),
+            lr=float(parameters["learning_rate"]),
             num_iters=_iteration_schedule(total_iterations),
-            apply_pca=bool(parameters.get("apply_pca", True)),
-            random_state=int(parameters.get("random_state", 42)) if reproducible else None,
+            apply_pca=bool(parameters["apply_pca"]),
+            random_state=int(parameters["random_state"]) if reproducible else None,
             save_tree=False,
             knn_backend="faiss",
             verbose=False,
@@ -52,7 +58,7 @@ class PaCMAPDiscoveryMethod(DiscoveryMethodBase):
             progress_callback(55)
         coordinates = reducer.fit_transform(
             np.ascontiguousarray(data),
-            init=str(parameters.get("initialization", "pca")),
+            init=parameters["initialization"],
             save_pairs=False,
         )
 
@@ -63,16 +69,16 @@ class PaCMAPDiscoveryMethod(DiscoveryMethodBase):
         schedule = _iteration_schedule(total_iterations)
         effective = dict(parameters)
         effective.update({
-            "n_neighbors": min(int(parameters.get("n_neighbors", 10)), data.shape[0] - 1),
-            "mid_near_ratio": float(parameters.get("mid_near_ratio", 0.5)),
-            "further_ratio": float(parameters.get("further_ratio", 2.0)),
-            "distance": str(parameters.get("distance", "angular")),
-            "initialization": str(parameters.get("initialization", "pca")),
-            "learning_rate": float(parameters.get("learning_rate", 1.0)),
+            "n_neighbors": getattr(reducer, "n_neighbors", neighbors),
+            "mid_near_ratio": float(parameters["mid_near_ratio"]),
+            "further_ratio": float(parameters["further_ratio"]),
+            "distance": str(parameters["distance"]),
+            "initialization": parameters["initialization"],
+            "learning_rate": float(parameters["learning_rate"]),
             "iterations": total_iterations,
-            "apply_pca": bool(parameters.get("apply_pca", True)),
+            "apply_pca": bool(parameters["apply_pca"]),
             "reproducible": reproducible,
-            "random_state": int(parameters.get("random_state", 42)) if reproducible else None,
+            "random_state": int(parameters["random_state"]) if reproducible else None,
             "output_dimensions": 2,
             "iteration_schedule": list(schedule),
             "neighbor_backend": "faiss",
@@ -83,7 +89,7 @@ class PaCMAPDiscoveryMethod(DiscoveryMethodBase):
             effective_parameters=effective,
             derived_steps=(f"Optimization phases used {schedule[0]}, {schedule[1]}, and {schedule[2]} iterations",),
             repeatability=("repeatable_single_worker" if reproducible else "stochastic_parallel_execution"),
-            citations=((dict(PCA_CITATION),) if bool(parameters.get("apply_pca", True)) else ()),
+            citations=((dict(PCA_CITATION),) if bool(parameters["apply_pca"]) else ()),
         )
 
 

@@ -28,6 +28,8 @@ parameters:
     default: 15
     min: 2
     info: Number of neighbors. UMAP adjusts this for small datasets.
+    advanced: false
+    label: Neighbors
   n_components:
     ui: spin_box
     type: int
@@ -41,6 +43,8 @@ parameters:
     default: euclidean
     info: Named input distance metric supported by UMAP (for example euclidean, cosine, correlation or
       minkowski). Callable metrics are not accepted.
+    advanced: false
+    label: Distance
   metric_kwds:
     ui: line_edit
     type: json
@@ -71,6 +75,7 @@ parameters:
     json_kind: epochs
     info: None chooses automatically. Enter a nonnegative integer or a JSON list of epoch counts; Discovery
       saves the final coordinates.
+    advanced: true
   learning_rate:
     ui: double_spin_box
     type: float
@@ -78,6 +83,7 @@ parameters:
     decimals: 6
     min: 0
     info: Initial learning rate.
+    advanced: true
   init:
     ui: combo_box
     type: str
@@ -89,12 +95,15 @@ parameters:
     - tswspectral
     info: Named initialization method; spectral is the UMAP 0.5 default. Custom coordinate arrays are
       not accepted.
+    advanced: true
   min_dist:
     ui: double_spin_box
     type: float
     default: 0.1
     decimals: 6
     info: Minimum distance between projected points; must not exceed spread.
+    advanced: false
+    label: Minimum distance
   spread:
     ui: double_spin_box
     type: float
@@ -102,6 +111,7 @@ parameters:
     decimals: 6
     min: 0
     info: Effective scale of projected points.
+    advanced: true
   low_memory:
     ui: check_box
     type: bool
@@ -176,6 +186,7 @@ parameters:
     min: 0
     info: None leaves the run unseeded. Enter an integer seed for repeatability in the same runtime environment.
       UMAP 0.6 supports parallel seeded runs.
+    advanced: true
   angular_rp_forest:
     ui: check_box
     type: bool

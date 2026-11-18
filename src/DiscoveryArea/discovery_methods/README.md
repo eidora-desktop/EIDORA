@@ -31,8 +31,43 @@ settings are translated at the parameter boundary; an old compatibility-mode
 request selects `umap_05`. Provenance records the library version separately
 from the method name, plus effective initialization, optimizer and worker count.
 
-Advanced parameters expands the complete parameter table for the selected
-method. Parameters that
+New Projection displays basic controls beside a collapsed Advanced parameters
+section. Both sections start from the method schema's defaults. Changing methods
+or reopening the dialog restores defaults; collapsing Advanced preserves edits.
+
+| Method | Basic controls and defaults |
+| --- | --- |
+| UMAP 0.6 / 0.5 | Neighbors: 15; distance: Euclidean; minimum distance: 0.1 |
+| PCA | Solver: auto |
+| t-SNE | Perplexity: 30; distance: Euclidean |
+| PaCMAP | Neighbors: 10; distance: Euclidean |
+| TriMAP | Inliers: 12; distance: Euclidean |
+
+The other supported controls belong to Advanced. PCA defaults to automatic
+solver selection and power iterations with whitening off. t-SNE uses automatic
+learning rate, PCA initialization, 1,000 iterations and early exaggeration 12.
+PaCMAP uses ratios 0.5/2, learning rate 1 and its 100/100/250 phase schedule.
+TriMAP uses 12 inliers, 4 outliers, 3 random triplets, 400 iterations, learning
+rate 0.1 and weight temperature 0.5. Explicit seeds are optional for all five
+library-backed algorithms; None retains library randomness.
+
+These defaults were reviewed against scikit-learn 1.9.0, PaCMAP 0.9.1, TriMAP
+1.1.5 and UMAP 0.6.0, and are checked against installed library signatures. References:
+[PCA](https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html),
+[t-SNE](https://scikit-learn.org/stable/modules/generated/sklearn.manifold.TSNE.html),
+[PaCMAP](https://github.com/YingfanWang/PaCMAP), and
+[TriMAP](https://github.com/eamid/trimap).
+
+EIDORA still requires two output dimensions and bounds neighbor settings for
+small datasets. t-SNE retains the library-recommended 50-dimensional PCA
+preprocessing option; TriMAP's preprocessing limit is 100, matching its library.
+TriMAP retains the PyNNDescent adapter instead of Annoy for native stability.
+PaCMAP retains its FAISS backend and accepts legacy reproducibility settings.
+These application choices are described in parameter tooltips and effective
+run settings. The built-in Random method keeps its deterministic seed 42 for
+existing workflows; Random and Custom Coordinates are not offered by this dialog.
+
+Parameters that
 require supervised labels, fitted-model transforms, precomputed neighbor arrays,
 density-radius output or non-2D output stay visible but fixed at their defaults,
 with explanatory tooltips. Named metrics and named initializers are supported;
@@ -40,9 +75,9 @@ Python callables and custom initialization arrays are not accepted. Dictionary
 options use JSON; nullable controls accept `None`, `null`, or an empty field.
 Epoch counts may be an integer or a JSON list; Discovery saves final coordinates.
 
-Parameter schemas may use `label` for display text. All visible parameters share
-the Advanced parameters section. Collapsing preserves their values; submission
-always uses each schema's stable parameter key.
+Parameter schemas use `label` for display text and `advanced: true` for controls
+in the expandable section. Submission always uses each schema's stable key.
+`automatic: auto` allows the library's automatic choice alongside a numeric value.
 `readonly` fixes unsupported options to their declared defaults; `nullable`
 preserves automatic library values. JSON schemas may restrict inputs to objects
 or epoch counts. Catalog discovery must remain free from UMAP/Numba imports.
