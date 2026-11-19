@@ -71,6 +71,82 @@ def load_embedding_matrix_with_ids(path: Path) -> tuple[np.ndarray, np.ndarray, 
     return matrix, object_ids, load_embedding_summary(run_dir)
 
 
+def inspect_embedding_matrix(path: Path):
+    """Read array headers and IDs only; account for the current loading strategy."""
+    from EmbeddingsArea.domain import EmbeddingMatrixInfo
+
+    if path.is_file():
+        cache = _valid_cache(path)
+        if cache is not None:
+            with (cache / "embeddings.npy").open("rb") as handle:
+                shape, dtype = _array_header(handle)
+            ids = np.load(cache / "object_ids.npy", allow_pickle=False)
+            mapped = True
+        else:
+            with zipfile.ZipFile(path) as archive:
+                with archive.open("embeddings.npy") as handle:
+                    shape, dtype = _array_header(handle)
+                _check_vector_header(shape, dtype)
+                if "object_ids.npy" in archive.namelist():
+                    with archive.open("object_ids.npy") as handle:
+                        ids = np.load(handle, allow_pickle=False)
+                else:
+                    ids = np.arange(shape[0], dtype=np.int64)
+            mapped = False
+        _check_vector_header(shape, dtype)
+        ids = _validated_ids(ids)
+        if len(ids) != shape[0]:
+            raise ValueError("Embedding IDs do not match the vector count.")
+        raw_bytes = shape[0] * shape[1] * dtype.itemsize
+        converted_bytes = shape[0] * shape[1] * 4
+        # Alignment converts the entire source before selecting rows, including
+        # mapped sources stored at a different precision.
+        loading_min = (0 if dtype == np.dtype("float32") else converted_bytes) if mapped else max(raw_bytes, converted_bytes)
+        return EmbeddingMatrixInfo(
+            shape[0], shape[1], str(dtype), ids,
+            loading_min,
+            raw_bytes + (converted_bytes if dtype != np.dtype("float32") else 0),
+        )
+
+    run_dir = resolve_run_dir(path)
+    if not run_dir.exists():
+        raise FileNotFoundError("The selected vector data is no longer available.")
+    store = ArtifactStore(run_dir)
+    manifest = store.read_manifest() or {}
+    dimensions = None
+    dtype = np.dtype(manifest.get("dtype", "float32"))
+    parts = []
+    total = 0
+    for index in range(store.chunk_count()):
+        stem = f"{index:06d}"
+        with (store.chunks_dir / f"emb_{stem}.npy").open("rb") as handle:
+            shape, chunk_dtype = _array_header(handle)
+        _check_vector_header(shape, chunk_dtype)
+        if dimensions is None:
+            dimensions, dtype = shape[1], chunk_dtype
+        if shape[1] != dimensions or chunk_dtype != dtype:
+            raise ValueError("Embedding chunks have inconsistent dimensions or types.")
+        if manifest.get("dtype") and chunk_dtype != np.dtype(manifest["dtype"]):
+            raise ValueError("Embedding chunks do not match the declared type.")
+        ids = _validated_ids(np.load(store.chunks_dir / f"id_{stem}.npy", allow_pickle=False))
+        with (store.chunks_dir / f"name_{stem}.npy").open("rb") as handle:
+            names_shape, _ = _array_header(handle)
+        marker = json.loads((store.chunks_dir / f"commit_{stem}.json").read_text(encoding="utf-8"))
+        if (len(ids) != shape[0] or names_shape != (shape[0],)
+                or marker.get("rows") != shape[0] or marker.get("dimensions") != dimensions):
+            raise ValueError("Embedding chunk members do not match their commit marker.")
+        parts.append(ids)
+        total += shape[0]
+    if not parts:
+        raise ValueError("The selected vector data has no committed vectors.")
+    ids = _validated_ids(np.concatenate(parts))
+    raw_bytes = total * dimensions * dtype.itemsize
+    converted_bytes = total * dimensions * 4
+    # Chunk loading concatenates all vectors and then makes a float32 copy.
+    return EmbeddingMatrixInfo(total, dimensions, str(dtype), ids,
+                               max(raw_bytes, converted_bytes), 2 * raw_bytes + converted_bytes)
+
+
 def _array_header(handle):
     version = np.lib.format.read_magic(handle)
     if version == (1, 0):
@@ -80,6 +156,11 @@ def _array_header(handle):
     else:
         raise ValueError("Unsupported embedding array format.")
     return shape, dtype
+
+
+def _check_vector_header(shape, dtype):
+    if len(shape) != 2 or shape[1] < 1 or dtype.kind not in "fiu":
+        raise ValueError("Embedding vectors must be a numeric two-dimensional array.")
 
 
 def load_embedding_summary(path: Path) -> dict[str, Any]:

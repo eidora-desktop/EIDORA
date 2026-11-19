@@ -7,7 +7,7 @@ import re
 import sys
 import tomllib
 from pathlib import Path
-from PyInstaller.utils.hooks import collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_dynamic_libs, copy_metadata
 
 
 ROOT = Path(SPECPATH).resolve().parent
@@ -37,6 +37,8 @@ def excluded_resource(path: Path) -> bool:
 
 _, release_resource_paths, _ = release_resources(ROOT)
 datas = [(str(ROOT / "CITATION.cff"), ".")]
+# Projection provenance resolves this distribution name from its YAML config.
+datas.extend(copy_metadata("openTSNE"))
 if sys.platform == "darwin":
     cocoa_plugin = NATIVE_STAGE / "platforms/libqcocoa.dylib"
     if not cocoa_plugin.is_file():

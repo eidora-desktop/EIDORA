@@ -110,7 +110,7 @@ parameters:
     advanced: true
     label: Apply PCA
   random_state:
-    ui: line_edit
+    ui: number_optional
     type: int
     default: null
     label: Random seed

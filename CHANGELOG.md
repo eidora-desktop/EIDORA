@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Prevent model-list refreshes from resizing deleted tree items while old row widgets await Qt cleanup.
+
 - Open Vector Data Info tabs and cards without blocking the interface: remove whole-library scans, load details in the background and reuse them across tab switches.
 
 - Let panel rows grow to fit native and styled buttons, sharing minimum header heights across Media Sources, Preview Assets, Models and Vector Data without fixed height caps.
@@ -24,16 +26,30 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Reuse the existing Vector Data card progress bar and Cancel button for PCA reduction, removing the duplicate reduction activity controls. Disable Pause while PCA is running.
 
+- Compact projection memory to “Estimated memory: ~estimate / budget” beside the refresh icon. Use numeric controls, checkboxes and dropdowns for simple parameters, with free-text JSON for compound settings.
+
+- Start PCA copies in their own destination card immediately, with source-import history, progress and cancellation. Preserve the card through publication and keep replacement jobs in the original card.
+
+- Explain potential projection runtime with one relevant reason, such as all-pairs comparisons, iteration settings or selection size, while keeping memory notices separate.
 - Simplify Preview Assets into compact expandable rows matching Media Sources height, with source context in details, live progress and adjacent Pause/Resume and Cancel controls, an options menu, and one settings/results section. Preserve expansion through publication and refresh; show actual generated counts and skip totals.
+
+- Refresh projection estimates from an icon beside Memory budget and keep assessment messages brief, tentative and free of routine implementation details.
+- Keep Advanced parameters expand/collapse working when the projection dialog uses a layout directly around its parameter table.
+
+- Move Vector Data’s model, status and processed-item summary into the Progress activity log, removing the separate label above it.
+- Move PCA progress and cancellation into Progress, retaining method, dimension changes, variance and duration in saved results. Simplify Vector Data Info to dataset facts and reduction summaries, with technical details collapsed by default.
 
 - Redesign New Preview Assets to match Run Embeddings with a source heading, compact stacked controls and a separate action footer. Use media-specific default names for manual and automatic previews, including `(thumbs)` for images and `(frames)` for video stills.
 
 - Create previews directly from Media Source rows with source-specific image/video settings and informational Text/Audio placeholders. Show Link on unlinked sources and replace it with Create Previews once linked; show jobs and outputs in Preview Assets and remove its Add New button.
 
-- Start PCA copies in their own destination card immediately, with source-import history, progress and cancellation. Preserve the card through publication and keep replacement jobs in the original card.
-- Move Vector Data’s model, status and processed-item summary into the Progress activity log, removing the separate label above it.
-- Move PCA progress and cancellation into Progress, retaining method, dimension changes, variance and duration in saved results. Simplify Vector Data Info to dataset facts and reduction summaries, with technical details collapsed by default.
+- Present projection assessments with consistent body text, aligned estimated-memory and memory-budget rows and a fixed Create Projection button label.
+
+- Assess projection inputs and parameters inline before running. Show memory estimates and runtime warnings, keep every method selectable, and block invalid settings or necessary allocations exceeding the current memory budget. Recheck in the worker before loading vectors.
+
 - Add PCA and Incremental PCA to Vector Data’s PCA tab, with dimensions, vector-storage estimates, a copy-by-default output choice, editable PCA/PCAin result names for copies and replacements, safe original replacement, and saved variance-retention results.
+
+- Add MDS with metric and non-metric modes and a separate t-SNE (openTSNE) projection with Barnes–Hut/FFT optimization, advanced controls and saved execution details. Check MDS memory requirements before allocating pairwise matrices.
 
 - Add a right-aligned Reset button beside Advanced parameters in New Projection to restore the selected method's basic and advanced defaults.
 

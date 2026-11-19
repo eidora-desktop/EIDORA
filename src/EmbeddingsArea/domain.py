@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import numpy as np
     from MetadataArea.domain import MetadataMergePreview
 
 
@@ -255,6 +256,18 @@ class MediaOperationResult:
     linked_count: int = 0
     cancelled: bool = False
     error_message: str = ""
+
+
+@dataclass(frozen=True)
+class EmbeddingMatrixInfo:
+    """Header/identity inspection without decoding vector values."""
+
+    row_count: int
+    dimensions: int
+    dtype: str
+    object_ids: np.ndarray
+    loading_min_bytes: int
+    loading_estimate_bytes: int
 
 
 @dataclass(frozen=True)

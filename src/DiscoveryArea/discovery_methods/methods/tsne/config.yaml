@@ -47,7 +47,7 @@ parameters:
     - minkowski
     - hamming
   learning_rate:
-    ui: line_edit
+    ui: number_optional
     type: float
     default: auto
     label: Learning rate
@@ -125,11 +125,11 @@ parameters:
     default: null
     label: Distance parameters
     advanced: true
-    info: Optional distance arguments as a JSON object.
+    info: Optional distance settings as a JSON object, or None.
     nullable: true
     json_kind: object
   random_state:
-    ui: line_edit
+    ui: number_optional
     type: int
     default: null
     label: Random seed

@@ -19,6 +19,25 @@ class ItemMediaSource:
 
 
 @dataclass(frozen=True)
+class ProjectionInputInfo:
+    source_count: int
+    selected_count: int
+    dimensions: int
+    loading_min_bytes: int = 0
+    loading_estimate_bytes: int = 0
+
+
+@dataclass(frozen=True)
+class ProjectionAssessment:
+    state: str
+    title: str
+    messages: tuple[str, ...] = ()
+    estimated_bytes: int = 0
+    minimum_bytes: int = 0
+    budget_bytes: int = 0
+
+
+@dataclass(frozen=True)
 class Discovery:
     name: str
     method: str

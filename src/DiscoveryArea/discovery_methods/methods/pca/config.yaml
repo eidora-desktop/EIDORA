@@ -46,7 +46,7 @@ parameters:
     info: Scale components to unit variance; this removes their relative variance
       scales.
   power_iterations:
-    ui: line_edit
+    ui: number_optional
     type: int
     default: auto
     label: Power iterations
@@ -84,7 +84,7 @@ parameters:
     min: 0.0
     decimals: 8
   random_state:
-    ui: line_edit
+    ui: number_optional
     type: int
     default: null
     label: Random seed

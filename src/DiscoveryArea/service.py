@@ -9,7 +9,7 @@ from typing import Any
 import numpy as np
 
 from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset, MediaSourceKind
-from EmbeddingsArea.runtime.readers import load_embedding_matrix_with_ids
+from EmbeddingsArea.runtime.readers import inspect_embedding_matrix, load_embedding_matrix_with_ids
 from EmbeddingsArea.repository import EmbeddingRunRepository, MediaRepository
 from MetadataArea.repository import MetadataRepository
 from MetadataArea.group_repository import MetadataGroupRepository
@@ -73,6 +73,17 @@ class DiscoveryService:
     ) -> None:
         self._repository = repository or DiscoveryRepository()
         self._method_catalog = method_catalog or DiscoveryMethodCatalog()
+
+    def inspect_projection_inputs(self, project, artifact_path, metadata_ids, *, source_key=None):
+        from DiscoveryArea.domain import ProjectionInputInfo
+
+        info = inspect_embedding_matrix(Path(artifact_path))
+        canonical_ids = self._canonical_artifact_metadata_ids(
+            project, source_key=source_key, artifact_path=artifact_path, object_ids=info.object_ids,
+        )
+        selected = int(np.count_nonzero(np.isin(metadata_ids, canonical_ids)))
+        return ProjectionInputInfo(info.row_count, selected, info.dimensions,
+                                   info.loading_min_bytes, info.loading_estimate_bytes)
 
     def discovery_scope_for_option(self, option: DiscoveryOption) -> str:
         if option.is_random:
@@ -831,6 +842,14 @@ class DiscoveryService:
             matrix = np.zeros((metadata_ids.shape[0], 2), dtype=np.float32)
             aligned_ids = np.asarray(metadata_ids, dtype=np.int64)
         else:
+            from DiscoveryArea.projection_assessment import assess_projection
+
+            # Reinspect at execution time: queued work may outlive the dialog's
+            # count, source or available-memory snapshot. Check before decoding.
+            inputs = self.inspect_projection_inputs(project, artifact_path, metadata_ids, source_key=source_key)
+            assessment = assess_projection(method_id, normalized_parameters, inputs)
+            if assessment.state == "blocked":
+                raise ValueError(" ".join(assessment.messages))
             matrix, object_ids, embedding_summary = load_embedding_matrix_with_ids(Path(artifact_path))
             artifact_metadata_ids = self._canonical_artifact_metadata_ids(
                 project,

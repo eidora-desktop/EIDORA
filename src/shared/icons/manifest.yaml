@@ -185,6 +185,10 @@ icons:
     material: regular_expression
     style: outlined
     size: 40
+  refresh:
+    material: refresh
+    style: outlined
+    size: 40
   save:
     material: save
     style: outlined

@@ -13,6 +13,8 @@ from DiscoveryArea.domain import DiscoveryOption
 from DiscoveryArea.discovery_importer import DiscoveryImportPreview, import_discovery_coordinates, preview_discovery_import
 from DiscoveryArea.discovery_methods.base import DiscoveryMethodDefinition
 from DiscoveryArea.controllers.methods_citations_dialog_controller import MethodsCitationsDialogController
+from DiscoveryArea.controllers.projection_assessment_controller import ProjectionAssessmentController
+from DiscoveryArea.controllers.projection_parameter_editor import create_parameter_editor, parameter_value
 from DiscoveryArea.provenance import MethodsReport, PROVENANCE_SCHEMA_VERSION
 from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, clear_list_items, configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
@@ -47,6 +49,7 @@ class DiscoveryPanelController(UiPanelController):
             self._widget, QtWidgets.QAbstractButton, "button_add_new_projection"
         )
         self._dialog: QtWidgets.QWidget | None = None
+        self._assessment: ProjectionAssessmentController | None = None
         self._selection_changed_callback: Callable[[str], None] | None = None
         self._create_discovery_callback: Callable[[dict[str, object]], bool | None] | None = None
         self._abort_discovery_callback: Callable[[str], bool | None] | None = None
@@ -73,6 +76,8 @@ class DiscoveryPanelController(UiPanelController):
         self._list.currentRowChanged.connect(self._on_discovery_selected)
 
     def set_project(self, project) -> None:
+        if project is not self._project and self._dialog is not None:
+            self._dialog.close()
         super().set_project(project)
         has_project = project is not None
         self._list.setEnabled(has_project)
@@ -82,6 +87,9 @@ class DiscoveryPanelController(UiPanelController):
             self.set_discovery_options([], enabled=False)
 
     def shutdown(self) -> None:
+        if self._assessment is not None:
+            self._assessment.shutdown()
+            self._assessment = None
         if self._dialog is not None:
             self._dialog.close()
             self._dialog = None
@@ -370,6 +378,7 @@ class DiscoveryPanelController(UiPanelController):
             self._dialog.show()
             self._dialog.raise_()
             self._dialog.activateWindow()
+            self._assessment.activate(self._project)
             return
         dialog = load_ui(self.package, "ui/new_projection_dialog.ui", None)
         if not isinstance(dialog, QtWidgets.QDialog):
@@ -421,7 +430,13 @@ class DiscoveryPanelController(UiPanelController):
                     table_parameters=table_parameters,
                 )
             )
+        self._assessment = ProjectionAssessmentController(
+            dialog, lambda: self._projection_parameter_values(table_parameters),
+        )
         self._reset_discovery_dialog(dialog)
+        self._assessment.activate(self._project)
+        dialog.layout().activate()
+        dialog.resize(dialog.width(), dialog.sizeHint().height())
         dialog.show()
 
     def _reset_discovery_dialog(self, dialog: QtWidgets.QWidget) -> None:
@@ -478,6 +493,8 @@ class DiscoveryPanelController(UiPanelController):
         edit_name: QtWidgets.QLineEdit | None,
         table_parameters: QtWidgets.QTableWidget | None,
     ) -> None:
+        if self._assessment is not None and not self._assessment.can_submit():
+            return
         method = str(combo_method.currentData()) if combo_method is not None else "random"
         name = edit_name.text().strip() if edit_name is not None else "Projection"
         payload: dict[str, object] = {
@@ -1229,52 +1246,24 @@ class DiscoveryPanelController(UiPanelController):
             if reset_button is not None:
                 reset_button.setEnabled(bool(visible_parameters))
         self._set_advanced_parameters_visible(advanced is not None and advanced.isChecked())
+        if self._assessment is not None:
+            self._assessment.bind_parameter_editors()
 
     def _set_advanced_parameters_visible(self, expanded: bool) -> None:
         if self._dialog is None:
             return
         button = self._dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
-        panel = self._dialog.findChild(QtWidgets.QWidget, "panel_advanced_settings")
-        if button is None or panel is None:
+        table = self._dialog.findChild(QtWidgets.QTableWidget, "table_advanced_parameters")
+        if button is None or table is None:
             return
-        panel.setVisible(expanded and not button.isHidden())
+        table.setVisible(expanded and not button.isHidden())
         button.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
         self._dialog.layout().activate()
         self._dialog.resize(self._dialog.width(), self._dialog.sizeHint().height())
 
     @staticmethod
     def _parameter_editor(spec: dict[str, object], tooltip: str) -> QtWidgets.QWidget:
-        parameter_type = str(spec.get("type") or "str").strip().lower()
-        ui_element = str(spec.get("ui") or "").strip().lower()
-        default = spec.get("default", "")
-        choices = spec.get("choices")
-        if (spec.get("nullable") and not choices) or parameter_type == "json":
-            text = "None" if default is None else json.dumps(default)
-            editor = QtWidgets.QLineEdit(text)
-        elif ui_element == "check_box" or (not ui_element and parameter_type == "bool"):
-            editor = QtWidgets.QCheckBox()
-            editor.setChecked(default if isinstance(default, bool) else str(default).strip().lower() in {"1", "true", "yes", "on"})
-        elif ui_element == "combo_box" or (not ui_element and isinstance(choices, list) and choices):
-            editor = QtWidgets.QComboBox()
-            for choice in choices if isinstance(choices, list) else []:
-                editor.addItem("None (automatic)" if choice is None else str(choice), choice)
-            index = editor.findData(default)
-            editor.setCurrentIndex(index if index >= 0 else 0)
-        elif ui_element == "spin_box" or (not ui_element and parameter_type == "int"):
-            editor = QtWidgets.QSpinBox()
-            editor.setRange(int(spec.get("min", -2_147_483_648)), int(spec.get("max", 2_147_483_647)))
-            editor.setValue(int(default))
-        elif ui_element == "double_spin_box" or (not ui_element and parameter_type == "float"):
-            editor = QtWidgets.QDoubleSpinBox()
-            editor.setDecimals(max(0, min(12, int(spec.get("decimals", 6)))))
-            editor.setRange(float(spec.get("min", -1_000_000_000_000)), float(spec.get("max", 1_000_000_000_000)))
-            editor.setSingleStep(0.1)
-            editor.setValue(float(default))
-        else:  # line_edit and unconfigured parameters
-            editor = QtWidgets.QLineEdit(str(default))
-        editor.setToolTip(tooltip)
-        editor.setEnabled(not spec.get("readonly", False))
-        return editor
+        return create_parameter_editor(spec, tooltip)
 
     def _handle_discovery_method_changed(
         self,
@@ -1342,18 +1331,8 @@ class DiscoveryPanelController(UiPanelController):
             editor = table.cellWidget(row, 1)
             if not key:
                 continue
-            if isinstance(editor, QtWidgets.QCheckBox):
-                values[key] = editor.isChecked()
-            elif isinstance(editor, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
-                values[key] = editor.value()
-            elif isinstance(editor, QtWidgets.QComboBox):
-                values[key] = editor.currentData()
-            elif isinstance(editor, QtWidgets.QLineEdit):
-                values[key] = editor.text().strip()
-            else:
-                value_item = table.item(row, 1)
-                if value_item is not None:
-                    values[key] = value_item.text().strip()
+            if editor is not None:
+                values[key] = parameter_value(editor)
         return values
 
     def _projection_parameter_values(self, table: QtWidgets.QTableWidget | None) -> dict[str, object]:

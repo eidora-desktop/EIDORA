@@ -1,0 +1,125 @@
+id: mds
+name: MDS
+class: MDSDiscoveryMethod
+status: available
+execution: subprocess
+supports_transform: false
+supports_arrangement_transform: false
+output_dimensions:
+- 2
+description: Metric or non-metric multidimensional scaling. Dense pairwise distances require substantial
+  memory; filter large collections before running.
+implementation:
+  distribution: scikit-learn
+citations:
+- id: kruskal1964mds
+  role: method
+  title: Multidimensional scaling by optimizing goodness of fit to a nonmetric hypothesis
+  authors:
+  - Kruskal, Joseph B.
+  year: 1964
+  journal: Psychometrika
+  volume: '29'
+  pages: 1-27
+  doi: 10.1007/BF02289565
+- id: deLeeuw1977smacof
+  role: implementation
+  title: Applications of convex analysis to multidimensional scaling
+  authors:
+  - de Leeuw, Jan
+  year: 1977
+  url: https://escholarship.org/uc/item/4ps3b5mj
+parameters:
+  mode:
+    ui: combo_box
+    type: str
+    default: metric
+    label: Mode
+    advanced: false
+    info: Metric preserves distance magnitudes; non-metric preserves their rank order. In non-metric mode,
+      zero dissimilarities (including duplicate vectors) are treated as missing by scikit-learn.
+    choices:
+    - metric
+    - non-metric
+  metric:
+    ui: combo_box
+    type: str
+    default: euclidean
+    label: Distance
+    advanced: false
+    info: Distance between input vectors.
+    choices:
+    - euclidean
+    - cosine
+    - manhattan
+    - chebyshev
+    - minkowski
+    - hamming
+  init:
+    ui: combo_box
+    type: str
+    default: random
+    label: Initialization
+    advanced: true
+    info: Random matches the effective scikit-learn 1.9 default. Classical MDS initialization is deterministic
+      and uses one start.
+    choices:
+    - random
+    - classical_mds
+  n_init:
+    ui: spin_box
+    type: int
+    default: 1
+    label: Initializations
+    advanced: true
+    info: Number of random starts; retain the lowest-stress result. Runs sequentially to bound memory.
+      Ignored for classical MDS initialization.
+    min: 1
+  max_iter:
+    ui: spin_box
+    type: int
+    default: 300
+    label: Iterations
+    advanced: true
+    info: Maximum SMACOF optimization iterations per start.
+    min: 1
+  eps:
+    ui: double_spin_box
+    type: float
+    default: 1.0e-06
+    label: Convergence tolerance
+    advanced: true
+    info: Stop when the normalized change in stress falls below this tolerance.
+    min: 0.0
+    decimals: 10
+  normalized_stress:
+    ui: combo_box
+    type: str
+    default: auto
+    label: Normalized stress
+    advanced: true
+    info: Auto reports raw stress for metric MDS and Stress-1 for non-metric MDS. True reports Stress-1
+      in either mode.
+    choices:
+    - auto
+    - 'true'
+    - 'false'
+  metric_params:
+    ui: line_edit
+    type: json
+    default: null
+    label: Distance parameters
+    advanced: true
+    info: Optional distance settings as a JSON object, or None.
+    nullable: true
+    json_kind: object
+  random_state:
+    ui: number_optional
+    type: int
+    default: null
+    label: Random seed
+    advanced: true
+    info: None uses unseeded library randomness. Set an integer for repeatable results.
+    nullable: true
+    min: 0
+    max: 2147483647

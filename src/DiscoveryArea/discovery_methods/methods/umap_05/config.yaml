@@ -38,13 +38,78 @@ parameters:
     readonly: true
     info: Discovery displays two-dimensional coordinates.
   metric:
-    ui: line_edit
+    ui: combo_box
     type: str
     default: euclidean
-    info: Named input distance metric supported by UMAP (for example euclidean, cosine, correlation or
-      minkowski). Callable metrics are not accepted.
+    info: Named input distance metric supported by UMAP (for example euclidean, cosine,
+      correlation or minkowski). Callable metrics are not accepted.
     advanced: false
     label: Distance
+    choices:
+    - euclidean
+    - l2
+    - manhattan
+    - taxicab
+    - l1
+    - chebyshev
+    - linfinity
+    - linfty
+    - linf
+    - minkowski
+    - poincare
+    - seuclidean
+    - standardised_euclidean
+    - wminkowski
+    - weighted_minkowski
+    - mahalanobis
+    - canberra
+    - cosine
+    - correlation
+    - hellinger
+    - softmax_hellinger
+    - haversine
+    - braycurtis
+    - ll_dirichlet
+    - symmetric_kl
+    - hamming
+    - jaccard
+    - dice
+    - matching
+    - kulsinski
+    - rogerstanimoto
+    - russellrao
+    - sokalsneath
+    - sokalmichener
+    - yule
+    - categorical
+    - ordinal
+    - hierarchical_categorical
+    - count
+    - string
+    - myers
+    - sqeuclidean
+    - direct_cosine
+    - dot
+    - inner_product
+    - spearmanr
+    - tsss
+    - true_angular
+    - kantorovich
+    - wasserstein
+    - wasserstein_1d
+    - wasserstein-1d
+    - kantorovich-1d
+    - kantorovich_1d
+    - circular_kantorovich
+    - circular_wasserstein
+    - sinkhorn
+    - jensen-shannon
+    - jensen_shannon
+    - symmetric-kl
+    - symmetric_kullback_liebler
+    - bit_hamming
+    - bit_jaccard
+
   metric_kwds:
     ui: line_edit
     type: json
@@ -52,13 +117,42 @@ parameters:
     nullable: true
     json_kind: object
     advanced: true
-    info: 'JSON object of input metric arguments, or None; for example {"p": 3} for minkowski.'
+    info: 'Optional input distance settings as a JSON object, such as {"p": 3} for Minkowski distance.'
   output_metric:
-    ui: line_edit
+    ui: combo_box
     type: str
     default: euclidean
     advanced: true
     info: Named output-space metric supported by UMAP; non-Euclidean choices require a gradient.
+    choices:
+    - euclidean
+    - l2
+    - manhattan
+    - taxicab
+    - l1
+    - chebyshev
+    - linfinity
+    - linfty
+    - linf
+    - minkowski
+    - seuclidean
+    - standardised_euclidean
+    - wminkowski
+    - weighted_minkowski
+    - mahalanobis
+    - canberra
+    - cosine
+    - correlation
+    - hellinger
+    - softmax_hellinger
+    - haversine
+    - braycurtis
+    - symmetric_kl
+    - spherical_gaussian_energy
+    - diagonal_gaussian_energy
+    - gaussian_energy
+    - hyperboloid
+
   output_metric_kwds:
     ui: line_edit
     type: json
@@ -66,14 +160,14 @@ parameters:
     nullable: true
     json_kind: object
     advanced: true
-    info: JSON object of output metric arguments, or None.
+    info: Optional output distance settings as a JSON object, or None.
   n_epochs:
     ui: line_edit
     type: json
     default: null
     nullable: true
     json_kind: epochs
-    info: None chooses automatically. Enter a nonnegative integer or a JSON list of epoch counts; Discovery
+    info: None chooses automatically. Enter a number or a JSON list of counts; Discovery
       saves the final coordinates.
     advanced: true
   learning_rate:
@@ -165,21 +259,21 @@ parameters:
     readonly: true
     info: Discovery creates a new projection and does not transform additional points into a fitted model.
   a:
-    ui: line_edit
+    ui: number_optional
     type: float
     default: null
     nullable: true
     advanced: true
     info: Curve parameter a; None derives it from min_dist and spread.
   b:
-    ui: line_edit
+    ui: number_optional
     type: float
     default: null
     nullable: true
     advanced: true
     info: Curve parameter b; None derives it from min_dist and spread.
   random_state:
-    ui: line_edit
+    ui: number_optional
     type: int
     default: null
     nullable: true
@@ -201,7 +295,7 @@ parameters:
     readonly: true
     info: Discovery does not supply supervised target labels; this parameter stays at its library default.
   target_metric:
-    ui: line_edit
+    ui: combo_box
     type: str
     default: categorical
     advanced: true
@@ -234,7 +328,7 @@ parameters:
     readonly: true
     info: Discovery creates a new projection and does not transform additional points into a fitted model.
   transform_mode:
-    ui: line_edit
+    ui: combo_box
     type: str
     default: embedding
     advanced: true
@@ -259,7 +353,7 @@ parameters:
     nullable: true
     json_kind: object
     advanced: true
-    info: JSON object of progress-bar options, or None.
+    info: Optional progress display settings as a JSON object, or None.
   unique:
     ui: check_box
     type: bool
@@ -303,7 +397,7 @@ parameters:
     readonly: true
     info: Discovery does not store the additional density-radius arrays.
   disconnection_distance:
-    ui: line_edit
+    ui: number_optional
     type: float
     default: null
     nullable: true

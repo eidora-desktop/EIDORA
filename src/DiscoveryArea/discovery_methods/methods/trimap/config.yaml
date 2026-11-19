@@ -118,7 +118,7 @@ parameters:
     advanced: true
     label: Optimizer
   random_state:
-    ui: line_edit
+    ui: number_optional
     type: int
     default: null
     label: Random seed
@@ -138,7 +138,7 @@ parameters:
     info: Tree count for EIDORA’s PyNNDescent neighbor search (which replaces the
       library’s Annoy backend).
   initialization:
-    ui: line_edit
+    ui: combo_box
     type: str
     default: null
     label: Initialization
