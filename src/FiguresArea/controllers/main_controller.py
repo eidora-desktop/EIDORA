@@ -154,6 +154,10 @@ class FiguresAreaController:
             if activity is not None:
                 activity.finish()
 
+    def set_open_settings_callback(self, callback: Callable[[str], None]) -> None:
+        for panel in self._panels:
+            panel.set_open_settings_callback(callback)
+
     def _load_panels(self) -> None:
         panel_specs = [
             ("panel_snapshots_host", SnapshotSourcesPanelController),
@@ -633,6 +637,17 @@ class FiguresAreaController:
         self._figure_settings_panel.set_recent_preset_labels(
             [entry.label for entry in self._figure_settings_preset_entries()]
         )
+
+    def refresh_preset_menus(self) -> None:
+        self._refresh_figure_settings_preset_menu()
+        for plot in self._plot_tabs.values():
+            plot.refresh_preset_menus()
+
+    def required_preset_paths(self):
+        from FiguresArea.controllers.snapshot_animation_tab_controller import AnimationTabController
+
+        return tuple(path for plot in self._plot_tabs.values() if isinstance(plot, AnimationTabController)
+                     for path in plot.required_preset_paths())
 
     def _save_figure_settings_preset(self, label: str, payload: dict) -> bool:
         if self._project is None:

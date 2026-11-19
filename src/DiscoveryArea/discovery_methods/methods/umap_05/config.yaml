@@ -4,7 +4,6 @@ class: UMAP05DiscoveryMethod
 status: available
 execution: subprocess
 supports_transform: false
-supports_arrangement_transform: true
 output_dimensions:
 - 2
 description: UMAP 0.5 pipeline, supplied by umap-learn 0.6 compatibility mode, with the 0.5.12 parameter

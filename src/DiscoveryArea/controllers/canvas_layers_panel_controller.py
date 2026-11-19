@@ -110,9 +110,14 @@ class CanvasLayersPanelController(UiPanelController):
         self._load_camera_callback: Callable[[Path], bool] | None = None
         self._default_camera_callback: Callable[[], None] | None = None
         self._camera_entries: list[PresetEntry] = []
-        require_child(self._widget, QtWidgets.QToolButton, "button_add_camera_preset").clicked.connect(
-            self._save_camera_preset
-        )
+        camera_options = require_child(self._widget, QtWidgets.QToolButton, "button_add_camera_preset")
+        camera_options.setToolTip("Camera presets")
+        camera_options.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
+        camera_menu = QtWidgets.QMenu(camera_options)
+        camera_menu.addAction("Save as preset…").triggered.connect(self._save_camera_preset)
+        camera_options.setMenu(camera_menu)
+        camera_options.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._camera_combo.setToolTip("Apply camera preset; settings are copied into the current view.")
         self._viewport_aspect_callback: Callable[[str], None] | None = None
         self._active_viewport_aspect_preset = "free"
         self._configure_crop_controls()
@@ -398,7 +403,7 @@ class CanvasLayersPanelController(UiPanelController):
         with QtCore.QSignalBlocker(self._camera_combo):
             self._camera_combo.clear()
             self._camera_combo.addItem(self._CENTER_FIT_CAMERA_LABEL, self._CENTER_FIT_CAMERA_DATA)
-            for entry in self._camera_entries[:50]:
+            for entry in self._camera_entries:
                 path = str(entry.path)
                 self._camera_combo.addItem(entry.label, path)
             if selected:

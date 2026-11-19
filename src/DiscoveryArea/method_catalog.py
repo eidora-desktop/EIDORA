@@ -135,9 +135,6 @@ class DiscoveryMethodCatalog:
                     status=status,
                     execution=execution,
                     supports_transform=bool(payload.get("supports_transform", False)),
-                    supports_arrangement_transform=bool(
-                        payload.get("supports_arrangement_transform", False)
-                    ),
                     output_dimensions=tuple(int(value) for value in output_dimensions),
                     citations=tuple(
                         dict(value)

@@ -93,3 +93,7 @@ that can grow to fit the controls. Preserve `iconName` and `surfaceRole` propert
 Validate edits with `tests/gui/test_ui_loading.py` and
 `tests/unit/test_shared_panel_rows.py`; the latter exercises both wrapper-based
 and layout-only forms through idle, running and expanded states in both themes.
+
+`item_views.configure_checkable_item_view` applies a view-local Fusion style so
+checkable trees/lists paint indicators at the same positions used for clicking,
+including on macOS. Presets and Canvas Layers share this helper.

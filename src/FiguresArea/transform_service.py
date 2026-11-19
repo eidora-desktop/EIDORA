@@ -6,7 +6,6 @@ import numpy as np
 
 from FiguresArea.cache_budget import ByteCache
 from FiguresArea.domain import PlotCell
-from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
 from DiscoveryArea.transforms import TransformCancelled, TransformSettings, source_fingerprint, transform_coordinates
 
 
@@ -18,27 +17,6 @@ class FigureTransformService:
     @property
     def _bytes(self):
         return self._cache.retained_bytes
-
-    def method_id(self, path):
-        root = self.loader._project_root
-        if root is None:
-            return ''
-        target = Path(path).resolve()
-        for preset in sorted((root / 'presets' / 'discovery').glob('*.json')):
-            payload = self.loader.payload_from_path(preset) or {}
-            if not payload.get('discovery_file'):
-                continue
-            candidate = Path(payload['discovery_file'])
-            if not candidate.is_absolute():
-                candidate = root / candidate
-            if candidate.resolve() == target:
-                return str(payload.get('method_id') or payload.get('type') or payload.get('algorithm') or '').strip().lower()
-        return 'random' if target.name == 'random_discovery.sqlite' else ''
-
-    def supports_transform(self, path):
-        method = self.method_id(path)
-        definition = DiscoveryMethodCatalog().get('tsne' if method == 't-sne' else method)
-        return bool(definition and definition.supports_arrangement_transform)
 
     def prepare(self, state, paths, preset=None, *, recipe=None, cancelled=lambda: False,
                 load_metadata=True, source_projection=None):
@@ -54,10 +32,8 @@ class FigureTransformService:
             payload = self.loader.payload_from_path(Path(preset))
             if payload is None or int(payload.get('preset_version', 1)) not in (1, 2):
                 raise ValueError('Missing or unsupported transformation preset.')
-            if not self.supports_transform(source):
-                raise ValueError('Transformations are unavailable for this coordinate-truthful projection.')
             settings = TransformSettings.from_preset_dict(payload.get('transform'))
-        elif recipe is not None and self.supports_transform(source):
+        elif recipe is not None:
             settings = TransformSettings.from_preset_dict(recipe)
         if source_projection is not None and Path(source_projection[0]).resolve() == Path(source).resolve():
             coordinates, ids = source_projection[1:]
@@ -91,8 +67,10 @@ class FigureTransformService:
             prepared.metadata = self.loader.metadata_for_ids(prepared.metadata_ids, cancelled=cancelled)
         prepared.render_state = copy.deepcopy(state)
         prepared.render_state.pop('snapshot_projection', None)
-        paths = dict(paths, snapshot=None, transform=str(preset) if preset else None)
+        paths = dict(paths, transform=str(preset) if preset else None)
         prepared.render_state['preset_paths'] = paths
+        prepared.snapshot_path = paths.get('snapshot')
+        prepared.render_state.setdefault('component_sources', {})['transform'] = 'preset' if preset else 'none'
         if settings is None:
             prepared.render_state.pop('transform', None)
         else:
@@ -111,7 +89,10 @@ class FigureTransformService:
             for key, value in state_overrides.items():
                 if key != "pinboard":
                     plot_cell.render_state[str(key)] = copy.deepcopy(value)
-            if "transform" in state_overrides:
+            from_snapshot = ("component_sources" in state_overrides
+                             and "transform" not in (state_overrides.get("component_sources") or {})
+                             and "snapshot_base" in plot_cell.render_state)
+            if "transform" in state_overrides and not from_snapshot:
                 self.apply_state(plot_cell, cancelled=cancelled, load_metadata=load_metadata,
                                  source_projection=source_projection)
         pin_overrides = overrides.get("pins")

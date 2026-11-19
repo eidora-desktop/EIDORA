@@ -4,7 +4,6 @@ class: UMAPDiscoveryMethod
 status: available
 execution: subprocess
 supports_transform: false
-supports_arrangement_transform: true
 output_dimensions:
 - 2
 description: 'UMAP 0.6: new neighbor search, recursive initialization and Adam by default.'

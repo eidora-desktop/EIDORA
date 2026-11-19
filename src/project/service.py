@@ -54,8 +54,21 @@ class ProjectService:
 
         return project is not None and is_example_collection(project.root)
 
-    def use_workspace(self, root: Path) -> None:
+    def use_workspace(self, root: Path, *, preserve_recent: bool = False) -> None:
         """Activate an explicitly selected, already prepared workspace."""
+        if preserve_recent:
+            # Changing the default destination must not lose the user's history.
+            destination = ProjectService(root)
+            records = self._read_recent_project_records()
+            known = {path for path, _ in records}
+            records.extend(record for record in destination._read_recent_project_records() if record[0] not in known)
+            destination._write_recent_project_records(records)
+            # Keep completed first-launch setup from running again merely
+            # because the user chose a new default project destination.
+            receipt = self._workspace_root / ".starter-collection.json"
+            target_receipt = destination.workspace_root / receipt.name
+            if receipt.is_file() and not target_receipt.exists():
+                shutil.copy2(receipt, target_receipt)
         self._workspace_root = Path(root)
         self._workspace_root.mkdir(parents=True, exist_ok=True)
         self._recent_projects_file = self._workspace_root / ".recent_projects.json"
@@ -110,6 +123,29 @@ class ProjectService:
                 return None
 
         return None
+
+    @staticmethod
+    def inspect_project(root: Path | str) -> Project:
+        """Read an existing project without opening, migrating, or recording it."""
+        from project.storage import validate_project_layout
+
+        root = Path(root).expanduser().resolve()
+        manifest = read_project_manifest(root / PROJECT_MANIFEST_FILENAME)
+        validate_project_layout(ProjectStoragePaths(root))
+        return Project(manifest.name, root, manifest.schema_version)
+
+    def list_known_projects(self) -> list[Project]:
+        """Inspect recent and default-folder projects without changing history."""
+        candidates = [path for path, _ in self._read_recent_project_records()]
+        candidates.extend(path.parent for path in self._workspace_root.glob("*/project.json"))
+        projects = {}
+        for path in candidates:
+            try:
+                project = self.inspect_project(path)
+            except (OSError, ValueError):
+                continue
+            projects[project.root] = project
+        return sorted(projects.values(), key=lambda project: (project.name.casefold(), str(project.root)))
 
     def list_recent_projects(self) -> list[Project]:
         return [entry.project for entry in self.list_recent_project_entries()]

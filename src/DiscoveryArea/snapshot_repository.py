@@ -10,6 +10,7 @@ import numpy as np
 
 from DiscoveryArea.domain import DiscoveryDataset
 from DiscoveryArea.presets_repository import PresetEntry, PresetRepository
+from DiscoveryArea.snapshot_settings import snapshot_component_states
 from DiscoveryArea.snapshots import DiscoverySnapshot, DiscoverySnapshotProjection
 from shared.persistence import json_store
 from project.portable_paths import ProjectPaths
@@ -116,7 +117,12 @@ class SnapshotRepository:
         payload["discovery_key"] = self._paths.key(str(payload.get("discovery_key") or ""))
         if payload.get("discovery_ref"):
             payload["discovery_ref"] = self._paths.decode(payload["discovery_ref"])
-        state = payload.get("states", {}).get("pinboard", {})
+        def load_ref(ref):
+            if not ref:
+                return None
+            return PresetRepository(self._root).load_payload_from_path(Path(self._paths.decode(ref)))
+        payload["states"] = snapshot_component_states(payload, load_ref)
+        state = payload["states"].get("pinboard", {})
         if "last_discovery_key" in state:
             state["last_discovery_key"] = self._paths.key(state["last_discovery_key"])
         return DiscoverySnapshot.from_dict(payload)

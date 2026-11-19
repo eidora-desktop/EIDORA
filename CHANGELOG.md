@@ -4,9 +4,35 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Rename the project-menu action to “Switch Projects…”.
+
+- Hide the Project Chooser immediately when opening a project and use only the square loading indicator until the main window is ready. Remove the chooser's redundant progress bar and loading text; restore the chooser on errors for retry or cancellation.
+
+- Show a square light/dark loading panel with a rotating square and the EIDORA wordmark when opening a project. Tint the wordmark for light/dark appearance and render it at the display scale. Load project files in a worker and prepare hidden workspaces in queued steps, keeping Discovery's graphics host attached before the main window appears. Keep the loader visible through workspace refresh and the window handoff when switching projects from the chooser.
+
+- Remove the duplicate menu arrow from the camera preset button in Discovery Canvas Layers.
+
+- Allow Grid and No Overlap transforms for every projection, including PCA, MDS, and imported coordinates, in Discovery and Figures. Preserve and restore their saved arrangements.
+
+- Remove oversized gaps between Preview Assets cards on opening by refreshing the tree layout after hidden cards become visible.
+
+- Close the Main Window before showing the Project Chooser and restore it after selection or cancellation.
+
+- Restyle Settings to match EIDORA’s form dialogs: clean sections, compact choices, grouped storage fields, taller preset rows, and a shared action footer. Keep both tabs the same size and synchronize native controls and lazy preset lists with Light/Dark/System appearance.
+
+- Make preset and category selection checkboxes visible on macOS, keeping their drawing and click targets aligned after scrolling in both themes.
+
+- Manage reusable presets in Settings with a project selector, collapsible type groups, group checkboxes, and confirmed bulk deletion. Preserve snapshots, projections, and presets still required by saved work; refresh preset menus without changing applied settings.
+
 - Rename the main-window Help button to Settings and use the simplified EIDORA icon with light/dark palette tinting; preserve its menu and size.
 
+- Paint the selected Settings appearance radio before applying the theme, and combine pending theme changes so the latest choice wins.
+
 - Keep only preset actions in the Filters options menu and remove its citations dialog entry and report handler.
+
+- Add Settings to Help and the startup chooser, with saved Light/Dark/System appearance, startup project choice, storage destinations, optional verified project relocation, and a scoped General reset.
+
+- Separate Discovery snapshots from reusable presets. Snapshot saves and updates capture their own settings without generating presets; Figures preserve imported views until another snapshot is dropped onto the plot. Add per-component “From snapshot” resets and explicit preset application, restore saved slicer views, and resolve mapped and conditional appearance fields for Figures. Keep presets project-only, with “Apply preset…” and “Save as preset…” actions; remove Global Template options. “Manage Presets...” at the bottom of Apply preset menus opens Settings directly on the Presets tab.
 
 - Prevent model-list refreshes from resizing deleted tree items while old row widgets await Qt cleanup.
 

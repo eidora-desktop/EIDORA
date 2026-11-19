@@ -188,6 +188,12 @@ class EmbeddingsAreaController:
             if activity is not None:
                 activity.finish()
 
+    def refresh_model_locations(self) -> None:
+        """Refresh installed packages after choosing another storage destination."""
+        self._on_models_changed()
+        if self._model_zoo_dialog is not None:
+            self._model_zoo_dialog.set_session(self._session)
+
     def _show_model_zoo(self) -> None:
         if self._model_zoo_dialog is None:
             self._model_zoo_dialog = ModelZooDialogController(

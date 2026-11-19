@@ -8,6 +8,7 @@ from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
 from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
+from shared.qt.preset_menu import append_manage_presets_action
 from shared.qt.widgets import require_child
 
 
@@ -415,14 +416,8 @@ class SlicerPanelController(UiPanelController):
 
     @staticmethod
     def _sorted_slicer_values(values: set[str]) -> list[str]:
-        numeric_values: list[tuple[float, str]] = []
-        for value in values:
-            try:
-                numeric_values.append((float(value), value))
-            except ValueError:
-                return sorted(values, key=lambda text: text.lower())
-        numeric_values.sort(key=lambda pair: pair[0])
-        return [text for _numeric, text in numeric_values]
+        from DiscoveryArea.slicing import sorted_slicer_values
+        return sorted_slicer_values(values)
 
     def _emit_slicer_changed(self) -> None:
         if self._applying_state:
@@ -435,8 +430,8 @@ class SlicerPanelController(UiPanelController):
         animation_action = menu.addAction("Create animation…")
         animation_action.triggered.connect(self._create_animation)
         menu.addSeparator()
-        self._menu_load_recent = menu.addMenu("Load Recent")
-        save_action = menu.addAction("Save Preset…")
+        self._menu_load_recent = menu.addMenu("Apply preset…")
+        save_action = menu.addAction("Save as preset…")
         save_action.triggered.connect(self._save_current_preset)
         menu.addSeparator()
         speed_menu = menu.addMenu("Set Speed")
@@ -599,10 +594,10 @@ class SlicerPanelController(UiPanelController):
         if not labels:
             action = self._menu_load_recent.addAction("No Presets Saved")
             action.setEnabled(False)
-            return
-        for label in labels[:10]:
+        for label in labels:
             action = self._menu_load_recent.addAction(label)
             action.triggered.connect(lambda _checked=False, value=label: self._load_preset_label(value))
+        append_manage_presets_action(self._menu_load_recent, self._open_settings)
 
     def _save_current_preset(self) -> None:
         if self._save_preset_callback is None:

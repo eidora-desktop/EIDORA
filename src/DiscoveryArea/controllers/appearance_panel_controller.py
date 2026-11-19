@@ -12,6 +12,7 @@ from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from DiscoveryArea.color_rules import analyze_rule_overlaps, ordered_rules, overlap_key, overlap_labels
 from DiscoveryArea.palettes import MAX_CATEGORICAL_VALUES, distinct_palette, next_unused_color, palette_options
 from shared.qt.panel_controller import UiPanelController
+from shared.qt.preset_menu import append_manage_presets_action
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
@@ -80,10 +81,7 @@ class AppearancePanelController(UiPanelController):
         self._style_changed_callback = None
         self._save_project_preset_callback: Callable[[str, dict], bool] | None = None
         self._load_project_preset_callback: Callable[[str], dict | None] | None = None
-        self._save_global_template_callback: Callable[[str, dict], bool] | None = None
-        self._load_global_template_callback: Callable[[str], dict | None] | None = None
         self._project_preset_labels: list[str] = []
-        self._global_template_labels: list[str] = []
         self._project: Project | None = None
         self._metadata_access: DiscoveryMetadataAccess | None = None
         self._metadata_column_names: set[str] = set()
@@ -1455,10 +1453,8 @@ class AppearancePanelController(UiPanelController):
 
     def _build_preset_menu(self, parent: QtWidgets.QWidget) -> QtWidgets.QMenu:
         menu = QtWidgets.QMenu(parent)
-        self._load_project_menu = menu.addMenu("Load Project Recent")
-        self._load_global_menu = menu.addMenu("Load Global Template")
-        menu.addAction("Save Project Preset…").triggered.connect(self._save_project_preset)
-        menu.addAction("Save Global Template…").triggered.connect(self._save_global_template)
+        self._load_project_menu = menu.addMenu("Apply preset…")
+        menu.addAction("Save as preset…").triggered.connect(self._save_project_preset)
         self._refresh_preset_menus()
         return menu
 
@@ -2176,18 +2172,8 @@ class AppearancePanelController(UiPanelController):
     def set_load_project_preset_callback(self, callback: Callable[[str], dict | None] | None) -> None:
         self._load_project_preset_callback = callback
 
-    def set_save_global_template_callback(self, callback: Callable[[str, dict], bool] | None) -> None:
-        self._save_global_template_callback = callback
-
-    def set_load_global_template_callback(self, callback: Callable[[str], dict | None] | None) -> None:
-        self._load_global_template_callback = callback
-
     def set_recent_project_preset_labels(self, labels: list[str]) -> None:
         self._project_preset_labels = list(labels)
-        self._refresh_preset_menus()
-
-    def set_global_template_labels(self, labels: list[str]) -> None:
-        self._global_template_labels = list(labels)
         self._refresh_preset_menus()
 
     def _refresh_preset_menus(self) -> None:
@@ -2198,23 +2184,12 @@ class AppearancePanelController(UiPanelController):
                 empty = project_menu.addAction("No Presets Saved")
                 empty.setEnabled(False)
             else:
-                for label in self._project_preset_labels[:10]:
+                for label in self._project_preset_labels:
                     action = project_menu.addAction(label)
                     action.triggered.connect(
                         lambda _checked=False, value=label: self._load_project_preset_by_label(value)
                     )
-        global_menu = getattr(self, "_load_global_menu", None)
-        if global_menu is not None:
-            global_menu.clear()
-            if not self._global_template_labels:
-                empty = global_menu.addAction("No Templates Saved")
-                empty.setEnabled(False)
-            else:
-                for label in self._global_template_labels[:10]:
-                    action = global_menu.addAction(label)
-                    action.triggered.connect(
-                        lambda _checked=False, value=label: self._load_global_template_by_label(value)
-                    )
+            append_manage_presets_action(project_menu, self._open_settings)
 
     def _save_project_preset(self) -> None:
         if self._save_project_preset_callback is None:
@@ -2230,19 +2205,6 @@ class AppearancePanelController(UiPanelController):
         if self._save_project_preset_callback(preset_name, self.appearance_state_payload()):
             self._show_status(f"Saved appearance preset: {preset_name}")
 
-    def _save_global_template(self) -> None:
-        if self._save_global_template_callback is None:
-            return
-        name, ok = QtWidgets.QInputDialog.getText(self._widget, "Save Global Appearance Template", "Template name:")
-        if not ok:
-            return
-        template_name = name.strip()
-        if not template_name:
-            self._show_status("Template name cannot be empty.")
-            return
-        if self._save_global_template_callback(template_name, self.appearance_state_payload()):
-            self._show_status(f"Saved global appearance template: {template_name}")
-
     def _load_project_preset_by_label(self, label: str) -> None:
         if self._load_project_preset_callback is None:
             return
@@ -2250,20 +2212,6 @@ class AppearancePanelController(UiPanelController):
         if isinstance(payload, dict):
             self.apply_preset_payload(payload)
             self._show_status(f"Loaded appearance preset: {label}")
-
-    def _load_global_template_by_label(self, label: str) -> None:
-        if self._load_global_template_callback is None:
-            return
-        payload = self._load_global_template_callback(label)
-        if isinstance(payload, dict):
-            skipped = self._apply_global_template_payload(payload)
-            if skipped:
-                self._show_status(
-                    "Loaded global appearance template; skipped unavailable metadata columns: "
-                    + ", ".join(skipped)
-                )
-            else:
-                self._show_status(f"Loaded global appearance template: {label}")
 
     def load_preset_path(self, path: Path) -> bool:
         from DiscoveryArea.presets_repository import PresetRepository
@@ -2481,29 +2429,6 @@ class AppearancePanelController(UiPanelController):
         border_mapping = border.get("mapping")
         if isinstance(border_mapping, dict):
             self._border_color_mappings[border_column] = self._normalized_str_mapping(border_mapping)
-
-    def _apply_global_template_payload(self, payload: dict) -> list[str]:
-        if not isinstance(payload, dict):
-            return []
-        adjusted = dict(payload)
-        skipped: list[str] = []
-        for key in ("point_colors", "border"):
-            section = payload.get(key)
-            if not isinstance(section, dict):
-                continue
-            column = str(section.get("column") or self._GLOBAL_LABEL).strip() or self._GLOBAL_LABEL
-            if (
-                column in {self._GLOBAL_LABEL, "All items"}
-                or column in self._metadata_column_names
-                or column in self._metadata_column_values
-            ):
-                continue
-            next_section = dict(section)
-            next_section["column"] = self._GLOBAL_LABEL
-            adjusted[key] = next_section
-            skipped.append(column)
-        self._apply_preset_payload(adjusted)
-        return sorted(set(skipped))
 
     @staticmethod
     def _normalized_str_mapping(mapping: dict) -> dict[str, str]:

@@ -441,20 +441,13 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>add camera preset</string>
+            <string>Camera presets</string>
            </property>
            <property name="accessibleName">
-            <string>Save camera preset</string>
+            <string>Camera presets</string>
            </property>
            <property name="text">
-            <string/>
-           </property>
-           <property name="icon">
-            <iconset>
-             <normaloff>../../shared/icons/material/add.svg</normaloff>../../shared/icons/material/add.svg</iconset>
-           </property>
-           <property name="iconName" stdset="0">
-            <string>add</string>
+            <string>...</string>
            </property>
           </widget>
          </item>

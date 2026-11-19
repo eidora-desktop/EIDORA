@@ -4,7 +4,6 @@ class: TriMAPDiscoveryMethod
 status: available
 execution: subprocess
 supports_transform: false
-supports_arrangement_transform: true
 output_dimensions:
 - 2
 description: Scalable triplet-based dimensionality reduction that preserves global

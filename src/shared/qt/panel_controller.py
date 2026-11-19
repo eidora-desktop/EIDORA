@@ -29,6 +29,7 @@ class UiPanelController:
         self._project: Project | None = None
         self._status_callback = status_callback
         self._activity_manager = activity_manager
+        self._open_settings_callback: Callable[[str], None] | None = None
         self._wire()
 
     @property
@@ -40,6 +41,15 @@ class UiPanelController:
 
     def shutdown(self) -> None:
         pass
+
+    def set_open_settings_callback(self, callback: Callable[[str], None]) -> None:
+        self._open_settings_callback = callback
+
+    def _open_settings(self, tab: str) -> None:
+        if self._open_settings_callback is not None:
+            self._open_settings_callback(tab)
+        else:
+            self._show_status("Settings are available from the main window.")
 
     def _wire(self) -> None:
         pass

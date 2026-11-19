@@ -4,7 +4,6 @@ class: PCADiscoveryMethod
 status: available
 execution: subprocess
 supports_transform: false
-supports_arrangement_transform: false
 output_dimensions:
 - 2
 description: Principal component projection to two dimensions with automatic solver

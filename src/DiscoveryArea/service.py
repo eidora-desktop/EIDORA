@@ -793,15 +793,6 @@ class DiscoveryService:
         priority = {"umap": 0, "umap_05": 1, "pca": 2}
         return sorted(methods, key=lambda method: (priority.get(method.method_id, 3), method.name.casefold()))
 
-    def discovery_supports_arrangement_transform(self, method_id: object) -> bool:
-        key = str(method_id or "").strip().lower()
-        if key == "t-sne":
-            key = "tsne"
-        definition = self._method_catalog.get(key)
-        return bool(
-            definition is not None and definition.supports_arrangement_transform
-        )
-
     def discovery_method_defaults(self, method_id: str) -> dict[str, object]:
         return self._method_catalog.default_parameters(method_id)
 
@@ -1128,41 +1119,6 @@ class DiscoveryService:
     def save_transform_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
         return PresetRepository(project.paths.transform_presets).save_payload(
             label, payload, allow_overwrite=True
-        )
-
-    def ensure_filter_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.filter_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
-    def ensure_appearance_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.appearance_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
-    def ensure_camera_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.camera_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
-    def ensure_slicer_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.slicer_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
-    def ensure_transform_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.transform_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
         )
 
     def load_filter_preset(self, project: "Project", path: Path) -> dict[str, Any] | None:

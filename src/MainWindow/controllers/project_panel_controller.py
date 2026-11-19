@@ -28,7 +28,7 @@ class ProjectPanelController:
         self._switch_timer = QtCore.QTimer(button)
         self._switch_timer.setSingleShot(True)
         self._switch_timer.timeout.connect(switch)
-        switch_action = self._menu.addAction("Switching Projects…")
+        switch_action = self._menu.addAction("Switch Projects…")
         font = switch_action.font()
         font.setBold(True)
         switch_action.setFont(font)

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from MainWindow.controllers.loading_panel_controller import LoadingPanelController
 from MainWindow.controllers.project_chooser_row import (
     PROJECT_ROW_HEIGHT,
     ProjectRowWidget,
@@ -152,9 +154,11 @@ class ProjectChooserController:
         *,
         remove_project_callback: Callable[[Project], bool] | None = None,
         storage_read_only: bool = False,
-        prepare_project: Callable[[Project], None] | None = None,
+        prepare_project: Callable[[Project], Iterator[None] | None] | None = None,
+        open_settings: Callable[[], None] | None = None,
     ) -> None:
         self.dialog = load_ui("MainWindow", "ui/project_chooser.ui", None)
+        self._settings_callback = open_settings
         if not isinstance(self.dialog, QtWidgets.QDialog):
             raise RuntimeError("project_chooser.ui root must be a QDialog")
         self.dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
@@ -174,16 +178,6 @@ class ProjectChooserController:
         self._project_item_delegate = _ProjectItemDelegate(self._list_projects)
         self._list_projects.setItemDelegate(self._project_item_delegate)
         self._label_no_projects = self._find_required(QtWidgets.QLabel, "label_no_projects")
-        self._label_opening_project = self._find_required(QtWidgets.QLabel, "label_opening_project")
-        self._progress_opening_project = self._find_required(
-            QtWidgets.QProgressBar, "progress_opening_project"
-        )
-        for widget in (self._label_opening_project, self._progress_opening_project):
-            size_policy = widget.sizePolicy()
-            size_policy.setRetainSizeWhenHidden(True)
-            widget.setSizePolicy(size_policy)
-            widget.hide()
-        self._panel_branding = self._find_required(QtWidgets.QWidget, "panel_branding")
         self._button_open_project = self._find_required(
             QtWidgets.QPushButton, "button_open_project"
         )
@@ -195,6 +189,7 @@ class ProjectChooserController:
         )
         button_more_options = self._find_required(QtWidgets.QPushButton, "button_more_options")
         self._more_options_menu = QtWidgets.QMenu(button_more_options)
+        self._action_settings = self._more_options_menu.addAction("Settings...")
         self._action_starter = self._more_options_menu.addAction("Create MET Example…")
         self._action_storage = self._more_options_menu.addAction("Storage…")
         self._action_report = self._more_options_menu.addAction("Diagnostics…")
@@ -230,7 +225,20 @@ class ProjectChooserController:
             self._list_projects.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
         else:
             self._button_new_project.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
-        return QtWidgets.QDialog.DialogCode(self.dialog.exec())
+        # QDialog.exec() ends when the chooser is hidden for loading. Wait
+        # for accept/reject instead, so an opening failure can restore it.
+        loop = QtCore.QEventLoop()
+        app = QtWidgets.QApplication.instance()
+        self.dialog.setResult(QtWidgets.QDialog.DialogCode.Rejected)
+        self.dialog.finished.connect(loop.quit)
+        app.aboutToQuit.connect(loop.quit)
+        try:
+            self.dialog.show()
+            loop.exec()
+            return QtWidgets.QDialog.DialogCode(self.dialog.result())
+        finally:
+            self.dialog.finished.disconnect(loop.quit)
+            app.aboutToQuit.disconnect(loop.quit)
 
     def refresh(self) -> None:
         selected_path = self._selected_project_path()
@@ -314,6 +322,7 @@ class ProjectChooserController:
             (self._list_projects.itemSelectionChanged, self._update_open_button),
             (self._list_projects.itemDoubleClicked, lambda _item: self._open_selected_project()),
             (self._action_storage.triggered, self._open_storage),
+            (self._action_settings.triggered, self._open_settings),
             (self._action_report.triggered, self._show_report),
             (self._action_starter.triggered, self._create_starter),
         ]
@@ -328,7 +337,6 @@ class ProjectChooserController:
             return
         project_name, parent = selection
         self._load_project(
-            project_name,
             lambda: self._project_service.create_empty_project(project_name, parent=parent),
             "New Project Failed",
             "Created project",
@@ -343,6 +351,15 @@ class ProjectChooserController:
 
         controller = StorageDialogController(self._project_service, read_only=self._storage_read_only)
         controller.exec()
+        self.refresh()
+
+    def _open_settings(self) -> None:
+        from MainWindow.controllers.settings_dialog_controller import SettingsDialogController
+
+        if self._settings_callback is not None:
+            self._settings_callback()
+        else:
+            SettingsDialogController(self._project_service, project_open=self._storage_read_only).exec()
         self.refresh()
 
     def _create_starter(self) -> None:
@@ -371,7 +388,6 @@ class ProjectChooserController:
         if not project_path:
             return
         self._load_project(
-            Path(project_path).name,
             lambda: self._project_service.open_project(project_path),
             "Import Existing Project Failed",
             "Imported existing project",
@@ -382,7 +398,6 @@ class ProjectChooserController:
         if project_path is None:
             return
         self._load_project(
-            self._projects_by_path[project_path].name,
             lambda: self._project_service.open_recent_project(project_path),
             "Open Project Failed",
             "Opened project",
@@ -390,7 +405,6 @@ class ProjectChooserController:
 
     def _load_project(
         self,
-        name: str,
         load: Callable[[], Project],
         error_title: str,
         status_prefix: str,
@@ -399,37 +413,19 @@ class ProjectChooserController:
             return
         self._opening_project = True
         LOGGER.info("Opening project")
-        self._set_opening_state(True, name)
         try:
-            # Let the chooser paint before project I/O or Qt workspace construction.
-            QtWidgets.QApplication.processEvents(
-                QtCore.QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
-            )
-            project = load()
-            if self._prepare_project is not None:
-                self._progress_opening_project.setValue(75)
-                self._prepare_project(project)
+            self.dialog.hide()
+            loading = LoadingPanelController(owner=self.dialog)
+            project = loading.run(load, self._prepare_project)
         except Exception as exc:
-            self._set_opening_state(False)
+            self.dialog.show()
             show_error(self.dialog, error_title, str(exc))
             self.refresh()
         else:
             LOGGER.info("Project opened")
-            self._progress_opening_project.setValue(100)
             self._accept_project(project, f"{status_prefix} {project.name}")
-            self._set_opening_state(False)
         finally:
             self._opening_project = False
-
-    def _set_opening_state(self, opening: bool, name: str = "") -> None:
-        if opening:
-            self._label_opening_project.setText(f"Opening {name}…")
-            self._progress_opening_project.setValue(0)
-        self._label_opening_project.setVisible(opening)
-        self._progress_opening_project.setVisible(opening)
-        self._panel_branding.setEnabled(not opening)
-        self._list_projects.setEnabled(not opening)
-        self._button_open_project.setEnabled(not opening and self._selected_project_path() is not None)
 
     def _rename_project(self, project_path: Path) -> None:
         project = self._projects_by_path.get(project_path)

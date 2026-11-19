@@ -18,9 +18,10 @@ class PresetEntry:
 class PresetRepository:
     """JSON preset repository for one project-level preset directory."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, create: bool = True) -> None:
         self._root = Path(root)
-        self._root.mkdir(parents=True, exist_ok=True)
+        if create:
+            self._root.mkdir(parents=True, exist_ok=True)
 
     @property
     def root(self) -> Path:

@@ -95,7 +95,7 @@ class FigureTabsRepository:
 
     def remove_unused_data(self) -> None:
         """Remove unreferenced owned data only after all readers/writers stop."""
-        if not self._path.exists() or not self.data.root.exists():
+        if not self._path.exists():
             return
         raw = json_store.read_json(self._path)
         if not isinstance(raw, dict) or raw.get("version") != self._VERSION or not isinstance(raw.get("tabs"), list):
@@ -106,7 +106,16 @@ class FigureTabsRepository:
         if any(record.get("composition") is not None and not isinstance(record["composition"], dict) for record in records):
             return
         referenced = set()
+        snapshot_copies = set()
         for record in records:
+            animation = record.get("settings", {}).get("animation", {})
+            sources = [animation.get("base_snapshot_path")]
+            sources.extend(frame.get("snapshot_path") for frame in animation.get("frames", []) if isinstance(frame, dict))
+            snapshot_copies.update(str(Path(self._paths.decode(source)).resolve()) for source in sources if source)
+            for frame in animation.get("frames", []):
+                reference = frame.get("plot_overrides", {}).get("state", {}).get("preset_metadata", {}).get("data_ref")
+                if reference:
+                    referenced.add(str(Path(self._paths.decode(reference)).resolve()))
             cells = (record.get("composition") or {}).get("plot_cells", [])
             if not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells):
                 return
@@ -116,6 +125,21 @@ class FigureTabsRepository:
                     if not isinstance(reference, str) or not reference:
                         return
                     referenced.add(str(Path(reference).resolve()))
+                reference = cell.get("render_state", {}).get("preset_metadata", {}).get("data_ref")
+                if reference:
+                    referenced.add(str(Path(reference).resolve()))
+                base = cell.get("render_state", {}).get("snapshot_base", {})
+                if base.get("data_ref"):
+                    referenced.add(str(Path(base["data_ref"]).resolve()))
+        for archive in (self.data.root.parent / "figure_snapshots").glob("*.json"):
+            if str(archive.resolve()) not in snapshot_copies:
+                archive.unlink()
+                archive.with_suffix(".png").unlink(missing_ok=True)
+                continue
+            payload = json_store.read_json(archive)
+            reference = (payload.get("figure_snapshot_copy") or {}).get("data_ref") if isinstance(payload, dict) else None
+            if reference:
+                referenced.add(str(Path(self._paths.decode(reference)).resolve()))
         for path in self.data.root.glob("*.npz"):
             owned = len(path.stem) == 64 and all(c in "0123456789abcdef" for c in path.stem)
             if (owned and str(path.resolve()) not in referenced) or path.name.startswith(".figure-data-"):
@@ -134,13 +158,43 @@ class FigureTabsRepository:
                 cell['snapshot_path'] = convert(cell['snapshot_path'])
             if isinstance(cell.get('data_ref'), str) and cell['data_ref']:
                 cell['data_ref'] = convert(cell['data_ref'])
-            state = cell.get('render_state')
-            paths = state.get('preset_paths') if isinstance(state, dict) else None
-            if isinstance(paths, dict):
-                for key in ('snapshot', 'discovery', 'transform', 'camera', 'appearance', 'filter'):
-                    if isinstance(paths.get(key), str) and paths[key]:
-                        paths[key] = convert(paths[key])
+            self.render_state_paths(cell.get("render_state"), convert)
+        animation = tab.get("settings", {}).get("animation", {})
+        for frame in animation.get("frames", []):
+            self.render_state_paths(frame.get("plot_overrides", {}).get("state"), convert)
         return tab
+
+    @classmethod
+    def render_state_paths(cls, state, convert):
+        if not isinstance(state, dict):
+            return
+        paths = state.get("preset_paths")
+        if isinstance(paths, dict):
+            for key, value in paths.items():
+                if isinstance(value, str) and value:
+                    paths[key] = convert(value)
+        metadata = state.get("preset_metadata")
+        if isinstance(metadata, dict) and metadata.get("data_ref"):
+            metadata["data_ref"] = convert(metadata["data_ref"])
+        base = state.get("snapshot_base")
+        if isinstance(base, dict):
+            if base.get("data_ref"):
+                base["data_ref"] = convert(base["data_ref"])
+            cls.render_state_paths(base.get("state"), convert)
+
+    def save_snapshot_copy(self, source: Path, base: dict, directory: Path, *, portable=True) -> Path:
+        """Store a figure-owned animation source, separate from Discovery snapshots."""
+        import shutil
+        from uuid import uuid4
+        base = copy.deepcopy(base)
+        if portable:
+            self.render_state_paths({"snapshot_base": base}, self._paths.encode)
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / f"{uuid4().hex}.json"
+        json_store.write_json(target, {"name": base.get("name"), "figure_snapshot_copy": base})
+        if source.with_suffix(".png").exists():
+            shutil.copyfile(source.with_suffix(".png"), target.with_suffix(".png"))
+        return target
 
     @classmethod
     def settings_payload(cls, settings: FigurePlotSettings) -> dict[str, Any]:

@@ -212,6 +212,10 @@ class PreviewAssetRowController(QtCore.QObject):
             self._sizing = False
 
     def eventFilter(self, watched, event):
+        if watched is self.widget and event.type() == QtCore.QEvent.Type.Show:
+            # Hidden cards can leave the tree caching their initial, taller
+            # size hint. Relayout after their visible layouts have settled.
+            schedule_row_layout(self.item.treeWidget())
         if event.type() in {QtCore.QEvent.Type.Resize, QtCore.QEvent.Type.FontChange} and watched in self._texts:
             self._elide(watched)
         if event.type() in {QtCore.QEvent.Type.Resize, QtCore.QEvent.Type.LayoutRequest}:

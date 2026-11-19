@@ -40,7 +40,6 @@ from FiguresArea.controllers.transform_coordinator import FigureTransformCoordin
 from FiguresArea.renderer import FigureLayoutMap, FigureMatplotlibRenderer
 from FiguresArea.template_settings import default_plot_settings
 from DiscoveryArea.presets_repository import PresetRepository
-from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
@@ -134,7 +133,6 @@ class PlotTabController(QtCore.QObject):
         self.measurement_revision = 0
         self._preview_pending = False
         self._preview_activity = None
-        self._discovery_method_catalog = DiscoveryMethodCatalog()
         self._plot_settings = self._default_settings_for_figure_kind(figure_kind)
         self._composition = FigureComposition(settings=self._plot_settings)
         self._sync_composition_grid()
@@ -978,49 +976,14 @@ class PlotTabController(QtCore.QObject):
         button.hide()
 
     def _create_preset_controls(self, plot_cell: _PlotCell) -> None:
-        panel = QtWidgets.QFrame(plot_cell.block)
-        panel.setObjectName(f"plot_preset_controls_{plot_cell.row}_{plot_cell.column}")
-        panel.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
-        panel.setStyleSheet(
-            """
-            QFrame {
-                background: palette(base);
-                border: 1px solid palette(mid);
-                border-radius: 4px;
-            }
-            QComboBox {
-                min-width: 120px;
-                max-width: 180px;
-            }
-            QLabel {
-                border: none;
-                background: transparent;
-            }
-            """
-        )
-        layout = QtWidgets.QFormLayout(panel)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setHorizontalSpacing(6)
-        layout.setVerticalSpacing(4)
-        layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        labels = {
-            "snapshot": "snapshot",
-            "discovery": "projection",
-            "transform": "transformation",
-            "camera": "camera",
-            "appearance": "appearance",
-            "filter": "filter",
-        }
-        for key in ("snapshot", "discovery", "transform", "camera", "appearance", "filter"):
-            label = QtWidgets.QLabel(f"{labels[key]}:", panel)
-            label.setObjectName(f"label_plot_{key}_{plot_cell.row}_{plot_cell.column}")
-            combo = QtWidgets.QComboBox(panel)
-            combo.setObjectName(f"combo_plot_{key}_{plot_cell.row}_{plot_cell.column}")
-            combo.setProperty("presetKind", key)
-            combo.setToolTip(key)
+        panel = load_ui("FiguresArea", "ui/plot_preset_panel.ui", parent=self._overlay)
+        panel.setStyleSheet("QFrame#panel_plot_presets { background: palette(base); border: 1px solid palette(mid); border-radius: 4px; }")
+        for key in ("discovery", "transform", "camera", "appearance", "filter", "slicer"):
+            combo = require_child(panel, QtWidgets.QComboBox, f"combo_plot_{key}")
+            combo.setToolTip("Settings are copied into this plot. Select the preset again to apply its latest saved settings.")
             combo.installEventFilter(self)
-            combo.currentIndexChanged.connect(lambda _index, c=(plot_cell.row, plot_cell.column), k=key: self._handle_plot_preset_combo_changed(c, k))
-            layout.addRow(label, combo)
+            # activated also fires when the same preset is explicitly chosen again.
+            combo.activated.connect(lambda _index, c=(plot_cell.row, plot_cell.column), k=key: self._handle_plot_preset_combo_changed(c, k))
             plot_cell.preset_combos[key] = combo
             self._preset_control_targets[combo] = (plot_cell.row, plot_cell.column)
             self._preset_combo_targets[combo] = ((plot_cell.row, plot_cell.column), key)
@@ -1113,11 +1076,13 @@ class PlotTabController(QtCore.QObject):
         if panel is None:
             return
         panel.adjustSize()
-        width = min(max(panel.sizeHint().width(), 1), max(plot_cell.block.width() - 8, 1))
-        height = min(max(panel.sizeHint().height(), 1), max(plot_cell.block.height() - 8, 1))
+        available = self._overlay.rect().adjusted(4, 4, -4, -4)
+        width = min(max(panel.sizeHint().width(), 1), max(available.width(), 1))
+        height = min(max(panel.sizeHint().height(), 1), max(available.height(), 1))
         panel.setFixedSize(width, height)
-        y = 32 if plot_cell.block.height() >= height + 36 else 4
-        panel.move(max(plot_cell.block.width() - width - 4, 0), y)
+        corner = plot_cell.block.mapTo(self._overlay, QtCore.QPoint(plot_cell.block.width(), 32))
+        panel.move(max(available.left(), min(corner.x() - width, available.right() - width)),
+                   max(available.top(), min(corner.y(), available.bottom() - height)))
 
     def _register_add_button_drop_target(
         self,
@@ -1353,96 +1318,61 @@ class PlotTabController(QtCore.QObject):
         return super().eventFilter(widget, event)
 
     def _populate_preset_controls(self, plot_cell: _PlotCell, *, refresh: bool = True) -> bool:
-        if not plot_cell.preset_combos:
-            return False
         domain_cell = self._composition.plot_cells.get((plot_cell.row, plot_cell.column))
-        if domain_cell is None:
+        if domain_cell is None or not plot_cell.preset_combos:
             return False
-        selected_paths = self._selected_preset_paths(domain_cell)
-        projection = self._safe_dict(domain_cell.render_state.get("snapshot_projection"))
-        signature = (tuple(selected_paths.items()), bool(domain_cell.snapshot_path), projection.get("coordinate_space"))
+        state = domain_cell.render_state
+        paths = self._selected_preset_paths(domain_cell)
+        base = state.get("snapshot_base", {})
+        sources = state.get("component_sources", {})
+        signature = (tuple(paths.items()), tuple(sources.items()), bool(base))
         if not refresh and signature == plot_cell.preset_signature:
             return False
-        discovery_path = self._optional_path_text(selected_paths.get("discovery"))
-        transformable = bool(
-            discovery_path
-            and self._projection_supports_arrangement_transform(
-                Path(discovery_path)
-            )
-        )
-        entries = {
-            "snapshot": self._snapshot_entries(),
-            "discovery": self._discovery_entries(),
-            "transform": self._preset_entries("transform"),
-            "camera": self._preset_entries("camera"),
-            "appearance": self._preset_entries("appearance"),
-            "filter": self._preset_entries("filters"),
-        }
+        source_label = require_child(plot_cell.preset_panel, QtWidgets.QLabel, "label_snapshot_source")
+        source_label.setText(str(base.get("name") or domain_cell.snapshot_label or "Custom plot"))
+        source_label.setToolTip(f"Captured: {base.get('created_at') or 'unknown'}. Drop an updated snapshot onto this plot to replace its saved view.")
+        entries = {"discovery": self._discovery_entries(), **{
+            kind: self._preset_entries("filters" if kind == "filter" else kind)
+            for kind in ("transform", "camera", "appearance", "filter", "slicer")}}
+        has_projection = bool(paths.get("discovery"))
         self._refreshing_preset_controls = True
         try:
-            for key, combo in plot_cell.preset_combos.items():
-                if not isinstance(combo, QtWidgets.QComboBox):
-                    continue
-                current = selected_paths.get(key)
+            for kind, combo in plot_cell.preset_combos.items():
                 combo.clear()
-                if key == "transform":
-                    projection = self._safe_dict(domain_cell.render_state.get("snapshot_projection"))
-                    frozen_transform = bool(
-                        domain_cell.snapshot_path
-                        and projection.get("coordinate_space") == "transformed"
-                    )
-                    matching_preset = bool(
-                        current
-                        and any(str(path) == str(current) for _label, path in entries[key])
-                    )
-                    if frozen_transform:
-                        combo.addItem(
-                            (
-                                "Snapshot arrangement"
-                                if matching_preset
-                                else "Snapshot arrangement (custom)"
-                            ),
-                            "__snapshot__",
-                        )
-                    combo.setEnabled(transformable)
-                    label = self._widget.findChild(
-                        QtWidgets.QLabel,
-                        f"label_plot_transform_{plot_cell.row}_{plot_cell.column}",
-                    )
-                    if label is not None:
-                        label.setEnabled(transformable)
-                    if not transformable:
-                        if not frozen_transform:
-                            combo.addItem(
-                                "Unavailable for this projection", "__unavailable__"
-                            )
-                        combo.setCurrentIndex(0)
-                        continue
-                    combo.addItem("None (Original)", "__original__")
+                if base:
+                    combo.addItem("From snapshot", "__snapshot__")
                 else:
-                    combo.setEnabled(True)
-                    combo.addItem("custom", "__custom__")
-                for label, path in entries[key]:
+                    combo.addItem("Custom", "__custom__")
+                if kind in ("transform", "filter", "slicer"):
+                    combo.addItem("None (Original)" if kind == "transform" else "None", "__original__" if kind == "transform" else "__none__")
+                for label, path in entries[kind]:
                     combo.addItem(label, str(path))
-                if key == "transform" and frozen_transform:
-                    if matching_preset:
-                        index = combo.findData(str(current))
-                        combo.setCurrentIndex(index)
-                    else:
-                        index = combo.findData("__snapshot__")
-                        combo.setCurrentIndex(index if index >= 0 else 0)
-                elif key == "transform" and not current:
-                    index = combo.findData("__original__")
-                    combo.setCurrentIndex(index if index >= 0 else 0)
-                elif current:
-                    index = combo.findData(str(current))
-                    combo.setCurrentIndex(index if index >= 0 else 0)
-                else:
-                    combo.setCurrentIndex(0)
+                    if kind == "transform" and not has_projection:
+                        combo.model().item(combo.count() - 1).setEnabled(False)
+                source = sources.get(kind)
+                current = paths.get(kind) if source == "preset" or not base else None
+                if source == "none":
+                    current = "__original__" if kind == "transform" else "__none__"
+                elif source == "custom":
+                    current = "__custom__"
+                elif base and source is None:
+                    current = "__snapshot__"
+                index = combo.findData(current)
+                if index < 0:
+                    label = f"{Path(current).stem} (saved copy)" if current and not str(current).startswith("__") else "Custom"
+                    combo.addItem(label, "__custom__")
+                    index = combo.count() - 1
+                combo.setCurrentIndex(index)
         finally:
             self._refreshing_preset_controls = False
         plot_cell.preset_signature = signature
         return True
+
+    def refresh_preset_menus(self) -> None:
+        for cell in self._plot_cells.values():
+            cell.preset_signature = None
+            if cell.preset_panel is not None and cell.preset_panel.isVisible():
+                self._populate_preset_controls(cell)
 
     def _show_preset_controls_for_cell(self, cell: tuple[int, int]) -> None:
         self._active_preset_control_cell = cell
@@ -1486,7 +1416,11 @@ class PlotTabController(QtCore.QObject):
         plot_cell = self._plot_cells.get(cell)
         if plot_cell is None:
             return
+        if any(combo.view().isVisible() for combo in plot_cell.preset_combos.values()):
+            return
         global_position = QtGui.QCursor.pos()
+        if plot_cell.preset_panel is not None and plot_cell.preset_panel.rect().contains(plot_cell.preset_panel.mapFromGlobal(global_position)):
+            return
         local_position = plot_cell.block.mapFromGlobal(global_position)
         if plot_cell.block.rect().contains(local_position):
             return
@@ -1509,80 +1443,71 @@ class PlotTabController(QtCore.QObject):
         if combo is None:
             return
         value = combo.currentData()
-        if value is None or str(value) in {"__custom__", "__snapshot__"}:
+        if value is None or str(value) == "__custom__":
             return
         if kind == "transform" and str(value) == "__original__":
             self._apply_original_projection(cell)
             self._show_preset_controls_for_cell(cell)
             return
-        path = Path(str(value))
-        if kind == "snapshot":
-            self._cancel_transform()
-            self._pending_transform = None
-            self._render_snapshot(path, target=plot_cell.drop_target)
-            self._show_preset_controls_for_cell(cell)
-            return
-        self._apply_component_preset(cell, kind, path)
+        self._apply_component_preset(cell, kind, str(value))
         self._show_preset_controls_for_cell(cell)
 
-    def _apply_component_preset(self, cell: tuple[int, int], kind: str, path: Path) -> bool:
+    def _apply_component_preset(self, cell: tuple[int, int], kind: str, path: Path | str) -> bool:
         self._cancel_snapshot_jobs(cell)
         plot_cell = self._composition.plot_cells.get(cell)
         if plot_cell is None:
             return False
-        if kind == "transform":
-            return self._start_figure_transform(cell, path)
+        value = str(path)
+        if kind == "transform" and value != "__snapshot__":
+            return self._start_figure_transform(cell, Path(value))
         self._cancel_transform()
         self._pending_transform = None
-        selected_paths = self._selected_preset_paths(plot_cell)
-        selected_paths["snapshot"] = None
-        selected_paths[kind] = str(path)
-        if kind == "discovery":
-            if self._snapshot_service.projection_needs_background(path):
-                return self._queue_projection_change(cell, source=path)
+        if kind == "discovery" and value != "__snapshot__":
+            paths = self._selected_preset_paths(plot_cell)
+            paths["discovery"] = value
+            if self._snapshot_service.projection_needs_background(Path(value)):
+                return self._queue_projection_change(cell, source=Path(value))
             try:
-                prepared = self._snapshot_service.prepare_projection(path)
+                prepared = self._snapshot_service.prepare_projection(Path(value))
+                self._apply_projection_data(plot_cell, prepared, paths)
             except ValueError as error:
                 self._show_status(str(error))
                 return False
-            self._apply_projection_data(plot_cell, prepared, selected_paths)
+        elif kind in ("slicer", "appearance", "filter", "transform", "discovery"):
+            # Metadata selection and frozen coordinate loading belong off the GUI thread.
+            state = copy.deepcopy(plot_cell.render_state)
+            captured = copy.copy(plot_cell)
+            captured.render_state = state
+            revision = self._transform_coordinator.submit(lambda cancelled:
+                self._snapshot_service.prepare_component(captured, kind, value, cancelled=cancelled))
+            self._pending_transform = {"revision": revision, "cell": cell, "target": plot_cell,
+                                       "state": state, "preset": path, "component": kind}
+            self._show_status(f"Applying {kind} settings…")
+            return True
         else:
-            payload = self._snapshot_service.payload_from_path(path)
-            if payload is None:
-                self._show_status(f"Could not load {kind} preset '{path.stem}'.")
+            try:
+                prepared = self._snapshot_service.prepare_component(plot_cell, kind, value)
+            except ValueError as error:
+                self._show_status(str(error))
                 return False
-            if kind == "camera":
-                plot_cell.render_state["camera"] = self._safe_dict(payload.get("camera")) or self._safe_dict(payload)
-            elif kind == "appearance":
-                plot_cell.render_state["appearance"] = payload
-            elif kind == "filter":
-                plot_cell.render_state["filters"] = payload
-            else:
-                return False
-        plot_cell.snapshot_path = None
-        plot_cell.render_state["preset_paths"] = selected_paths
-        if kind == "discovery":
-            self._finish_loaded_plot(cell)
-        else:
-            self._update_subtitle_text_for_cell(cell)
+            self._apply_prepared_snapshot(plot_cell, prepared)
+        self._finish_loaded_plot(cell)
         self._redraw_figure()
-        self._show_status(f"Applied {kind} preset '{path.stem}'.")
-        state_key = {
-            "camera": "camera",
-            "appearance": "appearance",
-            "filter": "filters",
-        }.get(kind)
-        if state_key is not None:
-            self._notify_plot_edit(
-                {
-                    "kind": "render_state",
-                    "values": {
-                        state_key: copy.deepcopy(plot_cell.render_state[state_key]),
-                        "preset_paths": copy.deepcopy(selected_paths),
-                    },
-                }
-            )
+        self._show_status(f"Applied {kind} settings.")
+        self._notify_component_edit(plot_cell, kind)
         return True
+
+    def _notify_component_edit(self, plot_cell, kind):
+        key = {"filter": "filters"}.get(kind, kind)
+        keys = [key, "preset_paths", "component_sources"]
+        if kind in ("appearance", "filter"):
+            keys.append("preset_metadata")
+        if kind == "slicer":
+            keys.append("slicer_selection")
+        if kind == "discovery":
+            keys.append("transform")
+        self._notify_plot_edit({"kind": "render_state", "values": {
+            key: copy.deepcopy(plot_cell.render_state.get(key)) for key in keys}})
 
     def _finish_transform_activity(self):
         activity, self._transform_activity = self._transform_activity, None
@@ -1611,7 +1536,7 @@ class PlotTabController(QtCore.QObject):
         revision = self._transform_coordinator.submit(
             lambda cancelled: service.prepare(state, paths, preset, cancelled=cancelled))
         self._pending_transform = {'revision': revision, 'cell': cell, 'target': target,
-                                   'state': state, 'preset': preset}
+                                   'state': state, 'preset': preset, 'source': source}
         if self._activity_manager is not None:
             self._transform_activity = self._activity_manager.progress('Preparing figure coordinates…')
         self._show_status('Preparing figure coordinates…')
@@ -1629,12 +1554,20 @@ class PlotTabController(QtCore.QObject):
             return
         prepared.snapshot_label = target.snapshot_label
         self._apply_prepared_snapshot(target, prepared)
+        if pending.get("source") is not None:
+            target.render_state.setdefault("component_sources", {})["discovery"] = "preset"
         self._finish_loaded_plot(cell)
         self._redraw_figure()
+        if pending.get("component"):
+            self._show_status(f"Applied {pending['component']} settings.")
+            self._notify_component_edit(target, pending["component"])
+            self._show_preset_controls_for_cell(cell)
+            return
         self._show_status('Applied transformation.' if pending['preset'] else 'Restored Original projection coordinates.')
         self._notify_plot_edit({'kind': 'render_state', 'values': {
             'transform': copy.deepcopy(target.render_state.get('transform')),
             'preset_paths': copy.deepcopy(target.render_state['preset_paths']),
+            'component_sources': copy.deepcopy(target.render_state.get('component_sources', {})),
         }})
 
     @QtCore.Slot(int, str)
@@ -1668,6 +1601,7 @@ class PlotTabController(QtCore.QObject):
             "camera": self._optional_path_text(paths.get("camera")),
             "appearance": self._optional_path_text(paths.get("appearance")),
             "filter": self._optional_path_text(paths.get("filter")),
+            "slicer": self._optional_path_text(paths.get("slicer")),
         }
 
     @staticmethod
@@ -1766,8 +1700,8 @@ class PlotTabController(QtCore.QObject):
     def _apply_projection_data(self, target, prepared, paths) -> None:
         target.reserved_only = False
         target.coordinates, target.metadata_ids, target.metadata = prepared.coordinates, prepared.metadata_ids, prepared.metadata
-        target.snapshot_path = None
         paths["transform"] = None
+        target.render_state.setdefault("component_sources", {}).update(discovery="preset", transform="none")
         target.render_state.pop("transform", None)
         target.render_state.pop("snapshot_projection", None)
         target.render_state["preset_paths"] = paths
@@ -1834,44 +1768,6 @@ class PlotTabController(QtCore.QObject):
 
     def _apply_plot_overrides(self, plot_cell, overrides):
         FigureTransformService(self._snapshot_service, cache=self._cache_budgets.transforms).apply_overrides(plot_cell, overrides)
-
-    def _projection_supports_arrangement_transform(
-        self, discovery_path: Path
-    ) -> bool:
-        method_id = self._projection_method_id(discovery_path)
-        if method_id == "t-sne":
-            method_id = "tsne"
-        definition = self._discovery_method_catalog.get(method_id)
-        return bool(
-            definition is not None and definition.supports_arrangement_transform
-        )
-
-    def _projection_method_id(self, discovery_path: Path) -> str:
-        if self._project_root is None:
-            return ""
-        target = Path(discovery_path).resolve()
-        presets_root = self._project_root / "presets" / "discovery"
-        for preset_path in sorted(presets_root.glob("*.json")):
-            payload = self._snapshot_service.payload_from_path(preset_path)
-            if payload is None:
-                continue
-            value = payload.get("discovery_file")
-            if not value:
-                continue
-            candidate = Path(str(value))
-            if not candidate.is_absolute():
-                candidate = self._project_root / candidate
-            if candidate.resolve() != target:
-                continue
-            return str(
-                payload.get("method_id")
-                or payload.get("type")
-                or payload.get("algorithm")
-                or ""
-            ).strip().lower()
-        if target.name == "random_discovery.sqlite":
-            return "random"
-        return ""
 
     def _cell_key_for_target(self, target: QtWidgets.QFrame) -> tuple[int, int] | None:
         for cell_key, cell in self._plot_cells.items():

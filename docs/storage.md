@@ -13,6 +13,15 @@ explicitly relocates it. Existing projects are never moved on startup.
 
 ## Storage controls
 
+**Settings...** in Help or the startup chooser lets you change the default
+project and local model destinations without moving existing files. Recent
+projects remain listed. The models list reflects packages in the selected
+folder. Finish background processes before changing a destination.
+When the old default folder contains projects, Settings also offers verified
+relocation through Storage; this option is available before a project is opened.
+Reset in Settings restores appearance and startup preferences, preserving paths
+and saved work.
+
 Open **Storage…** in the starting project chooser to see locations and sizes for
 the current workspace, installed models, and application caches.
 

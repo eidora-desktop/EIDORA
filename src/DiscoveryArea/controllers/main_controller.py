@@ -92,7 +92,6 @@ from DiscoveryArea.transforms import (
 from DiscoveryArea.snapshots import (
     DiscoverySnapshot,
     DiscoverySnapshotProjection,
-    DiscoverySnapshotRefs,
     metadata_signature_for_ids,
     relative_path_or_none,
 )
@@ -977,6 +976,10 @@ class DiscoveryAreaController:
         service.subscribe_source_batch_ready(self._on_thumbnail_source_batch_from_worker)
         self._thumbnail_service = service
 
+    def set_open_settings_callback(self, callback: Callable[[str], None]) -> None:
+        for panel in self._panels:
+            panel.set_open_settings_callback(callback)
+
     def _load_panels(self) -> None:
         panel_specs = [
             ("panel_projection_host", DiscoveryPanelController),
@@ -1082,8 +1085,6 @@ class DiscoveryAreaController:
             appearance_panel.set_style_changed_callback(self._handle_appearance_style_changed)
             appearance_panel.set_save_project_preset_callback(self._save_appearance_preset)
             appearance_panel.set_load_project_preset_callback(self._load_appearance_preset_by_label)
-            appearance_panel.set_save_global_template_callback(self._save_global_appearance_template)
-            appearance_panel.set_load_global_template_callback(self._load_global_appearance_template_by_label)
         filters_panel = self._panel(FiltersPanelController)
         if filters_panel is not None:
             filters_panel.set_filtered_opacity_changed_callback(self._handle_filtered_opacity_changed)
@@ -1348,7 +1349,7 @@ class DiscoveryAreaController:
             transform_panel = self._panel(TransformPanelController)
             if transform_panel is not None:
                 transform_panel.set_projection(
-                    None, populated=False, transformable=False
+                    None, populated=False
                 )
             self._sync_areas_panel()
             self._refresh_preset_menus()
@@ -1389,16 +1390,14 @@ class DiscoveryAreaController:
                         return option.key
         return next((option.key for option in options if not option.is_random), "random")
 
-    def _refresh_preset_menus(self) -> None:
+    def refresh_preset_menus(self) -> None:
+        """Refresh recipe menus without changing applied settings or snapshots."""
         if self._project is None:
             return
         appearance_panel = self._panel(AppearancePanelController)
         if appearance_panel is not None:
             labels = [entry.label for entry in self._service.list_appearance_preset_entries(self._project)]
             appearance_panel.set_recent_project_preset_labels(labels)
-            appearance_panel.set_global_template_labels(
-                [entry.label for entry in self._list_global_appearance_template_entries()]
-            )
         filters_panel = self._panel(FiltersPanelController)
         if filters_panel is not None:
             labels = [entry.label for entry in self._service.list_filter_preset_entries(self._project)]
@@ -1418,6 +1417,11 @@ class DiscoveryAreaController:
         if canvas_layers_panel is not None:
             entries = self._service.list_camera_preset_entries(self._project)
             canvas_layers_panel.set_camera_presets(entries)
+
+    def _refresh_preset_menus(self) -> None:
+        if self._project is None:
+            return
+        self.refresh_preset_menus()
         layers_panel = self._panel(LayersSettingPanelController)
         if layers_panel is not None:
             variants = self._service.list_thumbnail_variants(self._project)
@@ -1463,7 +1467,6 @@ class DiscoveryAreaController:
                 transform_panel.set_projection(
                     None,
                     populated=False,
-                    transformable=self._active_projection_supports_arrangement_transform(),
                 )
             self._reset_thumbnail_plan_state()
             if self._canvas_widget is not None:
@@ -1521,20 +1524,14 @@ class DiscoveryAreaController:
             metadata_ids=source_metadata_ids,
         )
         scope = self._service.discovery_scope_for_option(option)
-        transformable = self._service.discovery_supports_arrangement_transform(
-            option.discovery_type
-        )
-        if not transformable and self._project_has_storage():
-            self._transform_service.repository(self._project).clear_current(scope)
         had_saved_transform = (
-            transformable
-            and self._transform_service.repository(self._project).has_current(scope)
+            self._transform_service.repository(self._project).has_current(scope)
             if self._project_has_storage()
             else False
         )
         restored_transform = (
             self._transform_service.load_current(self._project, scope, self._source_dataset)
-            if transformable and self._project_has_storage()
+            if self._project_has_storage()
             else None
         )
         self._active_transform = restored_transform
@@ -1551,7 +1548,6 @@ class DiscoveryAreaController:
             transform_panel.set_projection(
                 restored_transform.settings if restored_transform is not None else None,
                 populated=bool(self._active_dataset.coordinates.shape[0]),
-                transformable=transformable,
             )
         self._selected_polygon_area_id = None
         self._selected_polygon_metadata_ids.clear()
@@ -1569,27 +1565,11 @@ class DiscoveryAreaController:
             self._pending_discovery_canvas_ready = True
             self._complete_pending_discovery_display_if_ready()
 
-    def _active_projection_supports_arrangement_transform(self) -> bool:
-        option = self._discovery_options.get(self._active_discovery_key)
-        return bool(
-            option is not None
-            and self._service.discovery_supports_arrangement_transform(
-                option.discovery_type
-            )
-        )
-
     def _handle_transform_requested(self, settings: TransformSettings) -> None:
         if self._project is None or self._source_dataset is None or self._source_dataset.coordinates.shape[0] == 0:
             return
         option = self._discovery_options.get(self._active_discovery_key)
         if option is None:
-            return
-        if not self._service.discovery_supports_arrangement_transform(
-            option.discovery_type
-        ):
-            self._show_status(
-                "Transformations are unavailable for this coordinate-truthful projection."
-            )
             return
         self._flush_pin_persistence()
         normalized = settings.normalized()
@@ -1649,7 +1629,6 @@ class DiscoveryAreaController:
             panel.set_projection(
                 self._active_transform.settings if self._active_transform is not None else None,
                 populated=self._source_dataset is not None and bool(self._source_dataset.coordinates.shape[0]),
-                transformable=self._active_projection_supports_arrangement_transform(),
             )
         self._show_status("Rearrangement cancelled.")
 
@@ -1888,7 +1867,6 @@ class DiscoveryAreaController:
                 for label in np.unique(column_values).tolist()
             }
             panel.set_mapped_color_view_counts(target, column, visible_counts, visible_total)
-
 
     @QtCore.Slot(int, str)
     def _on_canvas_style_failed(self, revision: int, message: str) -> None:
@@ -3847,29 +3825,6 @@ class DiscoveryAreaController:
                 return self._service.load_appearance_preset(self._project, entry.path)
         return None
 
-    def _save_global_appearance_template(self, label: str, payload: dict) -> bool:
-        try:
-            repository = PresetRepository(self._global_appearance_preset_root())
-            repository.save_payload(label, self._named_appearance_payload(label, payload), allow_overwrite=True)
-            self._refresh_preset_menus()
-            return True
-        except OSError:
-            self._show_status("Failed to save global appearance template.")
-            return False
-
-    def _load_global_appearance_template_by_label(self, label: str) -> dict | None:
-        root = self._global_appearance_preset_root()
-        if not root.exists():
-            return None
-        try:
-            repository = PresetRepository(root)
-            for entry in self._list_global_appearance_template_entries():
-                if entry.label == label:
-                    return repository.load_payload_from_path(entry.path)
-        except OSError:
-            return None
-        return None
-
     def _exploration_settings_payload(self) -> dict:
         layers = self._panel(LayersSettingPanelController)
         filters = self._panel(FiltersPanelController)
@@ -3965,22 +3920,6 @@ class DiscoveryAreaController:
         named["name"] = str(label).strip()
         return named
 
-    def _global_appearance_preset_root(self) -> Path:
-        app_data = QtCore.QStandardPaths.writableLocation(
-            QtCore.QStandardPaths.StandardLocation.AppDataLocation
-        )
-        root = Path(app_data) if app_data else Path.home() / ".eidora"
-        return root / "presets" / "appearance"
-
-    def _list_global_appearance_template_entries(self) -> list:
-        root = self._global_appearance_preset_root()
-        if not root.exists():
-            return []
-        try:
-            return PresetRepository(root).list_entries()
-        except OSError:
-            return []
-
     def _load_filter_preset_by_label(self, label: str) -> dict | None:
         if self._project is None:
             return None
@@ -4061,8 +4000,7 @@ class DiscoveryAreaController:
         if self._snapshot_write_active:
             self._show_status("A snapshot is still saving…")
             return False
-        refs = self._save_component_presets_for_snapshot(label)
-        snapshot = self._build_snapshot_payload(label, refs=refs)
+        snapshot = self._build_snapshot_payload(label)
         projection = snapshot.projection or self._snapshot_projection_payload()
         project, dataset, service = self._project, self._active_dataset, self._service
         baseline = self._current_snapshot_comparison_state(label)
@@ -4141,7 +4079,6 @@ class DiscoveryAreaController:
                         transform_panel.set_projection(
                             settings if projection.coordinate_space == "transformed" else None,
                             populated=bool(frozen.coordinates.shape[0]),
-                            transformable=self._active_projection_supports_arrangement_transform(),
                         )
                 else:
                     if snapshot.projection is not None:
@@ -4163,56 +4100,25 @@ class DiscoveryAreaController:
                         transform_panel.set_projection(
                             restored.settings if restored is not None else None,
                             populated=bool(self._active_dataset.coordinates.shape[0]),
-                            transformable=self._active_projection_supports_arrangement_transform(),
                         )
         else:
             failures.append("discovery")
         appearance_panel = self._panel(AppearancePanelController)
         if appearance_panel is not None:
-            ref_path = self._resolve_snapshot_ref(snapshot.refs.appearance)
-            if ref_path is not None and ref_path.exists():
-                appearance_panel.load_preset_path(ref_path)
-            if snapshot.appearance_state:
-                appearance_panel.apply_preset_payload(snapshot.appearance_state)
+            appearance_panel.apply_preset_payload(snapshot.appearance_state)
         filters_panel = self._panel(FiltersPanelController)
         if filters_panel is not None:
-            applied = False
-            ref_path = self._resolve_snapshot_ref(snapshot.refs.filters)
-            if ref_path is not None and ref_path.exists():
-                payload = self._service.load_filter_preset(self._project, ref_path)
-                if isinstance(payload, dict):
-                    filters_panel.apply_filter_state_payload(payload)
-                    applied = True
-            if snapshot.filters_state or not applied:
-                filters_panel.apply_filter_state_payload(snapshot.filters_state)
+            filters_panel.apply_filter_state_payload(snapshot.filters_state)
         slicer_panel = self._panel(SlicerPanelController)
         if slicer_panel is not None:
-            applied = False
-            ref_path = self._resolve_snapshot_ref(snapshot.refs.slicer)
-            if ref_path is not None and ref_path.exists():
-                payload = self._service.load_slicer_preset(self._project, ref_path)
-                if isinstance(payload, dict):
-                    slicer_panel.apply_slicer_state_payload(payload)
-                    applied = True
-            if snapshot.slicer_state or not applied:
-                slicer_panel.apply_slicer_state_payload(snapshot.slicer_state)
+            slicer_panel.apply_slicer_state_payload(snapshot.slicer_state)
         if self._active_dataset is not None:
             # Select the saved arrangement for rendering before restoring its
             # coordinate-dependent camera, pins, and overlays.
             self._render_active_dataset(preserve_view=True, fit_view=False)
             self._load_pins_for_active_discovery()
         if self._canvas_widget is not None:
-            ref_path = self._resolve_snapshot_ref(snapshot.refs.camera)
-            if ref_path is not None and ref_path.exists():
-                payload = self._service.load_camera_preset(self._project, ref_path)
-                if isinstance(payload, dict) and isinstance(payload.get("camera"), dict):
-                    state_setter = getattr(self._canvas_widget, "set_camera_preset_state", None)
-                    if callable(state_setter):
-                        state_setter(payload["camera"], preserve_aspect=True)
-                    else:
-                        self._canvas_widget.set_camera_state(payload["camera"], preserve_aspect=True)
-            if snapshot.camera_state:
-                self._canvas_widget.set_camera_state(snapshot.camera_state, preserve_aspect=True)
+            self._canvas_widget.set_camera_state(snapshot.camera_state, preserve_aspect=True)
         if self._canvas_widget is not None:
             self._canvas_widget.restore_background_state(snapshot.canvas_state)
             self._queue_project_exploration_settings_save()
@@ -4225,15 +4131,7 @@ class DiscoveryAreaController:
         self._refresh_current_snapshot_update_state()
         return True
 
-    def _resolve_snapshot_ref(self, ref: str | None) -> Path | None:
-        if self._project is None or not ref:
-            return None
-        path = Path(ref)
-        if path.is_absolute():
-            return path
-        return (self._project.root / path).resolve()
-
-    def _build_snapshot_payload(self, label: str, *, refs: DiscoverySnapshotRefs | None = None) -> DiscoverySnapshot:
+    def _build_snapshot_payload(self, label: str) -> DiscoverySnapshot:
         assert self._project is not None
         appearance_panel = self._panel(AppearancePanelController)
         filters_panel = self._panel(FiltersPanelController)
@@ -4241,7 +4139,9 @@ class DiscoveryAreaController:
         layers_panel = self._panel(LayersSettingPanelController)
         appearance_state = appearance_panel.appearance_state_payload() if appearance_panel is not None else {}
         filters_state = filters_panel.filter_state_payload() if filters_panel is not None else {}
-        slicer_state = slicer_panel.slicer_state_payload() if slicer_panel is not None else {}
+        slicer_state = dict(slicer_panel.slicer_state_payload()) if slicer_panel is not None else {}
+        if slicer_panel is not None:
+            slicer_state["values"] = slicer_panel.active_selection()["values"]
         layer_state = self._current_layer_state()
         pinboard_state = self._current_pin_display_payload()
         if self._canvas_widget is not None:
@@ -4250,13 +4150,6 @@ class DiscoveryAreaController:
             )
         camera_state = self._canvas_widget.camera_state() if self._canvas_widget is not None else {}
         metadata_ids = self._active_dataset.metadata_ids if self._active_dataset is not None else np.empty((0,), dtype=np.int64)
-        snapshot_refs = refs or DiscoverySnapshotRefs(
-            appearance=None,
-            filters=self._relative_latest_path(self._service.list_filter_preset_entries(self._project)),
-            camera=self._relative_latest_path(self._service.list_camera_preset_entries(self._project)),
-            slicer=self._relative_latest_path(self._service.list_slicer_preset_entries(self._project)),
-            transform=None,
-        )
         option = self._discovery_options.get(self._active_discovery_key)
         discovery_ref = str(option.discovery_file.resolve()) if option and option.discovery_file is not None else None
         return DiscoverySnapshot(
@@ -4266,7 +4159,6 @@ class DiscoveryAreaController:
             discovery_ref=discovery_ref,
             arrangement_ref=None,
             projection=self._snapshot_projection_payload(),
-            refs=snapshot_refs,
             appearance_state=appearance_state,
             filters_state=filters_state,
             canvas_state=self._canvas_widget.background_state() if self._canvas_widget is not None else {},
@@ -4419,97 +4311,6 @@ class DiscoveryAreaController:
         icon_size = SNAPSHOT_PREVIEW_IMAGE_SIZE
         pix = self._canvas_widget.render_snapshot_pixmap(icon_size)
         pix.save(str(snapshot_path.with_suffix(".png")))
-
-    def _save_component_presets_for_snapshot(self, label: str) -> DiscoverySnapshotRefs:
-        assert self._project is not None
-        appearance_ref = self._save_appearance_preset_for_snapshot(label)
-        filters_ref = self._save_filter_preset_for_snapshot(label)
-        camera_ref = self._save_camera_preset_for_snapshot(label)
-        slicer_ref = self._save_slicer_preset_for_snapshot(label)
-        transform_ref = self._save_transform_preset_for_snapshot(label)
-        return DiscoverySnapshotRefs(
-            appearance=appearance_ref,
-            filters=filters_ref,
-            camera=camera_ref,
-            slicer=slicer_ref,
-            transform=transform_ref,
-        )
-
-    def _save_transform_preset_for_snapshot(self, label: str) -> str | None:
-        if self._project is None:
-            return None
-        settings = self._snapshot_applied_transform_settings()
-        if settings.snap_percent <= 0 and settings.minimum_spacing <= 0.0:
-            return None
-        payload = {
-            "name": label,
-            "preset_version": 2,
-            "transform": settings.to_preset_dict(),
-        }
-        path = self._service.ensure_transform_preset(self._project, label, payload)
-        return relative_path_or_none(path, self._project.root)
-
-    def _save_appearance_preset_for_snapshot(self, label: str) -> str | None:
-        appearance_panel = self._panel(AppearancePanelController)
-        if appearance_panel is None or self._project is None:
-            return None
-        payload = self._named_appearance_payload(label, appearance_panel.appearance_state_payload())
-        path = self._service.ensure_appearance_preset(self._project, label, payload)
-        return relative_path_or_none(path, self._project.root)
-
-    def _save_filter_preset_for_snapshot(self, label: str) -> str | None:
-        if self._project is None:
-            return None
-        panel = self._panel(FiltersPanelController)
-        if panel is None:
-            return None
-        payload = panel.filter_state_payload()
-        if not self._filter_snapshot_preset_is_meaningful(payload):
-            return None
-        path = self._service.ensure_filter_preset(self._project, label, payload)
-        return relative_path_or_none(path, self._project.root)
-
-    def _save_camera_preset_for_snapshot(self, label: str) -> str | None:
-        if self._project is None or self._canvas_widget is None:
-            return None
-        state_getter = getattr(self._canvas_widget, "camera_preset_state", None)
-        camera_state = state_getter() if callable(state_getter) else self._canvas_widget.camera_state()
-        payload = {"camera": camera_state}
-        path = self._service.ensure_camera_preset(self._project, label, payload)
-        return relative_path_or_none(path, self._project.root)
-
-    def _save_slicer_preset_for_snapshot(self, label: str) -> str | None:
-        if self._project is None:
-            return None
-        panel = self._panel(SlicerPanelController)
-        if panel is None:
-            return None
-        payload = panel.slicer_state_payload()
-        if not self._slicer_snapshot_preset_is_meaningful(payload):
-            return None
-        path = self._service.ensure_slicer_preset(self._project, label, payload)
-        return relative_path_or_none(path, self._project.root)
-
-    @staticmethod
-    def _filter_snapshot_preset_is_meaningful(payload: dict[str, object]) -> bool:
-        rules = payload.get("rules")
-        if isinstance(rules, list) and any(
-            isinstance(rule, dict) and bool(rule.get("active")) for rule in rules
-        ):
-            return True
-        return bool(
-            payload.get("advanced_query_active")
-            and str(payload.get("advanced_query") or "").strip()
-        )
-
-    @staticmethod
-    def _slicer_snapshot_preset_is_meaningful(payload: dict[str, object]) -> bool:
-        return bool(payload.get("enabled") and str(payload.get("column") or "").strip())
-
-    def _relative_latest_path(self, entries: list) -> str | None:
-        if self._project is None or not entries:
-            return None
-        return relative_path_or_none(entries[0].path, self._project.root)
 
     def _current_layer_state(self) -> dict[str, object]:
         panel = self._panel(CanvasLayersPanelController)

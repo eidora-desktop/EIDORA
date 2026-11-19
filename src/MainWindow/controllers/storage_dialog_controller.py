@@ -69,8 +69,11 @@ class StorageDialogController(QtCore.QObject):
         signal.connect(slot)
         self._connections.append((signal, slot))
 
-    def exec(self):
-        self._measure()
+    def exec(self, *, relocate_projects_to: Path | None = None):
+        if relocate_projects_to is None:
+            self._measure()
+        else:
+            QtCore.QTimer.singleShot(0, self.dialog, lambda: self._relocate("workspace", relocate_projects_to))
         try:
             self.dialog.exec()
         finally:
@@ -190,18 +193,19 @@ class StorageDialogController(QtCore.QObject):
             self._set_busy(False)
         self._run(self.service.inspect, measured)
 
-    def _relocate(self, kind):
+    def _relocate(self, kind, destination=None):
         if self.read_only:
             return
         if kind == "workspace" and get_env(WORKSPACE_ROOT_ENV_VAR).strip():
             return
-        suggested = suggested_workspace_root() if kind == "workspace" else self.service.models
-        selected = QtWidgets.QFileDialog.getExistingDirectory(
-            self.dialog, "Choose a New or Empty Destination Folder", str(suggested.parent)
-        )
-        if not selected:
-            return
-        destination = Path(selected)
+        if destination is None:
+            suggested = suggested_workspace_root() if kind == "workspace" else self.service.models
+            selected = QtWidgets.QFileDialog.getExistingDirectory(
+                self.dialog, "Choose a New or Empty Destination Folder", str(suggested.parent)
+            )
+            if not selected:
+                return
+            destination = Path(selected)
         answer = QtWidgets.QMessageBox.question(
             self.dialog, "Relocate Storage",
             f"Copy and verify all {'projects in this workspace' if kind == 'workspace' else 'installed models'}"

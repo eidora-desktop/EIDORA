@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,6 +32,7 @@ class MainWindowController:
         project_service: ProjectService | None = None,
         *,
         defer_secondary_areas: bool = False,
+        prepare_workspaces: bool = True,
         tour_preferences: TourPreferences | None = None,
     ) -> None:
         self.window = load_ui("MainWindow", "ui/main_window.ui")
@@ -61,7 +63,7 @@ class MainWindowController:
         self._welcome_tour_timer = QtCore.QTimer(self.window)
         self._welcome_tour_timer.setSingleShot(True)
         self._welcome_tour_timer.timeout.connect(self._start_welcome_tour)
-        self._help_controller = HelpPanelController(self.window)
+        self._help_controller = HelpPanelController(self.window, open_settings=self.show_settings)
         self._tour_controller = WorkspaceTourController(
             self.window, self._help_controller.tour_action, self._navigation_items,
             self._show_area, self._show_status,
@@ -72,9 +74,20 @@ class MainWindowController:
             self.window, switch=self.show_project_chooser, rename=self._rename_project,
             export=self._export_project, delete=self._delete_project,
         )
-        self._build_areas()
-        self.set_project(project)
-        self._show_area(0)
+        if prepare_workspaces:
+            for _ in self.initialize_workspaces():
+                pass
+
+    def initialize_workspaces(self) -> Iterator[None]:
+        """Prepare the hidden shell, yielding between startup GUI operations."""
+        try:
+            yield from self._build_area_steps()
+            yield from self._set_project_steps(self._project)
+            self._show_area(0)
+        except BaseException:
+            self.shutdown()
+            self.window.close()
+            raise
 
     @property
     def area_names(self) -> tuple[str, ...]:
@@ -88,29 +101,81 @@ class MainWindowController:
             self._deferred_load_timer.start(50)
 
     def show_project_chooser(self) -> bool:
-        """Show the short-lived chooser without changing state on cancellation."""
+        """Close the shell while choosing, restoring the workspace on cancellation."""
         if self._chooser_open:
             return False
         self._tour_controller.close()
         self._chooser_open = True
-        chooser = self._create_project_chooser()
+        app = QtWidgets.QApplication.instance()
+        quit_on_last_window_closed = app.quitOnLastWindowClosed()
+        app.setQuitOnLastWindowClosed(False)
         try:
-            accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
-            project = chooser.selected_project
-            status = chooser.selection_status
+            self.window.close()
+            chooser = self._create_project_chooser()
+            try:
+                accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
+                project = chooser.selected_project
+                status = chooser.selection_status
+            finally:
+                chooser.dispose()
+            if not accepted or project is None:
+                return False
+            self._show_status(status)
+            return True
         finally:
-            chooser.dispose()
             self._chooser_open = False
-        if not accepted or project is None:
-            return False
-        self._activate_project(project)
-        self._show_status(status)
-        return True
+            try:
+                self.show()
+            finally:
+                app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
+
+    def show_settings(self, *, tab: str = "general") -> None:
+        from MainWindow.controllers.settings_dialog_controller import SettingsDialogController
+
+        self._tour_controller.close()
+        controller = SettingsDialogController(
+            self._project_service,
+            project_open=self._project is not None,
+            current_project=self._project,
+            storage_busy=lambda: bool(self._activity.processes.records),
+            models_changed=self._refresh_model_locations,
+            presets_changed=self._refresh_preset_menus,
+            required_preset_paths=self._required_preset_paths,
+        )
+        controller.select_tab(tab)
+        controller.exec()
+
+    def _refresh_preset_menus(self, project) -> None:
+        if self._project is None or project.root != self._project.root:
+            return
+        from DiscoveryArea.controllers import DiscoveryAreaController
+        from FiguresArea.controllers import FiguresAreaController
+
+        for area in self._areas:
+            if isinstance(area, (DiscoveryAreaController, FiguresAreaController)):
+                area.refresh_preset_menus()
+
+    def _required_preset_paths(self, project):
+        if self._project is None or project.root != self._project.root:
+            return ()
+        from FiguresArea.controllers import FiguresAreaController
+
+        return tuple(path for area in self._areas if isinstance(area, FiguresAreaController)
+                     for path in area.required_preset_paths())
+
+    def _refresh_model_locations(self) -> None:
+        from EmbeddingsArea.controllers import EmbeddingsAreaController
+
+        for area in self._areas:
+            if isinstance(area, EmbeddingsAreaController):
+                area.refresh_model_locations()
 
     def _create_project_chooser(self) -> ProjectChooserController:
         """Build one chooser instance; kept separate for focused UI testing."""
         return ProjectChooserController(
             self._project_service,
+            prepare_project=self._prepare_project_switch,
+            open_settings=self.show_settings,
             storage_read_only=self._project is not None,
             remove_project_callback=lambda project: self._delete_project(
                 project,
@@ -119,6 +184,10 @@ class MainWindowController:
         )
 
     def set_project(self, project: Project | None) -> None:
+        for _ in self._set_project_steps(project):
+            pass
+
+    def _set_project_steps(self, project: Project | None) -> Iterator[None]:
         self._welcome_tour_timer.stop()
         self._tour_controller.close()
         self._is_example_collection = ProjectService.is_example_collection(project)
@@ -135,6 +204,7 @@ class MainWindowController:
             self._set_project_navigation_enabled(project is not None)
             for area in self._areas:
                 area.set_project(project)
+                yield
             self._refresh_discovery_availability()
             self._refresh_figures_availability()
         self._welcome_tour_timer.start(0)
@@ -184,64 +254,39 @@ class MainWindowController:
             area.shutdown()
         self._activity.shutdown()
 
-    def _build_areas(self) -> None:
+    def _build_area_steps(self) -> Iterator[None]:
         if self._defer_secondary_areas:
             self._build_media_area_first()
+            yield
             return
 
-        # Keep the shell import light; area imports pull rendering and compute code.
-        from DiscoveryArea.controllers import DiscoveryAreaController
-        from EmbeddingsArea.controllers import EmbeddingsAreaController
-        from FiguresArea.controllers import FiguresAreaController
-        from MetadataArea.controllers import MetadataAreaController
-        from MediaArea.controllers import MediaAreaController
-
-        area_specs = [
-            ("Media", "button_media_area", MediaAreaController),
-            ("Metadata", "button_metadata_area", MetadataAreaController),
-            ("Embeddings", "button_embeddings_area", EmbeddingsAreaController),
-            ("Discovery", "button_discovery_area", DiscoveryAreaController),
-            ("Figures", "button_figures_area", FiguresAreaController),
-        ]
-        media_area: MediaAreaController | None = None
-        metadata_area: MetadataAreaController | None = None
-        embeddings_area: EmbeddingsAreaController | None = None
-        discovery_area: DiscoveryAreaController | None = None
-        figures_area: FiguresAreaController | None = None
-
-        for index, (title, button_name, controller_type) in enumerate(area_specs):
+        area_specs = (
+            ("Media", "button_media_area"),
+            ("Metadata", "button_metadata_area"),
+            ("Embeddings", "button_embeddings_area"),
+            ("Discovery", "button_discovery_area"),
+            ("Figures", "button_figures_area"),
+        )
+        for index, (title, button_name) in enumerate(area_specs):
+            # Import separately from construction so paint/timer events can run
+            # between both operations. All widgets still belong to the GUI thread.
+            controller_type = self._deferred_controller_type(index)
+            yield
             button = self._find_required(QtWidgets.QAbstractButton, button_name)
             controller = controller_type(
                 parent=self.window,
                 status_callback=self._show_status,
                 activity_manager=self._activity,
             )
-            if isinstance(controller, MediaAreaController):
-                media_area = controller
-            elif isinstance(controller, MetadataAreaController):
-                metadata_area = controller
-            elif isinstance(controller, EmbeddingsAreaController):
-                embeddings_area = controller
-            elif isinstance(controller, DiscoveryAreaController):
-                discovery_area = controller
-            elif isinstance(controller, FiguresAreaController):
-                figures_area = controller
             self._areas.append(controller)
             self._stack.addWidget(controller.widget)
             self._button_group.addButton(button, index)
             self._navigation_items.append(NavigationItem(title, button, controller.widget))
             button.clicked.connect(lambda _checked=False, page=index: self._show_area(page))
+            yield
 
-        if not all((media_area, metadata_area, embeddings_area, discovery_area, figures_area)):
-            raise RuntimeError("Main window did not construct every workspace")
-
-        self._wire_area_dependencies(
-            media_area,
-            metadata_area,
-            embeddings_area,
-            discovery_area,
-            figures_area,
-        )
+        self._wire_area_dependencies(*self._areas)
+        yield
 
     def _build_media_area_first(self) -> None:
         """Build only the visible startup workspace and lightweight placeholders."""
@@ -317,6 +362,10 @@ class MainWindowController:
 
     @staticmethod
     def _deferred_controller_type(index: int):
+        if index == 0:
+            from MediaArea.controllers import MediaAreaController
+
+            return MediaAreaController
         if index == 1:
             from MetadataArea.controllers import MetadataAreaController
 
@@ -358,6 +407,8 @@ class MainWindowController:
         discovery_area,
         figures_area,
     ) -> None:
+        for area in (discovery_area, figures_area):
+            area.set_open_settings_callback(lambda tab: self.show_settings(tab=tab))
 
         def refresh_after_project_media() -> None:
             metadata_area.refresh()
@@ -642,9 +693,20 @@ class MainWindowController:
             self.set_project(renamed_project)
         self._show_status(f"Renamed project {project.name} to {renamed_project.name}")
 
-    def _activate_project(self, project: Project) -> None:
-        self.set_project(project)
+    def _prepare_project_switch(self, project: Project) -> Iterator[None]:
+        """Keep the chooser's loader visible through workspace binding and show."""
+        previous_project = self._project
+        previous_area = self._stack.currentIndex()
+        try:
+            yield from self._set_project_steps(project)
+        except Exception:
+            # The chooser permits retry/cancel after an error. Restore the
+            # existing shell before returning control to that dialog.
+            yield from self._set_project_steps(previous_project)
+            self._show_area(previous_area)
+            raise
         self._show_area(0)
+        self.show()
 
     def _confirm_delete_project(self, project: Project) -> bool:
         message = (

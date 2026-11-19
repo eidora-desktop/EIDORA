@@ -25,7 +25,6 @@ class DiscoveryMethodDefinition:
     status: str = "available"
     execution: str = "in_process"
     supports_transform: bool = False
-    supports_arrangement_transform: bool = False
     output_dimensions: tuple[int, ...] = (2,)
     citations: tuple[dict[str, Any], ...] = ()
     implementation: dict[str, Any] = field(default_factory=dict)

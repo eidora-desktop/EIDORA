@@ -1211,11 +1211,11 @@ class FigureMatplotlibRenderer:
         fallback = "#666666"
         base_color = self._mapped_color(border, metadata_ids[0] if len(metadata_ids) else None, metadata, fallback)
         if isinstance(metadata, CompactMetadata):
-            return self._compact_colors(border, metadata_ids, metadata, base_color, opacity), width
-        edge_colors = [to_rgba(base_color, opacity) for _ in metadata_ids]
-        for index, metadata_id in enumerate(metadata_ids):
-            edge_colors[index] = to_rgba(self._mapped_color(border, metadata_id, metadata, base_color), opacity)
-        return edge_colors, width
+            edge_colors = self._compact_colors(border, metadata_ids, metadata, base_color, opacity)
+        else:
+            edge_colors = [to_rgba(self._mapped_color(border, metadata_id, metadata, base_color), opacity)
+                           for metadata_id in metadata_ids]
+        return self._apply_filtered_opacity(state, metadata_ids, metadata, edge_colors), width
 
     def _point_colors_from_state(
         self,
@@ -1243,6 +1243,9 @@ class FigureMatplotlibRenderer:
             else:
                 for index, metadata_id in enumerate(metadata_ids):
                     colors[index] = to_rgba(self._mapped_color(point_colors, metadata_id, metadata, base_color), opacity)
+        return self._apply_filtered_opacity(state, metadata_ids, metadata, colors)
+
+    def _apply_filtered_opacity(self, state, metadata_ids, metadata, colors):
         filter_mask = self._filter_mask_from_state(state, metadata_ids, metadata)
         if filter_mask is None:
             return colors
@@ -1253,15 +1256,15 @@ class FigureMatplotlibRenderer:
             1.0,
         )
         if isinstance(colors, np.ndarray):
-            colors[~np.asarray(filter_mask, dtype=bool), 3] = filtered_opacity
+            colors[~np.asarray(filter_mask, dtype=bool), 3] *= filtered_opacity
             return colors
         return [
-            color if bool(filter_mask[index]) else (color[0], color[1], color[2], filtered_opacity)
+            color if bool(filter_mask[index]) else (color[0], color[1], color[2], color[3] * filtered_opacity)
             for index, color in enumerate(colors)
         ]
 
     def _compact_colors(self, style, ids, metadata, fallback, opacity):
-        column = str(style.get('column') or 'Global')
+        column = str(style.get('resolved_column') or style.get('column') or 'Global')
         if column == 'Global':
             color = to_rgba(self._mapped_color(style, None, {}, fallback), opacity)
             return np.tile(color, (len(ids), 1))
@@ -1861,7 +1864,7 @@ class FigureMatplotlibRenderer:
         fallback: str,
     ) -> str:
         mapping = point_colors.get("mapping") if isinstance(point_colors.get("mapping"), dict) else {}
-        column = str(point_colors.get("column") or "Global")
+        column = str(point_colors.get("resolved_column") or point_colors.get("column") or "Global")
         if column == "Global":
             return str(mapping.get("Global") or mapping.get("global") or self._palette_first(point_colors) or fallback)
         if metadata_id is None:

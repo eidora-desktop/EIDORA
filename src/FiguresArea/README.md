@@ -6,7 +6,29 @@ builds Matplotlib figures. `animation_service.py` owns sequencing/playback rules
 encodes it in an isolated process. `repository.py` automatically persists compositions and settings. Tabs are the project
 figure collection, including animations. The × button asks for confirmation before
 permanently deleting a figure; Cancel leaves it intact. Remaining figures reopen
-with the project. Source snapshots and exported files are not deleted. Static exports
+with the project. Source snapshots and exported files are not deleted.
+
+Dropping a snapshot imports its complete captured view, including its current
+slice. Plot Settings identify the source snapshot separately from reusable
+component presets. **From snapshot** restores the figure's imported copy;
+**None** disables filters or slicing, and **None (Original)** removes a transform.
+Selecting a preset copies its settings. Selecting the same preset again explicitly
+reapplies its latest saved settings. Changes to source files never refresh an
+imported plot automatically. Drop the updated snapshot onto that plot to replace
+its captured view and clear component overrides, retaining figure layout,
+authored titles/captions, and measurement settings. Older plots acquire a reset
+baseline when their snapshot is dropped again.
+
+Captured reset coordinates and metadata use the existing figure-data repository;
+small datasets remain inline. New animation imports keep private immutable sources
+under `state/figure_snapshots/`, so playback, thumbnails, and exports share the
+same copy. Saved collections retain referenced baseline data through cleanup and
+project moves. Legacy animation references are still readable; reimport them to
+capture independent sources. Figure settings presets remain separate from plot
+appearance/filter/slicer presets. All preset catalogs belong to the current
+project. Menus expose **Apply preset…** and **Save as preset…**, with **Manage Presets...**
+at the bottom of each **Apply preset…** submenu opening Settings on the Presets tab.
+Static exports
 are staged beside the destination and replace it only after a successful write.
 Right-click a figure tab and choose **Rename…**, or double-click its label, to
 rename it. Names autosave with the project and supply export filename suggestions.

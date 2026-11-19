@@ -12,6 +12,7 @@ from FiguresArea.measurements import LOCAL_SIZES, FONT_SIZES, PIXEL_SIZES, pixel
 from FiguresArea.controllers.measurement_controls import MeasurementSpinBox
 from shared.plot_fonts import BUNDLED_FONT_FAMILIES, initialize_plot_fonts
 from shared.qt.panel_controller import UiPanelController
+from shared.qt.preset_menu import append_manage_presets_action
 
 
 _FIGURE_EXPORT_OPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -98,9 +99,9 @@ class FigureSettingsPanelController(UiPanelController):
             return
         button.setProperty("hasRealAction", True)
         menu = QtWidgets.QMenu(button)
-        self._menu_load_recent = QtWidgets.QMenu("Load Recent", menu)
+        self._menu_load_recent = QtWidgets.QMenu("Apply preset…", menu)
         menu.addMenu(self._menu_load_recent)
-        menu.addAction("Save Preset…").triggered.connect(self._save_current_preset)
+        menu.addAction("Save as preset…").triggered.connect(self._save_current_preset)
         button.setMenu(menu)
         button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
@@ -165,10 +166,10 @@ class FigureSettingsPanelController(UiPanelController):
         if not labels:
             action = self._menu_load_recent.addAction("No Presets Saved")
             action.setEnabled(False)
-            return
         for label in labels[:10]:
             action = self._menu_load_recent.addAction(label)
             action.triggered.connect(lambda _checked=False, value=label: self._load_preset_label(value))
+        append_manage_presets_action(self._menu_load_recent, self._open_settings)
 
     def show_page_for_selection(self, selection_kind: str) -> None:
         page_names = {

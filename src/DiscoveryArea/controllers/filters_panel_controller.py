@@ -24,6 +24,7 @@ from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from DiscoveryArea.range_slider import RangeSlider, ThresholdSlider
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
+from shared.qt.preset_menu import append_manage_presets_action
 from shared.qt.item_views import clear_list_items, configure_panel_item_view, minimum_panel_row_size
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import delete_removed_widgets, require_child
@@ -1285,10 +1286,10 @@ class FiltersPanelController(UiPanelController):
         if not self._preset_labels:
             action = self._load_menu.addAction("No Presets Saved")
             action.setEnabled(False)
-            return
-        for label in self._preset_labels[:10]:
+        for label in self._preset_labels:
             action = self._load_menu.addAction(label)
             action.triggered.connect(lambda _checked=False, value=label: self._load_preset_by_label(value))
+        append_manage_presets_action(self._load_menu, self._open_settings)
 
     def _load_preset_by_label(self, label: str) -> None:
         if self._load_preset_callback is None:

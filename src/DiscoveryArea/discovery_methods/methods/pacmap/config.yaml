@@ -4,7 +4,6 @@ class: PaCMAPDiscoveryMethod
 status: available
 execution: subprocess
 supports_transform: false
-supports_arrangement_transform: true
 output_dimensions:
 - 2
 description: Pairwise-controlled projection that balances local and global structure.

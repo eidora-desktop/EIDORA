@@ -9,6 +9,20 @@ from shared.qt.widgets import delete_removed_widgets
 PANEL_ITEM_ROW_HEIGHT = 36
 
 
+def configure_checkable_item_view(view: QtWidgets.QAbstractItemView) -> None:
+    """Keep checkbox painting and hit-testing aligned, including on macOS."""
+    # The native macOS item-view style can omit indicators or paint them at
+    # the viewport origin. Use one view-local style for drawing and geometry.
+    style = QtWidgets.QStyleFactory.create("Fusion")
+    style.setParent(view)
+    view.setStyle(style)
+    # A view created lazily can retain the previous native palette when its
+    # style changes. Reapply the active theme after installing the local style.
+    from shared.qt.theme import prepare_surface_widgets
+
+    prepare_surface_widgets(view)
+
+
 class _MinimumRowHeightDelegate(QtWidgets.QStyledItemDelegate):
     def __init__(self, row_height: int, parent: QtWidgets.QWidget) -> None:
         super().__init__(parent)

@@ -4,7 +4,6 @@ class: CustomCoordinatesDiscoveryMethod
 status: available
 execution: in_process
 supports_transform: false
-supports_arrangement_transform: false
 output_dimensions:
   - 2
 description: User-imported coordinate files normalized for canvas rendering.

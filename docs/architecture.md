@@ -275,7 +275,9 @@ Capture recurring architectural issues in this document so contributors can foll
 
 ## UI surfaces and system themes
 
-`shared.qt.theme` owns the light/dark tokens and follows the system color scheme.
+`shared.qt.theme` owns the light/dark tokens and follows the system color scheme
+unless the user selects Light or Dark in Settings. `application_settings` owns
+ordinary application preferences; storage paths remain owned by `application_storage`.
 Install it before constructing windows; the shared UI loader prepares new forms.
 The theme owns named surface, text, selection, secondary/error text, and control
 border tokens. A single application stylesheet paints named surface backgrounds, row hover/selection,
@@ -339,3 +341,11 @@ associations; the dialog offers no scope or metadata-key pairing choices. Saved
 legacy run snapshots remain supported. Only successful vector publication creates
 items and commits run/media bindings. Missing or ambiguous inputs never manufacture
 metadata rows. Saved input provenance is independent of later media relocation.
+
+Settings preset management uses `application_settings/presets_service.py` and its
+repository for read-only project inspection and checked removal of reusable
+preset JSON files. `MainWindow/controllers/presets_panel_controller.py` owns the
+project selector and grouped tree, and uses `BackgroundTasks` for filesystem
+work. Browsing does not open/migrate projects or change recent history. Snapshot
+and projection ownership remains in Discovery; live legacy and animation
+references are checked before deleting reusable presets.

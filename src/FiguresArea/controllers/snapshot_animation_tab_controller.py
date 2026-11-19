@@ -29,6 +29,7 @@ from FiguresArea.domain import (
     SlicerAnimationFrame,
     SnapshotAnimationFrame,
 )
+from shared.qt.responsive import run_responsive
 from shared.qt.item_views import clear_list_items
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
@@ -458,10 +459,29 @@ class AnimationTabController(QtCore.QObject):
                     return True
         return super().eventFilter(obj, event)
 
+    def _capture_snapshot_source(self, path: Path) -> Path | None:
+        directory = (self._project_root / "state" / "figure_snapshots" if self._project_root is not None
+                     else Path(self._thumbnail_directory.name) / "snapshots")
+        self._snapshot_import_revision = getattr(self, "_snapshot_import_revision", 0) + 1
+        revision = self._snapshot_import_revision
+        loader = self._plot._snapshot_service
+        project_root = self._project_root
+        try:
+            captured = run_responsive(lambda: loader.archive_snapshot(path, directory))
+            if self._disposed or self._project_root != project_root or revision != self._snapshot_import_revision:
+                return None
+            return captured
+        except Exception as error:
+            self._show_status(f"Could not import snapshot: {error}")
+            return None
+
     def set_base_snapshot(self, snapshot_path: Path) -> bool:
         path = Path(snapshot_path)
         if path.suffix.lower() != ".json" or not path.exists():
             self._show_status("Could not load the animation base snapshot.")
+            return False
+        path = self._capture_snapshot_source(path)
+        if path is None:
             return False
         self._pause()
         if not self._plot.render_animation_base_snapshot(path):
@@ -519,6 +539,13 @@ class AnimationTabController(QtCore.QObject):
             if position.x() < rect.center().x():
                 return row
         return self._list.count()
+
+    def refresh_preset_menus(self) -> None:
+        self._refresh_slicer_presets()
+
+    def required_preset_paths(self):
+        return tuple(frame.slicer_preset_path for frame in self._state.frames
+                     if isinstance(frame, SlicerAnimationFrame))
 
     def _refresh_slicer_presets(self) -> None:
         selected_path = str(self._slicer_presets.currentData() or "")
@@ -666,9 +693,13 @@ class AnimationTabController(QtCore.QObject):
         if payload is None:
             self._show_status(f"Snapshot '{path.stem}' is invalid.")
             return False
+        label = str(payload.get("name") or path.stem)
+        path = self._capture_snapshot_source(path)
+        if path is None:
+            return False
         frame = SnapshotAnimationFrame(
             frame_id=uuid4().hex,
-            label=str(payload.get("name") or path.stem),
+            label=label,
             snapshot_path=str(path),
         )
         self._pause()
@@ -1690,7 +1721,7 @@ class AnimationTabController(QtCore.QObject):
                 str(key): copy.deepcopy(item)
                 for key, item in state.items()
                 if str(key)
-                in {"camera", "appearance", "filters", "transform", "preset_paths"}
+                in {"camera", "appearance", "filters", "slicer", "slicer_selection", "transform", "preset_paths", "component_sources", "preset_metadata"}
             }
             if normalized_state:
                 normalized["state"] = normalized_state
