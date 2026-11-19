@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Keep only preset actions in the Filters options menu and remove its citations dialog entry and report handler.
+
 - Prevent model-list refreshes from resizing deleted tree items while old row widgets await Qt cleanup.
 
 - Open Vector Data Info tabs and cards without blocking the interface: remove whole-library scans, load details in the background and reuse them across tab switches.

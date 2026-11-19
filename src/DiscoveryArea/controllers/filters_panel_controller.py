@@ -654,34 +654,13 @@ class FiltersPanelController(UiPanelController):
             self._emit_filters_changed()
         self._show_status("Advanced filter query cleared.")
 
-    def _show_methods_report(self) -> None:
-        from DiscoveryArea.settings_provenance import settings_report
-        from DiscoveryArea.snapshot_provenance import SnapshotMethodsService
-        from shared.methods_report import combine_reports
-        from shared.qt.methods_citations_dialog import MethodsCitationsDialogController
-        state = self.filter_state_payload()
-        reports = [settings_report("Filters", filters=state)]
-        if self._project is not None:
-            reports.extend(SnapshotMethodsService.clustering_reports(self._project, [state]))
-        MethodsCitationsDialogController().exec(combine_reports("Filters", reports))
-
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._options_button)
-        self._load_menu = menu.addMenu("Load Recent")
-        menu.addAction("Save Preset…").triggered.connect(self._save_current_preset)
-        menu.addAction("Citations…").triggered.connect(self._show_methods_report)
-        menu.addSeparator()
-        menu.addAction("Add Selection Filter").triggered.connect(lambda: self._add_filter_rule("selection"))
-        menu.addAction("Add Slider Filter").triggered.connect(lambda: self._add_filter_rule("slider"))
-        menu.addAction("Add Range Filter").triggered.connect(
-            lambda: self._add_filter_rule("range")
-        )
-        menu.addSeparator()
-        menu.addAction("Remove…").triggered.connect(self._toggle_delete_mode)
+        self._load_menu = menu.addMenu("Apply preset…")
+        menu.addAction("Save as preset…").triggered.connect(self._save_current_preset)
         self._options_button.setMenu(menu)
         self._options_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._options_button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
-        self._filter_menu = menu
         self._delete_mode = False
         self.set_recent_preset_labels([])
 
