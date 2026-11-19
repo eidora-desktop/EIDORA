@@ -8,3 +8,6 @@ To replace an icon later, keep the same semantic filename in `material/`.
 Source SVGs should use a black fill (`#000000`); the Qt loader tints icons from the active application palette at runtime.
 
 Material Symbols are provided by Google under the Apache License 2.0.
+
+`eidora.svg` is the custom EIDORA mark derived from the simplified symbolic app icon.
+It uses a 40×40 SVG canvas and the same palette tinting as the other semantic icons.

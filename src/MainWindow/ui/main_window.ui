@@ -306,7 +306,7 @@
         </widget>
        </item>
        <item>
-        <widget class="QPushButton" name="button_help">
+        <widget class="QPushButton" name="button_settings">
          <property name="sizePolicy">
           <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
            <horstretch>0</horstretch>
@@ -326,20 +326,20 @@
           </size>
          </property>
          <property name="toolTip">
-          <string>Help</string>
+          <string>EIDORA</string>
          </property>
          <property name="accessibleName">
-          <string>Help</string>
+          <string>EIDORA Settings</string>
          </property>
          <property name="styleSheet">
-          <string notr="true">QPushButton#button_help::menu-indicator { image: none; width: 0px; height: 0px; }</string>
+          <string notr="true">QPushButton#button_settings::menu-indicator { image: none; width: 0px; height: 0px; }</string>
          </property>
          <property name="text">
           <string/>
          </property>
          <property name="icon">
           <iconset>
-           <normaloff>../../shared/icons/material/help.svg</normaloff>../../shared/icons/material/help.svg</iconset>
+           <normaloff>../../shared/icons/material/eidora.svg</normaloff>../../shared/icons/material/eidora.svg</iconset>
          </property>
          <property name="iconSize">
           <size>
@@ -351,7 +351,7 @@
           <bool>true</bool>
          </property>
          <property name="iconName" stdset="0">
-          <string>help</string>
+          <string>eidora</string>
          </property>
         </widget>
        </item>

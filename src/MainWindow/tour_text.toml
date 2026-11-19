@@ -2,7 +2,7 @@
 # Keep the [section_names], title/description keys, and quote marks intact.
 # Descriptions can span multiple lines between the triple quotes.
 # Keep text short so the card fits beside its highlighted panel.
-# Save, then close and reopen Help → Take a Tour… to preview your edits.
+# Save, then close and reopen Settings → Take a Tour… to preview your edits.
 # Step order and panel targets are defined separately in tour_steps.py.
 
 [workspace_bar]

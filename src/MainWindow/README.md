@@ -28,7 +28,7 @@ the last snapshot is removed while Figures is open.
 The `ui/` forms own the shell, project chooser, and About dialog. Match widget
 contracts when editing them.
 
-The Help menu offers a workspace tour once all area controllers are loaded,
+The Settings menu offers a workspace tour once all area controllers are loaded,
 including for empty collections. `tour_steps.py` defines its
 ordered panel targets; target names resolve inside the
 chosen workspace. `workspace_tour_controller.py` uses normal navigation and owns
@@ -41,7 +41,7 @@ layout. Keep new steps tied to visible panels and avoid opening or creating data
 To edit tour copy, open [`tour_text.toml`](tour_text.toml) and change the `title`
 and `description` under the relevant named section. Keep the section names and
 quote marks intact; descriptions can span lines between the triple quotes.
-Save and reopen Help → Take a Tour… to see changes without restarting the app.
+Save and reopen Settings → Take a Tour… to see changes without restarting the app.
 Keep descriptions short so the card fits alongside its highlight. Invalid text
 files show a status message without opening the tour. Both the explanation card
 and spotlight areas have thick red outlines in either theme. Discovery starts
@@ -58,7 +58,7 @@ independently of projects. The flag applies to the current app version and
 installed executable, so updates and replacing an installation re-enable the
 tour on the next example opening. AppImage uses the outer file rather than its
 temporary mount; source runs have a separate identity. Manual tours and
-cancellation count as having seen onboarding; Help always allows replay.
+cancellation count as having seen onboarding; the Settings menu always allows replay.
 Pending launches stop on project changes and shutdown.
 
 The chooser also offers explicit MET example creation, a New Project dialog with

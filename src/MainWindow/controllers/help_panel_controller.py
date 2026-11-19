@@ -51,9 +51,9 @@ class HelpPanelController:
         self._reports = QtGui.QAction("Diagnostics...", window)
         self._reports.setMenuRole(QtGui.QAction.MenuRole.NoRole)
         self._reports.triggered.connect(show_diagnostics)
-        button = window.findChild(QtWidgets.QPushButton, "button_help")
+        button = window.findChild(QtWidgets.QPushButton, "button_settings")
         if button is None:
-            raise RuntimeError("main_window.ui is missing button_help")
+            raise RuntimeError("main_window.ui is missing button_settings")
         menu = QtWidgets.QMenu(button)
         menu.setToolTipsVisible(True)
         menu.addAction(self._about)

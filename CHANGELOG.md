@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Rename the main-window Help button to Settings and use the simplified EIDORA icon with light/dark palette tinting; preserve its menu and size.
+
 - Keep only preset actions in the Filters options menu and remove its citations dialog entry and report handler.
 
 - Prevent model-list refreshes from resizing deleted tree items while old row widgets await Qt cleanup.

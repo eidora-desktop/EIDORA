@@ -1,6 +1,9 @@
 # EIDORA semantic icon manifest
 # Material Symbols are used as replaceable starter assets.
 icons:
+  eidora:
+    source: EIDORA simplified E mark
+    size: 40
   metadata_items:
     material: star
     style: outlined
