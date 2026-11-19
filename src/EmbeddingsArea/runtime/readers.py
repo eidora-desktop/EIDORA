@@ -71,10 +71,25 @@ def load_embedding_matrix_with_ids(path: Path) -> tuple[np.ndarray, np.ndarray, 
     return matrix, object_ids, load_embedding_summary(run_dir)
 
 
+def _array_header(handle):
+    version = np.lib.format.read_magic(handle)
+    if version == (1, 0):
+        shape, _, dtype = np.lib.format.read_array_header_1_0(handle)
+    elif version in {(2, 0), (3, 0)}:
+        shape, _, dtype = np.lib.format.read_array_header_2_0(handle)
+    else:
+        raise ValueError("Unsupported embedding array format.")
+    return shape, dtype
+
+
 def load_embedding_summary(path: Path) -> dict[str, Any]:
     if path.exists() and path.is_file():
         with np.load(path, allow_pickle=False, mmap_mode="r") as data:
             shape = _npz_array_shape(path, "embeddings")
+            dtype = None
+            if shape:
+                with zipfile.ZipFile(path) as archive, archive.open("embeddings.npy") as handle:
+                    _, dtype = _array_header(handle)
             dimensions = data.get("dimensions")
             return {
                 "model_id": _to_scalar_str(data.get("model_id")),
@@ -93,6 +108,7 @@ def load_embedding_summary(path: Path) -> dict[str, Any]:
                 else int(shape[1])
                 if len(shape) >= 2
                 else None,
+                "dtype": dtype.name if dtype is not None else None,
                 "format": "npz",
                 "size_bytes": path.stat().st_size,
                 "provenance": _maybe_json(data.get("provenance")),
@@ -122,6 +138,7 @@ def load_embedding_summary(path: Path) -> dict[str, Any]:
         "pca_reduced": _has_pca(_maybe_json(manifest.get("postprocess"))),
         "item_count": item_count,
         "dimensions": dimensions,
+        "dtype": embeddings.dtype.name if item_count else None,
         "format": "runtime_chunks",
         "provenance": _maybe_json(manifest.get("provenance")),
     }

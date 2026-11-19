@@ -119,6 +119,30 @@ class EmbeddingRunRepository:
             self._replace_run_inputs(connection, run_id, inputs)
             connection.commit()
 
+    def publish_reduced_run(self, source: EmbeddingRun, output: EmbeddingRun) -> None:
+        """Keep identity bindings intact and reject a deleted or changed source."""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM embedding_runs WHERE id = ?", (source.id,)).fetchone()
+            if row is None or self._run_from_row(row) != source:
+                raise ValueError("Source vector data changed during reduction. Try again.")
+            self._upsert_run(connection, output)
+            if output.id != source.id:
+                for table in ("embedding_run_inputs", "embedding_run_input_bindings", "embedding_run_parameters"):
+                    columns = [row[1] for row in connection.execute(f"PRAGMA table_info({table})") if row[1] != "run_id"]
+                    names = ", ".join(columns)
+                    connection.execute(f"INSERT INTO {table} (run_id, {names}) SELECT ?, {names} FROM {table} WHERE run_id = ?",
+                                       (output.id, source.id))
+                components = connection.execute(
+                    "SELECT ordinal, payload FROM embedding_run_input_components WHERE run_id = ?", (source.id,)
+                )
+                connection.executemany(
+                    "INSERT INTO embedding_run_input_components VALUES (?, ?, ?)",
+                    ((output.id, row["ordinal"], json.dumps([
+                        {**part, "run_id": output.id} for part in json.loads(row["payload"])
+                    ])) for row in components),
+                )
+
     def save_prepared_run(self, run: EmbeddingRun, inputs: list[EmbeddingRunInput]) -> None:
         with closing(self._connect()) as connection, connection:
             self._upsert_run(connection, run)

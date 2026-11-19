@@ -414,7 +414,9 @@ class EmbeddingExchangeService:
                 {
                     "source": "import",
                     "dtype": np.dtype(inspection.dtype).str,
-                    "provenance": dict(inspection.probe.provenance),
+                    "provenance": {**inspection.probe.provenance, "import_sources": [
+                        member.source_path.name for member in inspection.probe.members
+                    ] or [inspection.probe.source_path.name]},
                 }
             )
             selected_rows = 0

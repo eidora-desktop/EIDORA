@@ -1,6 +1,7 @@
 """Small binder for one embedding run card."""
 from __future__ import annotations
 
+from pathlib import Path
 from collections.abc import Callable
 from collections.abc import Mapping, Sequence
 
@@ -61,6 +62,10 @@ class VectorDataCardController(QtCore.QObject):
         self._rendered_report_end = 0
         self._last_diagnostics = ""
         self._last_execution_note = ""
+        self._last_report_summary = ""
+        self._summary_key = None
+        self._saved_summary = {}
+        self._presented_reduction = None
         self._info_loader: Callable[[], list[tuple[str, object]]] | None = None
 
         self.toggle = require_child(self.widget, QtWidgets.QToolButton, "button_toggle_details")
@@ -74,15 +79,24 @@ class VectorDataCardController(QtCore.QObject):
         self.options = require_child(self.widget, QtWidgets.QPushButton, "button_run_options")
         self.info = require_child(self.widget, QtWidgets.QTreeWidget, "tree_run_info")
         self.progress_report = require_child(self.widget, QtWidgets.QPlainTextEdit, "edit_execution_report")
-        self.execution_summary = require_child(self.widget, QtWidgets.QLabel, "label_execution_summary")
         self.execution_activity = require_child(self.widget, QtWidgets.QLabel, "label_execution_activity")
         self.progress_tab = require_child(self.widget, QtWidgets.QWidget, "tab_progress")
+        self.reduction_progress_panel = require_child(self.widget, QtWidgets.QWidget, "panel_reduction_progress")
+        self.reduction_activity = require_child(self.widget, QtWidgets.QLabel, "label_reduction_activity")
+        self.reduction_progress = require_child(self.widget, QtWidgets.QProgressBar, "progress_reduction")
+        self.reduction_cancel = require_child(self.widget, QtWidgets.QPushButton, "button_cancel_reduction")
+        self.reduction_cancel.clicked.connect(self._cancel_reduction)
+        self.reduction_progress_panel.hide()
         self.progress_tab.installEventFilter(self)
         self.progress_control.installEventFilter(self)
         self.info_tab = require_child(self.widget, QtWidgets.QWidget, "tab_run_info")
         self.clusters_tab = require_child(self.widget, QtWidgets.QWidget, "tab_run_clusters")
         self.cluster_tree = require_child(self.widget, QtWidgets.QTreeWidget, "tree_clustering_runs")
         self.add_clustering = require_child(self.widget, QtWidgets.QPushButton, "button_add_clustering")
+
+        from EmbeddingsArea.controllers.reduction_panel_controller import ReductionPanelController
+        self.reduction_tab = require_child(self.widget, QtWidgets.QWidget, "tab_reduction")
+        self.reduction = ReductionPanelController(self.reduction_tab, run_id, coordinator)
 
         configure_panel_item_view(self.info)
         configure_panel_item_view(self.cluster_tree)
@@ -119,11 +133,12 @@ class VectorDataCardController(QtCore.QObject):
                 f"Saved embedding file: {dataset.size_bytes:,} bytes. "
                 "Includes vector data and artifact metadata; excludes source media, models, and caches."
             )
-        self.add_clustering.setEnabled(dataset is not None)
+        self.add_clustering.setEnabled(dataset is not None and self.coordinator.active_reduction(self.run_id) is None)
         self.add_clustering.setToolTip(
             "Run a clustering algorithm on this vector data."
             if dataset is not None else "Clustering is available after vector data is published."
         )
+        self.reduction.update(run, dataset, model_label)
         self._update_status()
         self._update_progress_report()
         self._pending_records = list(records)
@@ -142,6 +157,27 @@ class VectorDataCardController(QtCore.QObject):
         self.progress.setToolTip(detail)
         self._show_active_progress()
         self._update_progress_report(progress=value, detail=detail)
+
+    def _reduction_state(self):
+        return self.coordinator.reduction_state(self.run_id)
+
+    def _cancel_reduction(self):
+        state = self._reduction_state()
+        if state is not None:
+            self.coordinator.cancel("reduction", state.id)
+
+    def update_reduction_progress(self):
+        self._update_progress_report()
+
+    def _artifact_summary(self):
+        if self._dataset is None or not self._dataset.artifact_path:
+            return {}
+        key = (self._dataset.artifact_path, self._dataset.updated_at)
+        if key != self._summary_key:
+            from EmbeddingsArea.runtime.readers import load_embedding_summary
+            self._saved_summary = load_embedding_summary(Path(self._dataset.artifact_path))
+            self._summary_key = key
+        return self._saved_summary
 
     def select_cluster(self, identity: str) -> None:
         # Opening details can rebuild the tree synchronously. Resolve the item
@@ -197,8 +233,12 @@ class VectorDataCardController(QtCore.QObject):
         except Exception as exc:  # noqa: BLE001
             values = [("Diagnostics", str(exc))]
         old_count = self.info.topLevelItemCount()
+        technical_expanded = any(self.info.topLevelItem(index).text(0) == "Technical details"
+                                 and self.info.topLevelItem(index).isExpanded() for index in range(old_count))
         for label, value in values:
-            self._add_info_value(self.info, str(label), value)
+            item = self._add_info_value(self.info, str(label), value)
+            if label == "Technical details":
+                item.setExpanded(technical_expanded)
         if not values:
             self._add_empty_row(self.info, "No run details available.")
         # Publish replacement rows before retiring old ones so accessibility
@@ -230,6 +270,17 @@ class VectorDataCardController(QtCore.QObject):
         return item
 
     def _update_status(self) -> None:
+        reduction = self._reduction_state()
+        if reduction is not None and reduction.state in _ACTIVE:
+            self._set_active_header(False)
+            self.status.setText("Reducing" if reduction.state == "running" else reduction.state.capitalize())
+            self.status.setToolTip(reduction.detail)
+            self.add_clustering.setEnabled(False)
+            if self._presented_reduction is not reduction:
+                self._presented_reduction = reduction
+                self.tabs.setCurrentWidget(self.progress_tab)
+                self.toggle.setChecked(True)
+            return
         live = self.coordinator.state("embedding", self.run_id)
         if live is not None and live.state in _ACTIVE:
             self._set_active_header(True)
@@ -263,7 +314,9 @@ class VectorDataCardController(QtCore.QObject):
         presentation = state.value
         if presentation != self._presented_execution_state:
             self._presented_execution_state = presentation
-            if state == EmbeddingRunState.COMPLETED:
+            if reduction is not None:
+                self.tabs.setCurrentWidget(self.progress_tab)
+            elif state == EmbeddingRunState.COMPLETED:
                 self.tabs.setCurrentWidget(self.info_tab)
             elif state in {
                 EmbeddingRunState.FAILED,
@@ -299,34 +352,56 @@ class VectorDataCardController(QtCore.QObject):
     def _update_progress_report(self, *, progress: int | None = None, detail: str | None = None) -> None:
         if self._run is None or not self.widget.isVisible():
             return
-        live = self.coordinator.state("embedding", self.run_id)
-        state = live.state if live is not None else self._run.state.value
-        if progress is None:
-            progress = live.progress if live is not None else int(self._run.progress)
-        if detail is None:
-            detail = live.detail if live is not None else ""
-        activity = detail if state in _ACTIVE else state.replace("_", " ").capitalize()
-        self.execution_activity.setText(activity or ("Working…" if progress < 0 else f"Progress: {progress}%"))
+        reduction = self._reduction_state()
+        reducing = reduction is not None and reduction.state in _ACTIVE
+        self.reduction_progress_panel.setVisible(reducing)
+        if reducing:
+            self.reduction_activity.setText(reduction.detail)
+            self.reduction_cancel.setEnabled(reduction.state != "cancelling")
+            self.reduction_progress.setRange(0, 0 if reduction.progress < 0 else 100)
+            if reduction.progress >= 0:
+                self.reduction_progress.setValue(reduction.progress)
+        embedding = self.coordinator.state("embedding", self.run_id)
+        embedding_state = embedding.state if embedding is not None else self._run.state.value
+        activity = (detail if detail is not None else embedding.detail if embedding else "") if embedding_state in _ACTIVE else embedding_state.replace("_", " ").capitalize()
+        self.execution_activity.setText(activity or "Working…")
         if not self.progress_tab.isVisible():
             return
-        summary = f"Model: {self._model_label} · Status: {state.replace('_', ' ').capitalize()}"
-        prepared = int(getattr(self._run, "prepared_input_count", 0) or 0)
-        processed = int(getattr(self._run, "processed_items", 0) or 0)
-        if state not in _ACTIVE and (prepared or processed):
-            summary += f"\nItems processed: {processed:,} of {prepared:,}"
-        self.execution_summary.setText(summary)
-        self.execution_summary.setToolTip(f"Run ID: {self.run_id}")
+        summary_error = ""
+        try:
+            saved_recipe = (self._artifact_summary().get("provenance") or {}).get("reduction") or {}
+        except (OSError, ValueError, RuntimeError) as exc:
+            saved_recipe = {}
+            summary_error = f"Saved vector summary unavailable: {exc}"
+        is_reduction = reduction is not None or bool(saved_recipe)
+        live = reduction if is_reduction else embedding
+        state = live.state if live is not None else "completed" if is_reduction else self._run.state.value
+        if is_reduction:
+            from EmbeddingsArea.reporting import reduction_report
+            summary = reduction_report(reduction.operation if reduction else saved_recipe, state)
+        else:
+            summary = f"Model: {self._model_label}\nStatus: {state.replace('_', ' ').capitalize()}"
+            prepared = int(getattr(self._run, "prepared_input_count", 0) or 0)
+            processed = int(getattr(self._run, "processed_items", 0) or 0)
+            if state not in _ACTIVE and (prepared or processed):
+                summary += f"\nItems processed: {processed:,} of {prepared:,}"
+        self.progress_report.setToolTip(f"Run ID: {self.run_id}")
         report = live.report if live is not None else []
         offset = live.report_offset if live is not None else 0
         if (live is not self._report_state or self._rendered_report_end < offset
                 or self._rendered_report_end > offset + len(report)):
-            self.progress_report.clear()
+            # Starting a reduction appends a new operation to the existing history.
+            if not (is_reduction and live is not self._report_state):
+                self.progress_report.clear()
             self._report_state = live
             self._rendered_report_end = offset
-            self._last_diagnostics = self._last_execution_note = ""
+            self._last_diagnostics = self._last_execution_note = self._last_report_summary = ""
         lines = report[self._rendered_report_end - offset:]
         self._rendered_report_end = offset + len(report)
-        diagnostics = str(getattr(self._run, "error_message", "") or "")
+        if summary != self._last_report_summary:
+            lines = [summary, "", *lines]
+            self._last_report_summary = summary
+        diagnostics = summary_error or ("" if is_reduction else str(getattr(self._run, "error_message", "") or ""))
         if live is not None and live.pending_error:
             diagnostics = live.pending_error
         # Keep full failure details copyable, even if a traceback exceeds the live-log cap.
@@ -335,7 +410,7 @@ class VectorDataCardController(QtCore.QObject):
             heading = 'Pause reason' if state == 'paused' else 'Error details'
             lines.extend(("", heading, "-" * len(heading), diagnostics))
         self._last_diagnostics = diagnostics
-        note = str(getattr(self, "_execution_note", "") or "")
+        note = "" if is_reduction else str(getattr(self, "_execution_note", "") or "")
         if note and note != self._last_execution_note:
             lines.extend(("", "Execution note", "--------------", note))
         self._last_execution_note = note
@@ -444,7 +519,7 @@ class VectorDataCardController(QtCore.QObject):
         if state == "completed":
             count = int(record.get("cluster_count", 0) or 0)
             noise = int(record.get("noise_count", 0) or 0)
-            return f"Done · {count} clusters · {noise} noise"
+            return f"Done: {count} clusters, {noise} noise"
         return state.replace("_", " ").capitalize()
 
     @staticmethod

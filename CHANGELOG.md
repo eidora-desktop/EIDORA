@@ -4,6 +4,11 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Start PCA copies in their own destination card immediately, with source-import history, progress and cancellation. Preserve the card through publication and keep replacement jobs in the original card.
+- Move Vector Data’s model, status and processed-item summary into the Progress activity log, removing the separate label above it.
+- Move PCA progress and cancellation into Progress, retaining method, dimension changes, variance and duration in saved results. Simplify Vector Data Info to dataset facts and reduction summaries, with technical details collapsed by default.
+- Add PCA and Incremental PCA to Vector Data’s PCA tab, with dimensions, vector-storage estimates, a copy-by-default output choice, editable PCA/PCAin result names for copies and replacements, safe original replacement, and saved variance-retention results.
+
 - Add a right-aligned Reset button beside Advanced parameters in New Projection to restore the selected method's basic and advanced defaults.
 
 - Match New Projection to the import dialogs, with each method's basic parameters visible and editable advanced parameters collapsed. Initialize both sections from library defaults and preserve edits when collapsing. Align PCA, t-SNE, PaCMAP and TriMAP execution defaults with their libraries, including automatic solver/learning-rate choices, unseeded execution and TriMAP's full default triplet/iteration settings.

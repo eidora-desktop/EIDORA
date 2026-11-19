@@ -101,3 +101,45 @@ ONNX configs require top-level `bibtex` with self-contained model references.
 `model_package.py` validates the records; the runtime freezes the exact config
 text in artifact provenance. Citation reports prefer this frozen BibTeX and
 retain metadata-based fallbacks for older saved runs.
+
+Vector Data’s **PCA** tab saves PCA or Incremental PCA results as normal
+vector artifacts. The Incremental checkbox selects batch fitting. Copy names use
+`Model name (PCA_48)` or `Model name (PCAin_48)`, with the source name
+as fallback for imported vectors. Replacement starts with the existing name and
+the same suffix; both output modes allow editing the name. It defaults to a copy, accepts a target dimension count and
+estimates vector payload storage (excluding metadata and the fitted transform).
+64-bit inputs use float64; other widths use float32. Whitening and automatic
+normalization are disabled. Explained variance is saved with the method, source
+artifact identity, dimensions, solver/batch settings and scikit-learn version;
+constant inputs have undefined retained variance. The fitted mean and components
+are stored in the result artifact for reproducibility.
+
+Creating a reduced copy immediately creates its destination card and opens its
+**Progress** tab. This card owns the source-import history, stage status, progress
+bar and cancellation; the original card retains its existing status and history.
+The destination identity stays the same when its saved artifact is published.
+Failed or cancelled unpublished copies remain visible until dismissed or the
+project is closed. Replacement runs stay in the existing card.
+Batch counts update without appending repeated log entries;
+ordinary PCA fitting shows indeterminate progress. The report includes method,
+source, vector count, original/reduced dimensions and output choice. Completed
+artifacts retain the report summary, processing duration and explained variance
+relative to the immediate source, including after reopening the project.
+
+**Info** shows origin, model, source, vector count, dimensions, actual artifact
+storage, precision, normalization and creation date, plus a reduction summary
+when applicable. **Technical details** starts collapsed and contains saved
+settings, identifiers, preprocessing and provenance. Missing historical metadata
+is shown as not recorded; import filenames are recorded for new imports.
+
+Reduction runs in a cancellable spawned process through the area coordinator.
+Incremental PCA reads compressed inputs through disk-backed arrays, fits bounded
+batches and transforms in a second pass. Its final fitting batch includes any
+short tail. PCA can require the full input matrix in memory. Both methods require
+temporary disk space. Item ordinals and all run input bindings remain intact.
+
+Replacement publishes a new artifact path and commits the run pointer before
+removing owned original files and runtime caches. A failed computation or database
+publication leaves the original intact. Cleanup failures are reported separately
+from successful publication. Saved projections, clusters and figures remain as
+previously computed; future analyses use the reduced vectors.

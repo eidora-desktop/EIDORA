@@ -1,11 +1,15 @@
 # Embedding forms
 
 `embeddings_area.ui` hosts Models on the left and Vector Data on the right.
-`embedding_run_row.ui` is the expandable Vector Data card with Progress, Info and
+`embedding_run_row.ui` is the expandable Vector Data card with Progress, Info, PCA and
 Clusters tabs. Live batch size, counts and speed sit above the progress bar and
 remain visible when details are collapsed. Progress owns a read-only
-`QPlainTextEdit` activity log; controllers append stage events without replacing
-the document for each progress update. `model_execution_dialog.ui` configures one run for the model
+`QPlainTextEdit` activity log containing the model, status and processed-item summary;
+controllers append changed summaries and stage events without replacing
+the document for each progress update. PCA settings stay in PCA; reduction stage
+progress and cancellation live in Progress, which opens when reduction starts.
+Info displays the compact dataset facts and reduction summary, with Technical
+details collapsed by default. `model_execution_dialog.ui` configures one run for the model
 selected in the Models panel; it does not provide a second model selector.
 It offers registered file-based Media Sources and a single Run Model action.
 The focused form owns the model heading, stacked source/output/device fields,

@@ -37,6 +37,7 @@ class VectorDataPanelController(UiPanelController):
         self._coordinator.changed.connect(self.refresh)
         self._coordinator.progress.connect(self._progress)
         self._coordinator.output_ready.connect(self._output_ready)
+        self._coordinator.reduction_started.connect(self._reduction_started)
         self._coordinator.groups_changed.connect(self._notify_groups_changed)
         self._import.setEnabled(False)
         self._render_empty("Open or create a project to view vector data.")
@@ -70,6 +71,8 @@ class VectorDataPanelController(UiPanelController):
                 run for run in self._session.runs.list_runs()
                 if run.state != EmbeddingRunState.DRAFT or self._coordinator.state("embedding", run.id)
             ]
+            saved_ids = {run.id for run in runs}
+            runs.extend(run for run in self._coordinator.reduction_card_runs() if run.id not in saved_ids)
             runs.sort(key=lambda run: self._sort_key(run, datasets.get(run.id)))
             details = {}
             for run in runs:
@@ -106,8 +109,15 @@ class VectorDataPanelController(UiPanelController):
         card = self._cards.get(run_id)
         if card is None: self.refresh(); card = self._cards.get(run_id)
         if card:
+            if kind == "reduction":
+                card.toggle.setChecked(True)
+                card.tabs.setCurrentWidget(card.progress_tab)
             if cluster_id: card.select_cluster(cluster_id)
             self._list.scrollToItem(self._items[run_id])
+
+    @QtCore.Slot(str)
+    def _reduction_started(self, identity):
+        self.select_output("reduction", identity)
 
     def open_clustering(self, run_id=None, result_id=None, duplicate=False):
         if self._session is None: return
@@ -172,6 +182,17 @@ class VectorDataPanelController(UiPanelController):
         elif action == "menu": self._run_menu(run_id, payload)
 
     def _run_menu(self, run_id, anchor):
+        reduction = self._coordinator.active_reduction(run_id)
+        if reduction is not None:
+            self._show_status(f"Wait for reduction to finish, or cancel it in the Progress tab of '{reduction.title}'.")
+            return
+        reduction = self._coordinator.reduction_state(run_id)
+        if reduction is not None and reduction.display_run is not None and reduction.state in {"failed", "cancelled"}:
+            menu = QtWidgets.QMenu(anchor)
+            dismiss = menu.addAction("Dismiss")
+            if menu.exec(anchor.mapToGlobal(QtCore.QPoint(0, anchor.height()))) == dismiss:
+                QtCore.QTimer.singleShot(0, self.widget, lambda: self._coordinator.dismiss_reduction(run_id))
+            return
         run = self._session.runs.require_run(run_id)
         dataset = next((v for v in self._session.datasets.list_datasets() if v.run_id == run_id), None)
         live = self._coordinator.state("embedding", run_id); active = live is not None and live.state in _ACTIVE
@@ -264,38 +285,21 @@ class VectorDataPanelController(UiPanelController):
         except Exception as exc: self._show_status(str(exc))
 
     def _info_rows(self, run_id):
+        pending = next((run for run in self._coordinator.reduction_card_runs() if run.id == run_id), None)
+        if pending is not None:
+            from EmbeddingsArea.reporting import vector_info_rows
+            state = self._coordinator.reduction_state(run_id)
+            return vector_info_rows(pending, None, {"provenance": {"reduction": state.operation}},
+                                    [], self._model_label(pending.selected_model_id), [])
         run = self._session.runs.require_run(run_id); config = self._session.service.get_embedding_run_configuration(run_id)
         dataset = next((v for v in self._session.datasets.list_datasets() if v.run_id == run_id), None)
         sources = {v.source.id: v.source.label for v in self._session.service.list_media_source_summaries()}
         model = self._session.model_catalog.get_model(run.selected_model_id) if run.selected_model_id else None
-        rows = [("Input sources", [sources.get(v, v) for v in run.selected_source_ids] or ["Imported file"])]
-        if model is not None:
-            rows.append(("Model", model.label))
-        settings = {}
-        scope_labels = {
-            "run": "Execution",
-            "preprocess": "Preprocessing",
-            "postprocess": "Postprocessing",
-        }
-        for value in config.parameter_values:
-            if value.parameter_id == "create_thumbnails":
-                continue
-            scope = scope_labels.get(value.scope, value.scope.replace("_", " ").title())
-            parameter = value.parameter_id.replace("_", " ").capitalize()
-            settings.setdefault(scope, {})[parameter] = value.value
-        if settings: rows.append(("Settings", settings))
-        if dataset:
-            rows.extend((("Vectors", dataset.item_count), ("Dimensions", dataset.dimensions)))
-            summary = self._session.datasets.get_dataset_summary(run_id)
-            if summary.get("backend"):
-                rows.append(("Backend", summary["backend"]))
-            provenance = summary.get("provenance")
-            if provenance:
-                rows.append(("Device provenance", provenance))
-        rows.extend((("Created", run.created_at), ("Updated", run.updated_at)))
-        if run.failed_items: rows.append(("Failed items", run.failed_items))
-        if run.error_message: rows.append(("Diagnostics", run.error_message))
-        return rows
+        summary = self._session.datasets.get_dataset_summary(run_id) if dataset else {}
+        from EmbeddingsArea.reporting import vector_info_rows
+        return vector_info_rows(run, dataset, summary,
+            [sources.get(value, value) for value in run.selected_source_ids],
+            model.label if model else run.selected_model_id, config.parameter_values)
 
     def _model_label(self, model_id):
         if not model_id: return "Imported"
@@ -311,6 +315,10 @@ class VectorDataPanelController(UiPanelController):
             self.refresh()
 
     def _delete_dataset(self, run_id, *, published):
+        reduction = self._coordinator.active_reduction(run_id)
+        if reduction is not None:
+            self._show_status("Cancel reduction before removing its source vector data.")
+            return
         run = self._session.runs.require_run(run_id)
         live = self._coordinator.state("embedding", run_id)
         if live is not None and live.state in _ACTIVE:
@@ -396,6 +404,8 @@ class VectorDataPanelController(UiPanelController):
     def _progress(self, kind, identity, value, detail):
         if kind == "embedding" and identity in self._cards:
             self._cards[identity].update_progress(value, detail)
+        elif kind == "reduction" and identity in self._cards:
+            self._cards[identity].update_reduction_progress()
         elif kind == "clustering":
             record = self._session.clusters.repository.get(identity) if self._session else None
             if record and str(record["run_id"]) in self._cards:
@@ -404,7 +414,7 @@ class VectorDataPanelController(UiPanelController):
     @QtCore.Slot(str, str)
     def _output_ready(self, kind, identity):
         self.refresh(); self.select_output(kind, identity)
-        if kind == "embedding" and self._metadata_changed: self._metadata_changed()
+        if kind in {"embedding", "reduction"} and self._metadata_changed: self._metadata_changed()
 
     @QtCore.Slot()
     def _notify_groups_changed(self):
