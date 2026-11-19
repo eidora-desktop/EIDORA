@@ -19,9 +19,8 @@ from DiscoveryArea.thumbnails.repository import (
 from EmbeddingsArea.domain import MediaContentType, MediaSourceSummary
 from EmbeddingsArea.session import EmbeddingsAreaSession
 from MediaArea.controllers.new_thumbnails_dialog_controller import NewThumbnailsDialogController
+from MediaArea.controllers.preview_asset_row_controller import PreviewAssetRowController
 from MediaArea.domain import (
-    THUMBNAIL_RESIZE_MODES,
-    THUMBNAIL_VIDEO_FRAME_MODES,
     ProcessInputKind,
     ProcessInputReference,
     ProcessRecord,
@@ -29,22 +28,13 @@ from MediaArea.domain import (
     ProcessState,
 )
 from MediaArea.process_repository import ProcessRepository
-from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT
+from MediaArea.thumbnail_pause import ThumbnailPause
 from shared.qt.item_views import configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
-from shared.qt.tree_details import DetailSection, create_tree_details_panel
-from shared.qt.widgets import require_child
+from shared.qt.widgets import delete_removed_widgets, require_child
 
 if TYPE_CHECKING:
     from MediaArea.thumbnail_generator import ThumbnailGenerationResult
-
-
-_PROCESS_PARAMETER_LABELS = {
-    "resize_mode": {value: label for label, value in THUMBNAIL_RESIZE_MODES},
-    "video_frame_mode": {
-        value: label for label, value in THUMBNAIL_VIDEO_FRAME_MODES
-    },
-}
 
 
 def _create_source_thumbnails(*args: Any, **kwargs: Any) -> ThumbnailGenerationResult:
@@ -72,18 +62,11 @@ class _ActiveProcess:
     generation: int
     future: Future[ThumbnailGenerationResult] | None = None
     admission: object | None = None
+    pause: ThumbnailPause = field(init=False)
 
-
-@dataclass
-class _ProcessRow:
-    item: QtWidgets.QTreeWidgetItem
-    progress: QtWidgets.QProgressBar | None
-    status_label: QtWidgets.QLabel | None
-    cancel: QtWidgets.QPushButton | None
-    detail_item: QtWidgets.QTreeWidgetItem | None = None
-    detail_panel: QtWidgets.QWidget | None = None
-    detail_values: dict[str, QtWidgets.QLabel] = field(default_factory=dict)
-    detail_signature: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    def __post_init__(self) -> None:
+        events = self.events
+        self.pause = ThumbnailPause(self.cancel_event, lambda: events.put(("paused", 0, 0, "Paused")))
 
 
 def _now() -> str:
@@ -102,26 +85,24 @@ class ThumbnailsPanelController(UiPanelController):
         self._source_inputs: tuple[ProcessInputReference, ...] = ()
         self._thumbnail_inputs: tuple[ProcessInputReference, ...] = ()
         self._changed_callback: Callable[[], None] | None = None
+        self._availability_changed_callback: Callable[[], None] | None = None
         self._active: dict[str, _ActiveProcess] = {}
         self._session_records: dict[str, ProcessRecord] = {}
         self._display_records: dict[str, ProcessRecord] = {}
-        self._rows: dict[str, _ProcessRow] = {}
+        self._rows: dict[str, PreviewAssetRowController] = {}
         self._project_generation = 0
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="project-thumbnails")
         super().__init__(*args, **kwargs)
 
     def _wire(self) -> None:
         self._tree = require_child(self._widget, QtWidgets.QTreeWidget, "tree_thumbnails")
-        self._add_button = require_child(self._widget, QtWidgets.QPushButton, "button_add_thumbnails")
         configure_panel_item_view(self._tree)
-        self._add_button.clicked.connect(lambda _checked=False: self.open_create_dialog())
         self._tree.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._open_context_menu)
+        self._tree.itemExpanded.connect(self._sync_row_expansion)
+        self._tree.itemCollapsed.connect(self._sync_row_expansion)
         header = self._tree.header()
         header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self._poll = QtCore.QTimer(self._widget)
         self._poll.setInterval(50)
         self._poll.timeout.connect(self._poll_jobs)
@@ -132,6 +113,13 @@ class ThumbnailsPanelController(UiPanelController):
 
     def set_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._changed_callback = callback
+
+    def set_availability_changed_callback(self, callback: Callable[[], None]) -> None:
+        self._availability_changed_callback = callback
+
+    def _notify_availability_changed(self) -> None:
+        if self._availability_changed_callback is not None:
+            self._availability_changed_callback()
 
     def set_project(
         self,
@@ -167,8 +155,8 @@ class ThumbnailsPanelController(UiPanelController):
             self._source_summaries = []
             self._source_inputs = ()
             self._thumbnail_inputs = ()
-            self._add_button.setEnabled(False)
             self._render_empty("Open or create a project to view Preview Assets.")
+            self._notify_availability_changed()
             return
         self._source_summaries = list(self._session.media_library.list_source_summaries())
         self._source_inputs = tuple(
@@ -195,8 +183,8 @@ class ThumbnailsPanelController(UiPanelController):
             for variant in self._repo.list_variants()
             if variant.sizes and self._variant_item_count(variant) > 0
         )
-        self._add_button.setEnabled(True)
         self._render_records()
+        self._notify_availability_changed()
 
     def available_inputs(self) -> list[ProcessInputReference]:
         busy = getattr(self, "_media_source_busy", None)
@@ -221,6 +209,7 @@ class ThumbnailsPanelController(UiPanelController):
         self,
         preselected_input: ProcessInputReference | None = None,
         *,
+        fixed_input: bool = False,
         initial_name: str = "",
         initial_parameters: dict[str, object] | None = None,
     ) -> None:
@@ -235,6 +224,7 @@ class ThumbnailsPanelController(UiPanelController):
         controller = NewThumbnailsDialogController(
             self.available_inputs(), names,
             preselected_input=preselected_input,
+            fixed_input=fixed_input,
             initial_name=initial_name,
             initial_parameters=initial_parameters,
         )
@@ -243,6 +233,7 @@ class ThumbnailsPanelController(UiPanelController):
             self._queue_request(request)
 
     def open_for_source(self, source_id: str) -> None:
+        self.refresh()
         selected = next(
             (item for item in self.available_inputs() if item.kind == ProcessInputKind.MEDIA_SOURCE and item.id == source_id),
             None,
@@ -250,7 +241,7 @@ class ThumbnailsPanelController(UiPanelController):
         if selected is None:
             self._show_status("Link this image or video source to metadata before processing it.")
             return
-        self.open_create_dialog(selected)
+        self.open_create_dialog(selected, fixed_input=True)
 
     def can_process_source(self, source_id: str) -> bool:
         return any(
@@ -350,7 +341,8 @@ class ThumbnailsPanelController(UiPanelController):
         else:
             start()
         self._poll.start()
-        self._render_records(select_id=record.id)
+        self._render_records(scroll_to_id=record.id)
+        self._notify_availability_changed()
         self._show_status(f"Queued {record.operation_label} for '{record.input.label}'.")
         return record.id
 
@@ -379,6 +371,7 @@ class ThumbnailsPanelController(UiPanelController):
             resize_mode=str(record.parameters.get("resize_mode") or "original_aspect"),
             progress_callback=lambda *event: events.put(event),
             should_cancel=active.cancel_event.is_set,
+            pause=active.pause,
             variant_id=record.output_id,
         )
         if record.input.kind == ProcessInputKind.MEDIA_SOURCE:
@@ -442,6 +435,10 @@ class ThumbnailsPanelController(UiPanelController):
                 event, value1, _value2, message = active.events.get_nowait()
             except Empty:
                 break
+            if event == "paused":
+                if record.state != ProcessState.PAUSING or not active.pause.paused:
+                    continue
+                record = replace(record, state=ProcessState.PAUSED)
             if event == "start":
                 progress = 2
             elif event == "step":
@@ -453,7 +450,13 @@ class ThumbnailsPanelController(UiPanelController):
                 progress = 99
             else:
                 progress = record.progress
+            if record.state == ProcessState.CANCELLING:
+                message = "Cancelling…"
+            elif record.state == ProcessState.PAUSING:
+                message = "Pausing after active files finish…"
             record = replace(record, progress=max(record.progress, min(99, progress)), message=message)
+            if event == "paused":
+                active.repository.save(record)
             changed = True
         if changed:
             active.record = record
@@ -501,6 +504,7 @@ class ThumbnailsPanelController(UiPanelController):
             admission.finish()
         self._active.pop(record.id, None)
         if current_project:
+            self._notify_availability_changed()
             self._show_status(f"Created Preview Assets '{record.output_name}'.")
 
     def _finish_failed(self, active: _ActiveProcess, message: str) -> None:
@@ -536,7 +540,8 @@ class ThumbnailsPanelController(UiPanelController):
             admission.finish()
         self._active.pop(record.id, None)
         if current_project:
-            self._render_records(select_id=record.id)
+            self._notify_availability_changed()
+            self._render_records(scroll_to_id=record.id)
 
     def _finish_unsuccessful(self, active: _ActiveProcess, record: ProcessRecord) -> None:
         active.record = record
@@ -549,13 +554,36 @@ class ThumbnailsPanelController(UiPanelController):
             admission.finish()
         self._active.pop(record.id, None)
         if current_project:
-            self._render_records(select_id=record.id)
+            self._notify_availability_changed()
+            self._render_records(scroll_to_id=record.id)
+
+    def _toggle_pause(self, process_id: str) -> None:
+        active = self._active.get(process_id)
+        if active is None:
+            return
+        record = active.record
+        if record.state == ProcessState.PAUSED:
+            active.pause.resume()
+            record = replace(record, state=ProcessState.RUNNING, message="Resuming…")
+        elif record.state == ProcessState.RUNNING and record.progress < 95:
+            # Retain admission while paused: the coordinator keeps staged work
+            # in memory and resumes in the same bounded executor slot.
+            active.pause.request()
+            record = replace(record, state=ProcessState.PAUSING, message="Pausing after active files finish…")
+        else:
+            return
+        active.record = record
+        active.repository.save(record)
+        self._update_record_row(record)
+        if active.admission is not None:
+            active.admission.update(message=record.message, value=record.progress)
 
     def _cancel(self, process_id: str) -> None:
         active = self._active.get(process_id)
         if active is None or active.cancel_event.is_set():
             return
         active.cancel_event.set()
+        active.pause.resume()
         active.record = replace(active.record, state=ProcessState.CANCELLING, message="Cancelling…")
         active.repository.save(active.record)
         admission = active.admission
@@ -573,7 +601,7 @@ class ThumbnailsPanelController(UiPanelController):
         for process_id in tuple(self._active):
             self._cancel(process_id)
 
-    def _render_records(self, *, select_id: str = "") -> None:
+    def _render_records(self, *, scroll_to_id: str = "") -> None:
         if self._process_repo is None:
             self._render_empty("Open or create a project to view Preview Assets.")
             return
@@ -582,12 +610,7 @@ class ThumbnailsPanelController(UiPanelController):
             for index in range(self._tree.topLevelItemCount())
         ]
         scroll_value = self._tree.verticalScrollBar().value()
-        expanded = {
-            str(self._tree.topLevelItem(i).data(0, QtCore.Qt.ItemDataRole.UserRole) or "")
-            for i in range(self._tree.topLevelItemCount())
-            if self._tree.topLevelItem(i).isExpanded()
-        }
-        current = select_id or self._selected_process_id()
+        expanded = {row.record.output_id for row in self._rows.values() if row.item.isExpanded()}
         live_records = {
             process_id: active.record
             for process_id, active in self._active.items()
@@ -611,15 +634,15 @@ class ThumbnailsPanelController(UiPanelController):
         self._rows = {}
         if not records:
             self._render_empty(
-                "No Preview Assets yet. Use Add New… to create them.",
+                "No Preview Assets yet. Create previews from a Media Source.",
                 old_items=old_items,
             )
             return
         for record in records:
-            item = self._create_record_row(record, set())
-            item.setExpanded(record.id in expanded)
-            if record.id == current:
-                self._tree.setCurrentItem(item)
+            item = self._create_record_row(record)
+            item.setExpanded(record.output_id in expanded)
+            if record.id == scroll_to_id:
+                self._tree.scrollToItem(item)
         self._remove_old_items(old_items)
         self._tree.verticalScrollBar().setValue(scroll_value)
 
@@ -690,183 +713,27 @@ class ThumbnailsPanelController(UiPanelController):
             return int(variant.generated_files)
         return self._repo.count_variant_items(variant.variant_id) if self._repo is not None else 0
 
-    def _create_record_row(
-        self,
-        record: ProcessRecord,
-        artifact_ids: set[str],
-    ) -> QtWidgets.QTreeWidgetItem:
-        item = QtWidgets.QTreeWidgetItem([
-            record.output_name,
-            record.input.label,
-            str(record.generated_files or record.input.item_count),
-            "",
-        ])
-        item.setData(0, QtCore.Qt.ItemDataRole.UserRole, record.id)
-        item.setSizeHint(0, QtCore.QSize(0, PANEL_ITEM_ROW_HEIGHT))
-        self._tree.addTopLevelItem(item)
-        status = QtWidgets.QWidget(self._tree)
-        layout = QtWidgets.QHBoxLayout(status)
-        layout.setContentsMargins(0, 0, 6, 0)
-        layout.setSpacing(6)
-        progress: QtWidgets.QProgressBar | None = None
-        status_label: QtWidgets.QLabel | None = None
-        if record.state.terminal:
-            status_label = QtWidgets.QLabel(self._state_text(record.state), status)
-            status_label.setObjectName("label_process_status")
-            layout.addWidget(status_label, 1)
-        else:
-            progress = QtWidgets.QProgressBar(status)
-            progress.setObjectName("progress_process")
-            layout.addWidget(progress, 1)
-        cancel: QtWidgets.QPushButton | None = None
-        if record.id in self._active:
-            cancel = QtWidgets.QPushButton("Cancel", status)
-            cancel.clicked.connect(
-                lambda _checked=False, value=record.id: self._cancel(value)
-            )
-            layout.addWidget(cancel)
-        self._tree.setItemWidget(item, 3, status)
-        self._rows[record.id] = _ProcessRow(item, progress, status_label, cancel)
-        self._update_record_row(record, artifact_ids=artifact_ids)
-        return item
+    def _create_record_row(self, record: ProcessRecord) -> QtWidgets.QTreeWidgetItem:
+        row = PreviewAssetRowController(self._tree, record)
+        self._rows[record.id] = row
+        row.pause.clicked.connect(lambda _checked=False: self._toggle_pause(record.id))
+        row.cancel.clicked.connect(lambda _checked=False: self._cancel(record.id))
+        row.options.clicked.connect(lambda _checked=False: self._open_record_menu(
+            record.id, row.options.mapToGlobal(row.options.rect().bottomLeft()),
+        ))
+        self._update_record_row(record)
+        return row.item
 
-    def _update_record_row(
-        self,
-        record: ProcessRecord,
-        *,
-        artifact_ids: set[str] | None = None,
-    ) -> None:
+    def _update_record_row(self, record: ProcessRecord) -> None:
         row = self._rows.get(record.id)
-        if row is None:
-            return
-        if record.state.terminal and row.progress is not None:
-            status_widget = self._tree.itemWidget(row.item, 3)
-            if status_widget is not None:
-                self._tree.removeItemWidget(row.item, 3)
-                status_widget.deleteLater()
-            status_widget = QtWidgets.QWidget(self._tree)
-            status_layout = QtWidgets.QHBoxLayout(status_widget)
-            status_layout.setContentsMargins(0, 0, 6, 0)
-            status_layout.setSpacing(6)
-            row.status_label = QtWidgets.QLabel(self._state_text(record.state), status_widget)
-            row.status_label.setObjectName("label_thumbnail_status")
-            status_layout.addWidget(row.status_label, 1)
-            self._tree.setItemWidget(row.item, 3, status_widget)
-            row.progress = None
-            row.cancel = None
-        row.item.setText(0, record.output_name)
-        row.item.setText(1, record.input.label)
-        row.item.setText(2, str(record.generated_files or record.input.item_count))
-        if row.progress is not None:
-            if record.state == ProcessState.RUNNING and record.progress == 0:
-                row.progress.setRange(0, 0)
-            else:
-                row.progress.setRange(0, 100)
-                row.progress.setValue(record.progress)
-            row.progress.setFormat(self._state_text(record.state))
-        if row.status_label is not None:
-            row.status_label.setText(self._state_text(record.state))
-        if row.cancel is not None:
-            row.cancel.setEnabled(record.state != ProcessState.CANCELLING)
+        if row is not None:
+            self._display_records[record.id] = record
+            row.update(record, cancellable=record.id in self._active)
 
-        sections = self._process_detail_sections(record, False)
-        signature = tuple(
-            (title, tuple(key for key, _name, _value in entries))
-            for title, entries in sections
-            if entries
-        )
-        if row.detail_panel is None or signature != row.detail_signature:
-            if row.detail_item is None:
-                row.detail_item = QtWidgets.QTreeWidgetItem(["", "", "", ""])
-                row.detail_item.setFlags(
-                    row.detail_item.flags() & ~QtCore.Qt.ItemFlag.ItemIsSelectable
-                )
-                row.item.addChild(row.detail_item)
-                row.detail_item.setFirstColumnSpanned(True)
-            elif row.detail_panel is not None:
-                self._tree.removeItemWidget(row.detail_item, 0)
-                row.detail_panel.deleteLater()
-            row.detail_panel, row.detail_values = create_tree_details_panel(
-                self._tree,
-                "panel_thumbnail_details",
-                sections,
-            )
-            row.detail_signature = signature
-            self._tree.setItemWidget(row.detail_item, 0, row.detail_panel)
-        else:
-            for _title, entries in sections:
-                for key, _name, value in entries:
-                    row.detail_values[key].setText(value)
-        if row.detail_item is not None and row.detail_panel is not None:
-            row.detail_item.setSizeHint(0, row.detail_panel.sizeHint())
-
-    def _process_detail_sections(
-        self,
-        record: ProcessRecord,
-        artifact_removed: bool,
-    ) -> tuple[DetailSection, ...]:
-        details = [
-            ("state", "State", self._state_text(record.state)),
-            ("message", "Message", record.message or "—"),
-            ("created", "Created", record.created_at or "—"),
-            ("started", "Started", record.started_at or "—"),
-            ("finished", "Finished", record.finished_at or "—"),
-        ]
-        parameters = [
-            (
-                f"parameter:{key}",
-                str(key).replace("_", " ").capitalize(),
-                self._parameter_text(str(key), value),
-            )
-            for key, value in record.parameters.items()
-            if key != "video_frame_mode" or record.input.media_type == "video"
-        ]
-        results = [
-            ("generated", "Generated", f"{record.generated_files:,}"),
-            ("failed", "Failed", f"{record.failed_files:,}"),
-            ("missing", "Missing", f"{record.missing_files:,}"),
-        ]
-        if artifact_removed:
-            results.append(("artifact", "Artifact", "Removed"))
-        errors = [
-            (f"error:{index}", "Error", error)
-            for index, error in enumerate(record.errors)
-        ]
-        return (
-            ("Details", details),
-            ("Parameters", parameters),
-            ("Results", results),
-            ("Errors", errors),
-        )
-
-    @staticmethod
-    def _parameter_text(name: str, value: object) -> str:
-        if name in _PROCESS_PARAMETER_LABELS:
-            return _PROCESS_PARAMETER_LABELS[name].get(str(value), str(value))
-        if isinstance(value, bool):
-            return "Yes" if value else "No"
-        if isinstance(value, (list, tuple)):
-            return ", ".join(str(item) for item in value)
-        return str(value)
-
-    @staticmethod
-    def _state_text(state: ProcessState) -> str:
-        return {
-            ProcessState.QUEUED: "Queued",
-            ProcessState.RUNNING: "Running",
-            ProcessState.CANCELLING: "Cancelling",
-            ProcessState.COMPLETED: "Done",
-            ProcessState.COMPLETED_WITH_WARNINGS: "Done with warnings",
-            ProcessState.FAILED: "Failed",
-            ProcessState.CANCELLED: "Canceled",
-            ProcessState.INTERRUPTED: "Interrupted",
-        }[state]
-
-    def _selected_process_id(self) -> str:
-        item = self._tree.currentItem()
-        if item is not None and item.parent() is not None:
-            item = item.parent()
-        return str(item.data(0, QtCore.Qt.ItemDataRole.UserRole) or "") if item else ""
+    def _sync_row_expansion(self, item: QtWidgets.QTreeWidgetItem) -> None:
+        row = self._rows.get(str(item.data(0, QtCore.Qt.ItemDataRole.UserRole) or ""))
+        if row is not None:
+            row.sync_expansion()
 
     def _open_context_menu(self, position: QtCore.QPoint) -> None:
         item = self._tree.itemAt(position)
@@ -874,55 +741,65 @@ class ThumbnailsPanelController(UiPanelController):
             return
         if item.parent() is not None:
             item = item.parent()
-        self._tree.setCurrentItem(item)
-        record = self._display_records.get(self._selected_process_id())
-        if record is None:
+        process_id = str(item.data(0, QtCore.Qt.ItemDataRole.UserRole) or "")
+        self._open_record_menu(process_id, self._tree.viewport().mapToGlobal(position))
+
+    def _open_record_menu(self, process_id: str, position: QtCore.QPoint) -> None:
+        record = self._display_records.get(process_id)
+        row = self._rows.get(process_id)
+        if record is None or row is None:
             return
-        is_saved = record.state in {
-            ProcessState.COMPLETED,
-            ProcessState.COMPLETED_WITH_WARNINGS,
-        }
+        inputs = self.available_inputs()
+        current_input = next((candidate for candidate in inputs
+                              if candidate.kind == record.input.kind and candidate.id == record.input.id), None)
+        thumbnail_input = next((candidate for candidate in inputs
+                                if candidate.kind == ProcessInputKind.ARTIFACT and candidate.id == record.output_id), None)
+        is_saved = record.state in {ProcessState.COMPLETED, ProcessState.COMPLETED_WITH_WARNINGS}
         menu = QtWidgets.QMenu(self._widget)
+        actions = {}
         if is_saved:
-            create_from = menu.addAction("Create Preview Assets From…")
-            run_again = menu.addAction("Run Again…")
-            rename = menu.addAction("Rename…")
+            actions["rename"] = menu.addAction("Rename…")
+            actions["run_again"] = menu.addAction("Run Again…")
+            actions["run_again"].setEnabled(current_input is not None)
+            actions["create_from"] = menu.addAction("Create Previews From…")
+            actions["create_from"].setEnabled(thumbnail_input is not None)
             menu.addSeparator()
-            remove = menu.addAction("Remove…")
+            actions["remove"] = menu.addAction("Remove…")
             if self.input_in_use(record.output_id):
-                remove.setEnabled(False)
-                remove.setToolTip("These Preview Assets are used by queued or running work.")
+                actions["remove"].setEnabled(False)
+                actions["remove"].setToolTip("These Preview Assets are used by queued or running work.")
         elif record.state.terminal:
-            retry = menu.addAction("Retry…")
-            dismiss = menu.addAction("Dismiss")
+            actions["retry"] = menu.addAction("Retry…")
+            actions["retry"].setEnabled(current_input is not None)
+            menu.addSeparator()
+            actions["dismiss"] = menu.addAction("Dismiss")
         else:
-            return
-        selected = menu.exec(self._tree.viewport().mapToGlobal(position))
-        if is_saved and selected == create_from:
-            thumbnail_input = next(
-                (candidate for candidate in self.available_inputs() if candidate.kind == ProcessInputKind.ARTIFACT and candidate.id == record.output_id),
-                None,
-            )
-            self.open_create_dialog(thumbnail_input)
-        elif is_saved and selected == run_again:
-            current_input = next(
-                (candidate for candidate in self.available_inputs() if candidate.kind == record.input.kind and candidate.id == record.input.id),
-                None,
-            )
-            self.open_create_dialog(current_input, initial_parameters=record.parameters)
-        elif is_saved and selected == rename:
+            if record.state == ProcessState.PAUSED:
+                actions["resume"] = menu.addAction("Resume")
+                actions["resume"].setEnabled(process_id in self._active)
+            actions["cancel"] = menu.addAction("Cancel")
+            actions["cancel"].setEnabled(process_id in self._active and record.state != ProcessState.CANCELLING)
+        selected = self._exec_row_context_menu(menu, position)
+        action = next((key for key, value in actions.items() if value is selected and value.isEnabled()), None)
+        if action == "resume":
+            self._toggle_pause(process_id)
+        elif action == "create_from":
+            self.open_create_dialog(thumbnail_input, fixed_input=True)
+        elif action in {"run_again", "retry"}:
+            self.open_create_dialog(current_input, fixed_input=True, initial_parameters=record.parameters)
+        elif action == "rename":
             self._rename_variant(record.output_id)
-        elif is_saved and selected == remove:
+        elif action == "remove":
             self._remove_variant(record.output_id)
-        elif not is_saved and selected == retry:
-            current_input = next(
-                (candidate for candidate in self.available_inputs() if candidate.kind == record.input.kind and candidate.id == record.input.id),
-                None,
-            )
-            self.open_create_dialog(current_input, initial_parameters=record.parameters)
-        elif not is_saved and selected == dismiss:
+        elif action == "dismiss":
             self._session_records.pop(record.id, None)
             self._render_records()
+        elif action == "cancel":
+            self._cancel(process_id)
+
+    @staticmethod
+    def _exec_row_context_menu(menu: QtWidgets.QMenu, position: QtCore.QPoint):
+        return menu.exec(position)
 
     def _rename_variant(self, variant_id: str) -> None:
         if self._repo is None:
@@ -985,13 +862,20 @@ class ThumbnailsPanelController(UiPanelController):
                 self._tree.topLevelItem(index)
                 for index in range(self._tree.topLevelItemCount())
             ]
-        item = QtWidgets.QTreeWidgetItem([message, "", "", ""])
+        item = QtWidgets.QTreeWidgetItem([message])
         item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsSelectable & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
         self._tree.addTopLevelItem(item)
+        item.setFirstColumnSpanned(True)
         self._remove_old_items(old_items)
 
     def _remove_old_items(self, items: list[QtWidgets.QTreeWidgetItem]) -> None:
+        widgets = []
         for item in items:
             index = self._tree.indexOfTopLevelItem(item)
             if index >= 0:
+                for node in (item, *(item.child(i) for i in range(item.childCount()))):
+                    widget = self._tree.itemWidget(node, 0)
+                    if widget is not None:
+                        widgets.append(widget)
                 self._tree.takeTopLevelItem(index)
+        delete_removed_widgets(self._tree, widgets)

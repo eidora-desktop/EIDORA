@@ -12,6 +12,8 @@ from DiscoveryArea.thumbnails.repository import ThumbnailVariantRepository
 from EmbeddingsArea.domain import MediaContentType, MediaSourceSummary
 from EmbeddingsArea.repository import MediaLinkRepository, MediaRepository
 from pathlib import Path
+from MediaArea.preview_names import default_preview_name
+from MediaArea.thumbnail_pause import ThumbnailPause
 
 
 def create_source_thumbnails(
@@ -25,10 +27,13 @@ def create_source_thumbnails(
     video_frame_mode: str | None = None,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancellationCallback | None = None,
+    pause: ThumbnailPause | None = None,
     variant_id: str | None = None,
 ) -> ThumbnailGenerationResult:
     """Resolve canonical metadata identities without passing UI state to workers."""
     def check_cancelled() -> None:
+        if pause is not None:
+            pause.checkpoint()
         if should_cancel is not None and should_cancel():
             raise ThumbnailGenerationCancelled("")
 
@@ -77,6 +82,7 @@ def create_source_thumbnails(
         input_label=str(getattr(summary.source, "label", summary.source.id)),
         progress_callback=progress_callback,
         should_cancel=should_cancel,
+        pause=pause,
         variant_id=variant_id,
     )
 
@@ -89,9 +95,14 @@ def create_artifact_thumbnails(
     resize_mode: str,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancellationCallback | None = None,
+    pause: ThumbnailPause | None = None,
     variant_id: str | None = None,
 ) -> ThumbnailGenerationResult:
     """Create a variant from the largest stored image for each canonical ID."""
+    if pause is not None:
+        pause.checkpoint()
+    if should_cancel is not None and should_cancel():
+        raise ThumbnailGenerationCancelled("")
     source = next(
         (candidate for candidate in repo.list_variants() if candidate.variant_id == source_variant_id),
         None,
@@ -123,6 +134,7 @@ def create_artifact_thumbnails(
         input_label=source.label,
         progress_callback=progress_callback,
         should_cancel=should_cancel,
+        pause=pause,
         variant_id=variant_id,
     )
 
@@ -144,7 +156,7 @@ def default_embedding_thumbnail_request(configuration, available_inputs, repo):
         return None
     return ProcessRequest(
         operation_id="create_thumbnails", input=source, output_id=uuid4().hex,
-        output_name=f"{source.label} (Preview Assets)",
+        output_name=default_preview_name(source.label, source.media_type),
         parameters={"resize_mode": "original_aspect",
                     **({"video_frame_mode": "middle"} if source.media_type == "video" else {})},
     )

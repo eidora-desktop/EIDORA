@@ -2,18 +2,54 @@
 
 `MediaArea` presents Media Sources on the left and Preview Assets on the right
 in one equally divided horizontal splitter. In Media Sources, link images, video,
-audio, and text to Items. In Preview Assets, create and manage still images
-from linked images and video frames. Project storage stays in `project`;
+audio, and text to Items, then use **Create Previews…** on a source row.
+Preview Assets shows queued and running jobs and saved previews from linked
+images and video frames. Project storage stays in `project`;
 thumbnail persistence stays in `DiscoveryArea.thumbnails`. There is no Artifacts
 panel or creation workflow. Internal thumbnail-reuse and embedding artifact
 contracts remain unchanged.
 
 Media Sources uses two-line rows: the source name, status icon and linked/total file count on the first
-line, combined as “45/567 audio files linked” beside the icon, and an elided path on the second. Link sits next to the top-right options button. Linked sources show a disabled “linked” label at the same width and show the linked icon directly after their name; its
-tooltip names the linked Items columns. Unlinked sources show a red question mark without a circle. Their options menu offers Relink...
-While loading, the status replaces the count and a small progress bar sits beside
-the path, retaining two lines. Folder and ZIP inspection creates a cancellable row
+line, combined as “45/567 audio files linked” beside the icon, and an elided path
+on the second. Each idle row shows one primary action beside the options button:
+**Link...** until it has links, then **Create Previews…**. Linked sources show the
+linked icon directly after their name; its tooltip names the linked Items columns.
+Unlinked sources show a red question mark without a circle. The options menu
+retains **Relink...** for linked sources.
+While loading, the status replaces the count and a full-width progress bar and Cancel replace
+the path on the second line. Folder and ZIP inspection creates a cancellable row
 immediately and reuses it for indexing. Project changes reset rows and their lookup.
+
+**Create Previews…** opens a dialog fixed to that source. Images offer the preview
+name and resize method; videos also offer frame selection. Image/video sources
+without links show Link instead. Linked Text and Audio sources open
+informational placeholders and create no jobs or assets. Confirming an image/video
+dialog creates a progress row in Preview Assets, which becomes a saved set on
+success. Cancelling the dialog creates nothing. Preview Assets has no Add New
+button; its existing set-management and reuse actions remain available.
+
+Preview Assets uses expandable cards without column headers, following Model Run
+cards. Each card shows its name, item count or current status, and an options menu.
+The second header line shows the source and preview sizes when idle.
+Active jobs replace that line with a full-width progress bar and right-aligned
+Pause/Cancel controls. Paused jobs retain their progress with Resume/Cancel controls.
+Pause becomes available when running and is disabled during final publication. Progress stays visible when details are collapsed. Stage messages
+are available in details and progress tooltips. The shared two-line header keeps its height through state changes; expanded
+details grow below it.
+Completed rows show actual generated item counts, including zero;
+partially successful rows also show the skipped count. One expandable details
+section contains the source, settings, creation date and results, with errors only
+when present. Expansion survives publication and list refreshes. Rows have no selection or hover
+highlight, and menus act directly on their own source or asset.
+Rename, Run Again, Create Previews From, and Remove live in the row menu; failed
+jobs offer Retry and Dismiss. Retry/Run Again are disabled when their original
+input is unavailable, and removal is disabled while an output is in use.
+
+Default names append `(thumbs)` for images and `(frames)` for video stills.
+Automatic previews after embeddings use the same names. Planned short video
+clips use `(video clips)`; Audio and Text placeholders show `(audio clips)` and
+`(labels)`. Existing names receive a numeric suffix, and the dialog explains
+empty or duplicate names before creation.
 
 Adding or rescanning sources only indexes assets and never opens a matching dialog.
 **Link...** is available once items exist and reads the resolved fields shown in
@@ -100,6 +136,10 @@ Input resolution uses indexed lookups in bounded batches with SQLite cancellatio
 checks and preparation progress. Image jobs omit video frame settings. The footer
 shows the live thumbnail stage and progress; queued and running cancellations
 follow the same cleanup path from the footer and Media.
+Pausing drains in-flight files before suspending the coordinator. Staged previews
+and prepared inputs remain in memory for resume; cancellation and project changes
+wake the coordinator and clean up staging. Paused jobs retain their scheduler
+admission and executor slot. Decoder workers and database reads are never suspended.
 
 A local 50,000-file synthetic folder benchmark on 2026-11-16 measured inspection
 and publication at 3.54 s before and 1.23 s after removing repeated file checks

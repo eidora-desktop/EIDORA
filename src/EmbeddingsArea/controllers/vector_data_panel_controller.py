@@ -2,19 +2,30 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 from EmbeddingsArea.controllers.clustering_dialog_controller import ClusteringDialogController
 from EmbeddingsArea.controllers.vector_data_card_controller import VectorDataCardController
 from EmbeddingsArea.domain import EmbeddingRunState
-from shared.qt.item_views import configure_panel_item_view, minimum_panel_row_size
+from shared.qt.item_views import configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
+from shared.qt.panel_rows import schedule_row_layout
 from shared.qt.widgets import delete_removed_widgets, require_child
 
 _ACTIVE = {"queued", "running", "cancelling"}
 _RECOVERABLE = {EmbeddingRunState.PAUSED, EmbeddingRunState.INTERRUPTED, EmbeddingRunState.FAILED}
 LOGGER = logging.getLogger(__name__)
+
+
+class _VectorDataTreeItem(QtWidgets.QTreeWidgetItem):
+    """Sort without detaching live card widgets from their model rows."""
+
+    order = 0
+
+    def __lt__(self, other):
+        return self.order < other.order
 
 
 class VectorDataPanelController(UiPanelController):
@@ -30,9 +41,12 @@ class VectorDataPanelController(UiPanelController):
         super().__init__(*args, **kwargs)
 
     def _wire(self):
-        self._list = require_child(self._widget, QtWidgets.QListWidget, "list_vector_data_runs")
+        self._tree = require_child(self._widget, QtWidgets.QTreeWidget, "tree_vector_data_runs")
         self._import = require_child(self._widget, QtWidgets.QPushButton, "button_import_embeddings")
-        configure_panel_item_view(self._list)
+        configure_panel_item_view(self._tree)
+        self._tree.header().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self._tree.itemExpanded.connect(self._sync_card_expansion)
+        self._tree.itemCollapsed.connect(self._sync_card_expansion)
         self._import.clicked.connect(self._import_embeddings)
         self._coordinator.changed.connect(self.refresh)
         self._coordinator.progress.connect(self._progress)
@@ -88,17 +102,21 @@ class VectorDataPanelController(UiPanelController):
             return
         if not runs:
             self._clear_cards(); self._render_empty("No vector data yet. Select a model on the left and click Run, or import an existing dataset."); return
+        scroll_value = self._tree.verticalScrollBar().value()
         self._remove_empty()
         current = {run.id for run in runs}
         for identity in tuple(self._cards):
             if identity not in current: self._remove_card(identity)
         for position, run in enumerate(runs):
             card = self._cards.get(run.id) or self._create_card(run.id)
-            self._place_card(run.id, position)
+            self._items[run.id].order = position
+            self._items[run.id].setData(0, QtCore.Qt.ItemDataRole.AccessibleTextRole, run.label)
             dataset = datasets.get(run.id)
             records, model_label = details[run.id]
-            card.update(run, dataset, records, model_label, lambda key=run.id: self._info_rows(key))
+            card.update(run, dataset, records, model_label, self._info_loader(run, dataset, model_label))
             self._resize_card(run.id)
+        self._tree.sortItems(0, QtCore.Qt.SortOrder.AscendingOrder)
+        self._tree.verticalScrollBar().setValue(scroll_value)
 
     def select_output(self, kind, identity):
         cluster_id = identity if kind == "clustering" else None
@@ -113,7 +131,7 @@ class VectorDataPanelController(UiPanelController):
                 card.toggle.setChecked(True)
                 card.tabs.setCurrentWidget(card.progress_tab)
             if cluster_id: card.select_cluster(cluster_id)
-            self._list.scrollToItem(self._items[run_id])
+            self._tree.scrollToItem(self._items[run_id])
 
     @QtCore.Slot(str)
     def _reduction_started(self, identity):
@@ -151,32 +169,32 @@ class VectorDataPanelController(UiPanelController):
     def refresh_clustering_groups(self): self.refresh()
 
     def _create_card(self, run_id):
-        card = VectorDataCardController(self._list, run_id, coordinator=self._coordinator, on_action=self._card_action, on_cluster_action=self._cluster_action)
-        item = QtWidgets.QListWidgetItem(); item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsSelectable)
-        self._list.addItem(item); self._list.setItemWidget(item, card.widget)
+        card = VectorDataCardController(self._tree, run_id, coordinator=self._coordinator, on_action=self._card_action, on_cluster_action=self._cluster_action)
+        item = _VectorDataTreeItem([""])
+        item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsSelectable)
+        item.setData(0, QtCore.Qt.ItemDataRole.UserRole, run_id)
+        item.setChildIndicatorPolicy(QtWidgets.QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+        self._tree.addTopLevelItem(item)
+        self._tree.setItemWidget(item, 0, card.widget)
+        card.toggle.toggled.connect(item.setExpanded)
         card.resized.connect(lambda key=run_id: self._resize_card(key))
         self._cards[run_id], self._items[run_id] = card, item
         return card
 
-    def _place_card(self, run_id, position):
-        item = self._items[run_id]; current = self._list.row(item)
-        if current == position: return
-        if current < 0: return
-        # Removing and reinserting a QListWidgetItem also schedules its item
-        # widget for deletion. Move the model row instead so the stable card
-        # and every control owned by it remain alive while active runs reorder.
-        destination = position if current > position else position + 1
-        self._list.model().moveRows(
-            QtCore.QModelIndex(), current, 1,
-            QtCore.QModelIndex(), destination,
-        )
+    def _sync_card_expansion(self, item):
+        card = self._cards.get(item.data(0, QtCore.Qt.ItemDataRole.UserRole))
+        if card is not None:
+            card.toggle.setChecked(item.isExpanded())
 
     def _resize_card(self, run_id):
         card, item = self._cards.get(run_id), self._items.get(run_id)
-        if card and item: item.setSizeHint(minimum_panel_row_size(card.widget.sizeHint()))
+        if card and item and item.sizeHint(0).height() != card.widget.minimumHeight():
+            item.setSizeHint(0, QtCore.QSize(0, card.widget.minimumHeight()))
+            schedule_row_layout(self._tree)
 
     def _card_action(self, run_id, action, payload):
-        if action == "pause": self._coordinator.pause_embedding(run_id)
+        if action == "resume": self._submit_embedding(run_id)
+        elif action == "pause": self._coordinator.pause_embedding(run_id)
         elif action == "cancel": self._coordinator.cancel("embedding", run_id)
         elif action == "cluster": self.open_clustering(run_id)
         elif action == "menu": self._run_menu(run_id, payload)
@@ -284,22 +302,16 @@ class VectorDataPanelController(UiPanelController):
         try: self._coordinator.submit_embedding(run_id, create_thumbnails=thumbnails)
         except Exception as exc: self._show_status(str(exc))
 
-    def _info_rows(self, run_id):
-        pending = next((run for run in self._coordinator.reduction_card_runs() if run.id == run_id), None)
-        if pending is not None:
+    def _info_loader(self, run, dataset, model_label):
+        state = self._coordinator.reduction_state(run.id)
+        if dataset is None and state is not None:
             from EmbeddingsArea.reporting import vector_info_rows
-            state = self._coordinator.reduction_state(run_id)
-            return vector_info_rows(pending, None, {"provenance": {"reduction": state.operation}},
-                                    [], self._model_label(pending.selected_model_id), [])
-        run = self._session.runs.require_run(run_id); config = self._session.service.get_embedding_run_configuration(run_id)
-        dataset = next((v for v in self._session.datasets.list_datasets() if v.run_id == run_id), None)
-        sources = {v.source.id: v.source.label for v in self._session.service.list_media_source_summaries()}
-        model = self._session.model_catalog.get_model(run.selected_model_id) if run.selected_model_id else None
-        summary = self._session.datasets.get_dataset_summary(run_id) if dataset else {}
-        from EmbeddingsArea.reporting import vector_info_rows
-        return vector_info_rows(run, dataset, summary,
-            [sources.get(value, value) for value in run.selected_source_ids],
-            model.label if model else run.selected_model_id, config.parameter_values)
+            return partial(vector_info_rows, run, None, {"provenance": {"reduction": dict(state.operation)}},
+                           [], model_label, [])
+        from EmbeddingsArea.service import load_vector_info
+        # Capture plain services/data, never a callback that closes over this
+        # panel or looks up whichever project is current when the worker runs.
+        return partial(load_vector_info, self._session, run, dataset, model_label)
 
     def _model_label(self, model_id):
         if not model_id: return "Imported"
@@ -428,20 +440,20 @@ class VectorDataPanelController(UiPanelController):
         return group, tuple(-ord(char) for char in str(timestamp))
 
     def _render_empty(self, message):
-        self._remove_empty(); item = QtWidgets.QListWidgetItem(); item.setData(QtCore.Qt.ItemDataRole.UserRole, "empty")
+        self._remove_empty(); item = QtWidgets.QTreeWidgetItem([message]); item.setData(0, QtCore.Qt.ItemDataRole.UserRole, "empty")
         item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled & ~QtCore.Qt.ItemFlag.ItemIsSelectable)
-        label = QtWidgets.QLabel(message, self._list); label.setWordWrap(True); label.setContentsMargins(6, 12, 6, 12)
-        item.setSizeHint(minimum_panel_row_size(label.sizeHint())); self._list.addItem(item); self._list.setItemWidget(item, label)
+        self._tree.addTopLevelItem(item)
 
     def _remove_empty(self):
-        for index in range(self._list.count() - 1, -1, -1):
-            if self._list.item(index).data(QtCore.Qt.ItemDataRole.UserRole) == "empty": self._list.takeItem(index)
+        for index in range(self._tree.topLevelItemCount() - 1, -1, -1):
+            if self._tree.topLevelItem(index).data(0, QtCore.Qt.ItemDataRole.UserRole) == "empty": self._tree.takeTopLevelItem(index)
 
     def _remove_card(self, run_id):
         item, card = self._items.pop(run_id, None), self._cards.pop(run_id, None)
-        if item is not None and self._list.row(item) >= 0: self._list.takeItem(self._list.row(item))
+        if item is not None and self._tree.indexOfTopLevelItem(item) >= 0:
+            self._tree.takeTopLevelItem(self._tree.indexOfTopLevelItem(item))
         if card is not None:
-            delete_removed_widgets(self._list, [card.widget])
+            delete_removed_widgets(self._tree, [card.widget])
 
     def _clear_cards(self):
         for identity in tuple(self._cards): self._remove_card(identity)

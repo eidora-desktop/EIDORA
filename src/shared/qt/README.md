@@ -54,3 +54,42 @@ Keep feature computation and persistence out of these helpers.
 These are incremental UI rules, not a separate accessibility mode. Custom
 visualizations need their own interaction design; do not create one widget or
 accessibility object per plotted point as part of routine UI maintenance.
+
+`panel_rows.PanelRowHeader` sizes the Designer-owned two-line headers shared by
+Media Sources, Preview Assets, Models and Vector Data. An application-owned
+measurement group shares the largest natural control height across live rows,
+including hidden actions, and elides secondary summaries. Rows, header lines and
+buttons have no fixed height cap. Shared minimum heights and item size hints
+reserve both lines across states, while native button sizing stays intact.
+Font, style and layout changes update the measurements; shrinking controls or
+removing rows releases the extra space. The group holds only weak row references.
+Header layouts reserve full widget rectangles, including native button and
+progress-bar edges, so macOS layout margins cannot clip nested action groups.
+Each item view coalesces size-hint changes into a deferred layout, after card
+contents settle, so subsequent rows move without overlaps or stale gaps.
+Progress fills the second line up to its right-aligned controls. The list-colored
+outer wrapper keeps a six-pixel gap separate from the colored card. Feature controllers retain action and expansion ownership.
+
+### Editing panel row forms
+
+The four row forms can use nested layouts directly or place those layouts inside
+decorative widgets. `panel_rows.section_widget` reuses an existing host or gives
+a nested layout a runtime widget for visibility and minimum header sizing. It
+preserves the layout's margins, order, stretch and alignment; it never rewrites
+the `.ui` file. Decorative widget names are not controller bindings.
+
+Keep the functional controls' `objectName` and widget types (labels, progress
+bars, buttons, tables and tabs). Also keep these layout section names:
+
+- `layout_card_root`, `layout_row_header`, `layout_header`, `layout_summary`
+- `layout_progress` for the bar and its controls
+- `layout_row_details` in expandable Preview Assets and Vector Data cards
+- `layout_actions` for Media Source title actions
+
+These are the explicit Python/UI contract; renaming or deleting one requires
+updating its controller too. Within these sections, change arrangement, spacing
+and styling in Designer normally. Shared header sizing still reserves two lines
+that can grow to fit the controls. Preserve `iconName` and `surfaceRole` properties.
+Validate edits with `tests/gui/test_ui_loading.py` and
+`tests/unit/test_shared_panel_rows.py`; the latter exercises both wrapper-based
+and layout-only forms through idle, running and expanded states in both themes.

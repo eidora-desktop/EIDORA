@@ -13,6 +13,8 @@ class ProcessInputKind(str, Enum):
 class ProcessState(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
+    PAUSING = "pausing"
+    PAUSED = "paused"
     CANCELLING = "cancelling"
     COMPLETED = "completed"
     COMPLETED_WITH_WARNINGS = "completed_with_warnings"

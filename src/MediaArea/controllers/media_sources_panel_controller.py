@@ -10,6 +10,7 @@ from MediaArea.controllers.media_link_dialog_controller import MediaLinkDialogCo
 from MediaArea.controllers.media_source_jobs_controller import MediaSourceJobsController
 from MediaArea.controllers.media_source_row_controller import MediaSourceRowController
 from MediaArea import media_service
+from MediaArea.preview_names import default_preview_name
 from shared.qt.item_views import configure_panel_item_view
 from shared.qt.message_dialogs import show_error
 from shared.qt.panel_controller import UiPanelController
@@ -114,7 +115,6 @@ class MediaSourcesPanelController(UiPanelController):
         self._render_summaries(summaries)
 
     def _render_summaries(self, summaries, **_):
-        selected = self._selected_source_id()
         wanted = {summary.source.id for summary in summaries} | self._inspections.keys()
         # Add/update replacements before removing old or placeholder rows.
         for summary in summaries:
@@ -129,10 +129,6 @@ class MediaSourcesPanelController(UiPanelController):
                     delete_removed_widgets(self._table, [removed.widget])
         if not wanted:
             self._render_empty("No media sources imported")
-        elif selected in wanted:
-            self._select_source_row(selected)
-        else:
-            self._table.setCurrentCell(0, 0)
 
     def _update_source(self, summary):
         source_id = summary.source.id
@@ -150,6 +146,7 @@ class MediaSourcesPanelController(UiPanelController):
             row = MediaSourceRowController(self._table, source_id)
             self._rows[source_id] = row
             row.link.clicked.connect(lambda _checked=False: self._on_link_source(row.source_id))
+            row.create_previews.clicked.connect(lambda _checked=False: self._on_create_previews(row.source_id))
             row.options.clicked.connect(lambda _checked=False: self._open_source_menu(
                 row.source_id, row.options.mapToGlobal(row.options.rect().bottomLeft())))
             row.cancel.clicked.connect(lambda _checked=False: self._jobs.cancel_source(row.source_id))
@@ -164,12 +161,57 @@ class MediaSourcesPanelController(UiPanelController):
         if summary is not None and not active and not self._jobs.busy():
             from project.item_repository import ItemRepository
             can_match = summary.asset_count > 0 and ItemRepository.has_items(self._project.paths.metadata_database)
+        enabled, tooltip = self._preview_creation_state(source_id)
+        self._rows[source_id].create_previews.setEnabled(enabled)
+        self._rows[source_id].create_previews.setToolTip(tooltip)
         self._rows[source_id].options.setEnabled(summary is not None)
         self._rows[source_id].set_status(
             progress, active,
             has_matches=summary is not None and summary.linked_count > 0,
             can_match=can_match,
         )
+
+    def refresh_preview_actions(self):
+        for source_id, row in self._rows.items():
+            enabled, tooltip = self._preview_creation_state(source_id)
+            row.create_previews.setEnabled(enabled)
+            row.create_previews.setToolTip(tooltip)
+
+    def _preview_creation_state(self, source_id):
+        summary = self._summaries.get(source_id)
+        if summary is None:
+            return False, "Wait for this media source to finish indexing."
+        media_type = summary.source.content_type
+        if media_type in {MediaContentType.TEXT, MediaContentType.AUDIO}:
+            return True, f"{media_type.value.title()} preview creation is not implemented yet."
+        if summary.linked_count == 0:
+            return False, "Link this source to Items before creating previews."
+        if self._in_use(source_id):
+            return False, "This source is used by a queued or running process."
+        enabled = bool(self._can_create_thumbnails and self._can_create_thumbnails(source_id))
+        return enabled, ("Create Preview Assets from this source." if enabled
+                         else "No linked image or video files are available for previews.")
+
+    def _on_create_previews(self, source_id):
+        enabled, tooltip = self._preview_creation_state(source_id)
+        if not enabled:
+            self._show_status(tooltip)
+            return
+        self._scroll_to_source(source_id)
+        source = self._summaries[source_id].source
+        if source.content_type in {MediaContentType.TEXT, MediaContentType.AUDIO}:
+            dialog = QtWidgets.QMessageBox()
+            dialog.setWindowTitle(f"Create {source.content_type.value.title()} Previews")
+            dialog.setIcon(QtWidgets.QMessageBox.Icon.Information)
+            dialog.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+            dialog.setText(f"Preview creation for {source.content_type.value} sources is not implemented yet.")
+            name = default_preview_name(source.label, source.content_type.value)
+            dialog.setInformativeText(f"Source: {source.label}\nDefault name: {name}")
+            dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Close)
+            dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+            dialog.exec()
+        elif self._create_thumbnails is not None:
+            self._create_thumbnails(source_id)
 
     def _on_job_changed(self, source_id, progress, active):
         if not active and self._jobs.busy(source_id):
@@ -242,12 +284,12 @@ class MediaSourcesPanelController(UiPanelController):
             project = self._project
             source_id = "inspection:" + source_id_for_path(path)
             if self._jobs.busy(source_id):
-                self._select_source_row(source_id)
+                self._scroll_to_source(source_id)
                 return
             self._inspections[source_id] = path
             self._ensure_row(source_id).set_inspection(path)
             self._render_summaries(list(self._summaries.values()))
-            self._select_source_row(source_id)
+            self._scroll_to_source(source_id)
             self._jobs.submit(
                 source_id,
                 "Inspecting folder…" if path.is_dir() else "Inspecting archive…",
@@ -310,7 +352,7 @@ class MediaSourcesPanelController(UiPanelController):
                 content_type,
                 recursive=recursive,
             )
-            # Keep the visible row and selection through the inspection/indexing handoff.
+            # Keep the visible row through the inspection/indexing handoff.
             row = self._rows.pop(inspection_id)
             self._inspections.pop(inspection_id)
             self._states.pop(inspection_id, None)
@@ -325,7 +367,7 @@ class MediaSourcesPanelController(UiPanelController):
         from EmbeddingsArea.domain import MediaSourceSummary
         self._update_source(self._summaries.get(source.id) or MediaSourceSummary(source, 0, 0, 0, 0, 0))
         self._render_summaries(list(self._summaries.values()))
-        self._select_source_row(source.id)
+        self._scroll_to_source(source.id)
         self._pending_registrations.add(source.id)
         self._start_scan_worker(source.id, source.label, registration=source, inspection=inspection)
 
@@ -344,19 +386,15 @@ class MediaSourcesPanelController(UiPanelController):
             finished, failed,
             cleanup=inspection.cleanup if inspection is not None else None)
 
-    def _on_rescan_selected_source(self):
-        source_id = self._selected_source_id()
+    def _on_rescan_source(self, source_id):
         if source_id and not self._in_use(source_id):
             self._start_scan_worker(source_id, self._summaries[source_id].source.label)
 
-    def _on_link_selected_source(self):
-        self._on_link_source(self._selected_source_id())
-
     def _on_link_source(self, source_id):
         if not source_id or not self._session or self._jobs.busy() or self._in_use(source_id):
-            self._show_status("Select an available source before matching items.")
+            self._show_status("This source is unavailable for matching items.")
             return
-        self._select_source_row(source_id)
+        self._scroll_to_source(source_id)
         self._prompt_link_dialog(source_id)
 
     def _prompt_link_dialog(self, source_id):
@@ -435,14 +473,7 @@ class MediaSourcesPanelController(UiPanelController):
         directory = QtWidgets.QFileDialog.getExistingDirectory(self._widget, "Import Media Folder")
         return Path(directory) if directory else None
 
-    def _selected_source_id(self) -> str:
-        item = self._table.item(self._table.currentRow(), 0)
-        if item is None:
-            return ""
-        return str(item.data(QtCore.Qt.ItemDataRole.UserRole) or "").strip()
-
-    def _on_locate_selected_source(self):
-        source_id = self._selected_source_id()
+    def _on_locate_source(self, source_id):
         if not source_id or self._in_use(source_id):
             return
         from EmbeddingsArea.domain import MediaSourceKind
@@ -457,12 +488,11 @@ class MediaSourcesPanelController(UiPanelController):
                 lambda progress, cancel: media_service.relocate_source(project, source_id, path, progress, cancel),
                 self._on_operation_finished, self._failed)
 
-    def _on_remove_selected_source(self) -> None:
+    def _on_remove_source(self, source_id) -> None:
         if self._session is None:
             return
-        source_id = self._selected_source_id()
         if not source_id:
-            self._show_status("Select a media source before removing it.")
+            self._show_status("This media source is no longer available.")
             return
         if self._jobs.busy() or self._in_use(source_id):
             self._show_status("This media source is used by a queued or running process.")
@@ -489,12 +519,11 @@ class MediaSourcesPanelController(UiPanelController):
         self._notify_media_changed()
         self._show_status(f"Removed {source.label}")
 
-    def _on_rename_selected_source(self) -> None:
+    def _on_rename_source(self, source_id) -> None:
         if self._session is None:
             return
-        source_id = self._selected_source_id()
         if not source_id or self._jobs.busy() or self._in_use(source_id):
-            self._show_status("Select an available media source before renaming it.")
+            self._show_status("This media source is unavailable for renaming.")
             return
         source = self._session.media_library.require_source(source_id)
         label, accepted = QtWidgets.QInputDialog.getText(
@@ -512,7 +541,7 @@ class MediaSourcesPanelController(UiPanelController):
             show_error(self._widget, "Rename Media Source Failed", str(exc))
             return
         self.refresh()
-        self._select_source_row(source_id)
+        self._scroll_to_source(source_id)
         self._notify_media_changed()
         self._show_status(f"Renamed media source to {renamed.label}")
 
@@ -527,16 +556,13 @@ class MediaSourcesPanelController(UiPanelController):
     def _open_source_menu(self, source_id, global_position):
         if source_id not in self._summaries:
             return
-        self._select_source_row(source_id)
-        can_create = not self._in_use(source_id) and self._can_create_thumbnails is not None and self._can_create_thumbnails(source_id)
+        self._scroll_to_source(source_id)
         menu = QtWidgets.QMenu(self._widget)
         action_link = menu.addAction("Relink..." if self._summaries[source_id].linked_count else "Link...")
         from project.item_repository import ItemRepository
         action_link.setEnabled(not self._jobs.busy() and not self._in_use(source_id)
                                and ItemRepository.has_items(self._project.paths.metadata_database))
         menu.addSeparator()
-        action_thumbnails = menu.addAction("Create Preview Assets…")
-        action_thumbnails.setEnabled(can_create)
         action_locate = menu.addAction("Locate Source…")
         from EmbeddingsArea.domain import MediaSourceKind
         action_locate.setEnabled(not self._in_use(source_id) and
@@ -553,16 +579,14 @@ class MediaSourcesPanelController(UiPanelController):
         selected = self._exec_row_context_menu(menu, global_position)
         if selected == action_link:
             self._on_link_source(source_id)
-        elif selected == action_thumbnails and self._create_thumbnails is not None:
-            self._create_thumbnails(source_id)
         elif selected == action_locate:
-            self._on_locate_selected_source()
+            self._on_locate_source(source_id)
         elif selected == action_rescan:
-            self._on_rescan_selected_source()
+            self._on_rescan_source(source_id)
         elif selected == action_rename:
-            self._on_rename_selected_source()
+            self._on_rename_source(source_id)
         elif selected == action_remove:
-            self._on_remove_selected_source()
+            self._on_remove_source(source_id)
 
     @staticmethod
     def _exec_row_context_menu(
@@ -571,13 +595,13 @@ class MediaSourcesPanelController(UiPanelController):
     ) -> QtGui.QAction | None:
         return menu.exec(global_position)
 
-    def _select_source_row(self, source_id: str) -> None:
+    def _scroll_to_source(self, source_id: str) -> None:
         for row in range(self._table.rowCount()):
             item = self._table.item(row, 0)
             if item is None:
                 continue
             if str(item.data(QtCore.Qt.ItemDataRole.UserRole) or "").strip() == source_id:
-                self._table.setCurrentCell(row, 0)
+                self._table.scrollToItem(item)
                 return
 
     def _render_no_project(self) -> None:

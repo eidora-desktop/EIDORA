@@ -368,6 +368,18 @@ class ExecutionCoordinator(QtCore.QObject):
         kind = kind_or_id if identity is not None else "clustering"
         target = identity if identity is not None else kind_or_id
         state = self.state(kind, target)
+        if kind == "embedding" and self._session is not None and (state is None or state.state == "paused"):
+            # A paused run has no worker to cancel, including after reopening
+            # the project. Persist the transition through the normal run service.
+            run = self._session.runs.require_run(target)
+            if run.state == EmbeddingRunState.PAUSED:
+                cancelled = self._session.service.cancel_embedding_run(target)
+                if state is not None:
+                    state.state = cancelled.state.value
+                    state.detail = cancelled.state.value.capitalize()
+                    self._append_report(state, state.detail)
+                self.changed.emit()
+                return
         if state is None:
             if kind == "clustering" and self.service is not None:
                 self.service.repository.cancel_queued(target)

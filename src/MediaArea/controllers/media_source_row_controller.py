@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtWidgets
 
 from shared.qt.ui_loader import load_ui
+from shared.qt.panel_rows import PanelRowHeader, section_widget
 from shared.qt.icons import apply_icon_color, current_icon_theme
 from shared.qt.theme import THEMES
 from shared.qt.widgets import require_child
@@ -20,6 +21,7 @@ class MediaSourceRowController(QtCore.QObject):
         super().__init__(self.widget)
         self._table = table
         self.item = QtWidgets.QTableWidgetItem()
+        self.item.setFlags(self.item.flags() & ~QtCore.Qt.ItemFlag.ItemIsSelectable)
         self.item.setData(QtCore.Qt.ItemDataRole.UserRole, source_id)
         row = table.rowCount()
         table.insertRow(row)
@@ -30,17 +32,17 @@ class MediaSourceRowController(QtCore.QObject):
         self._count = require_child(self.widget, QtWidgets.QLabel, "label_file_count")
         self._matched = require_child(self.widget, QtWidgets.QLabel, "label_matched")
         self._status = require_child(self.widget, QtWidgets.QLabel, "label_status")
-        self._progress_panel = require_child(self.widget, QtWidgets.QWidget, "panel_progress")
+        self._progress_panel = section_widget(self.widget, "layout_progress")
         self._progress = require_child(self.widget, QtWidgets.QProgressBar, "progress_source")
         self.link = require_child(self.widget, QtWidgets.QPushButton, "button_link")
-        self._linked_label = require_child(self.widget, QtWidgets.QLabel, "label_linked")
-        link_width = self.link.sizeHint().width()
-        self.link.setFixedWidth(link_width)
-        self._linked_label.setFixedWidth(link_width)
+        self.create_previews = require_child(self.widget, QtWidgets.QPushButton, "button_create_previews")
         self.cancel = require_child(self.widget, QtWidgets.QPushButton, "button_cancel")
         self.options = require_child(self.widget, QtWidgets.QPushButton, "button_options")
-        self._body = require_child(self.widget, QtWidgets.QWidget, "panel_body")
-        self._actions = require_child(self.widget, QtWidgets.QWidget, "panel_actions")
+        self._body = section_widget(self.widget, "layout_header")
+        self._actions = section_widget(self.widget, "layout_actions")
+        self.header = PanelRowHeader(self.widget)
+        self.header.resized.connect(self._resize)
+        self._resize()
         self._linked = False
         self._icon_state = None
         self._texts = {}
@@ -91,12 +93,13 @@ class MediaSourceRowController(QtCore.QObject):
 
     def set_status(self, progress, active, *, has_matches=False, can_match=False):
         self._progress_panel.setVisible(active)
+        self._path.setVisible(not active)
         self._status.setVisible(active)
         self._count.setVisible(not active)
         self.cancel.setVisible(active)
         self.cancel.setEnabled(progress.stage not in {"Cancelling", "Saving"})
         self.link.setVisible(not active and not has_matches)
-        self._linked_label.setVisible(not active and has_matches)
+        self.create_previews.setVisible(not active and has_matches)
         self.link.setEnabled(can_match and not has_matches)
         self._linked = has_matches
         self._matched.setVisible(True)
@@ -117,7 +120,13 @@ class MediaSourceRowController(QtCore.QObject):
         self._fit_info()
         self._body.layout().activate()
         self.widget.layout().activate()
-        self._table.setRowHeight(self.item.row(), max(64, self.widget.sizeHint().height()))
+        self._resize()
+
+    def _resize(self):
+        height = self.header.collapsed_height
+        self.widget.setMinimumHeight(height)
+        self.widget.resize(self.widget.width(), height)
+        self._table.setRowHeight(self.item.row(), height)
 
     def _set_elided(self, label, text):
         self._texts[label] = text

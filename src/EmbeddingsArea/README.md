@@ -120,6 +120,12 @@ bar and cancellation; the original card retains its existing status and history.
 The destination identity stays the same when its saved artifact is published.
 Failed or cancelled unpublished copies remain visible until dismissed or the
 project is closed. Replacement runs stay in the existing card.
+Reduction uses the same progress bar and Cancel button as
+embedding generation. These controls remain available with details collapsed;
+Pause is disabled because PCA does not support resumable fitting.
+All activity text appears in the Progress textbox, with rapid live updates
+coalesced once per second between stage messages. Collapsed cards contain only
+their header and progress controls.
 Batch counts update without appending repeated log entries;
 ordinary PCA fitting shows indeterminate progress. The report includes method,
 source, vector count, original/reduced dimensions and output choice. Completed

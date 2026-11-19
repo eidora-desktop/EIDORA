@@ -65,6 +65,9 @@ class MediaAreaController:
             create=self._thumbnails_panel.open_for_source,
         )
         self._media_sources_panel.set_source_in_use_callback(self._source_in_use)
+        self._thumbnails_panel.set_availability_changed_callback(
+            self._media_sources_panel.refresh_preview_actions,
+        )
         self._thumbnails_panel.set_media_source_busy_callback(self._media_sources_panel.source_busy)
 
         horizontal_splitter = require_child(

@@ -49,6 +49,26 @@ if TYPE_CHECKING:
     from project.domain import Project
 
 
+def load_vector_info(session, run, dataset, model_label):
+    """Read one card's details using its captured session and published snapshot.
+
+    Suitable for a plain-data worker: no whole-library counts, dataset catalog
+    rescans, model discovery, or Qt objects are needed for this report.
+    """
+    from EmbeddingsArea.reporting import vector_info_rows
+    from EmbeddingsArea.runtime.readers import load_embedding_summary
+
+    configuration = session.service.get_embedding_run_configuration(run.id)
+    source_labels = []
+    for source_id in run.selected_source_ids:
+        try:
+            source_labels.append(session.media_library.require_source(source_id).label)
+        except ValueError:
+            source_labels.append(source_id)
+    summary = load_embedding_summary(Path(dataset.artifact_path)) if dataset and dataset.artifact_path else {}
+    return vector_info_rows(run, dataset, summary, source_labels, model_label, configuration.parameter_values)
+
+
 class EmbeddingCatalogService:
     def __init__(self, model_catalog: ModelCatalog) -> None:
         self._model_catalog = model_catalog

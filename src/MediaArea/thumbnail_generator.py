@@ -16,6 +16,7 @@ from uuid import uuid4
 from PIL import Image, ImageOps
 
 from MediaArea.thumbnail_images import write_thumbnail_sizes
+from MediaArea.thumbnail_pause import ThumbnailPause
 from shared.internal_workers import internal_worker_command, read_worker_result
 
 from DiscoveryArea.thumbnails.repository import (
@@ -81,6 +82,7 @@ def create_thumbnail_variant(
     resize_mode: str = "original_aspect",
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancellationCallback | None = None,
+    pause: ThumbnailPause | None = None,
     source_id: str = "",
     source_media_type: str = "image",
     video_frame_mode: str | None = None,
@@ -107,10 +109,15 @@ def create_thumbnail_variant(
         if stopped.is_set() or (should_cancel is not None and should_cancel()):
             raise ThumbnailGenerationCancelled(variant_id)
 
+    def checkpoint() -> None:
+        if pause is not None:
+            pause.checkpoint()
+        check_cancelled()
+
     matched: list[ThumbnailGenerationInput] = []
     seen_ids: set[int] = set()
     for item in inputs:
-        check_cancelled()
+        checkpoint()
         metadata_id = int(item.metadata_id)
         if metadata_id in seen_ids:
             raise ValueError(f"Duplicate thumbnail metadata ID: {metadata_id}")
@@ -119,7 +126,7 @@ def create_thumbnail_variant(
         if item_media_type != normalized_media_type:
             raise ValueError("Preview Assets cannot mix image and video inputs.")
         matched.append(ThumbnailGenerationInput(Path(item.path), metadata_id, item_media_type))
-    check_cancelled()
+    checkpoint()
     if not matched:
         raise RuntimeError("No linked media files are available for creating Preview Assets.")
 
@@ -139,11 +146,14 @@ def create_thumbnail_variant(
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="thumb-gen") as pool:
             input_iterator = iter(matched)
             pending = set()
+            exhausted = False
 
             def submit_next() -> None:
-                nonlocal current_file
+                nonlocal current_file, exhausted
                 item = next(input_iterator, None)
-                if item is not None:
+                if item is None:
+                    exhausted = True
+                else:
                     current_file = item.path.name
                     processor = _process_video if normalized_media_type == "video" else _process_image
                     pending.add(pool.submit(
@@ -158,10 +168,16 @@ def create_thumbnail_variant(
                     ))
 
             try:
-                for _ in range(min(len(matched), workers * 2)):
-                    submit_next()
-                while pending:
+                while pending or not exhausted:
+                    # Drain in-flight files before acknowledging a pause. In
+                    # particular, video subprocesses must finish or be cancelled.
+                    if not pending:
+                        checkpoint()
                     check_cancelled()
+                    while not exhausted and len(pending) < workers * 2 and not (pause and pause.requested):
+                        submit_next()
+                    if not pending:
+                        continue
                     completed, pending = wait(pending, timeout=0.1, return_when=FIRST_COMPLETED)
                     check_cancelled()
                     for future in completed:
@@ -174,7 +190,6 @@ def create_thumbnail_variant(
                             logger.warning("Thumbnail source skipped: %s", exc)
                             if len(errors) < 20:
                                 errors.append(str(exc))
-                        submit_next()
                     now = time.monotonic()
                     # Bound progress traffic even when inputs finish very quickly.
                     elapsed = now - last_reported_at
@@ -194,7 +209,7 @@ def create_thumbnail_variant(
                     future.cancel()
                 raise
 
-        check_cancelled()
+        checkpoint()
         if not entries:
             raise RuntimeError(f"No Preview Assets created: {failed} failed, {missing} missing.\n" + "\n".join(errors))
         generated = done - failed - missing

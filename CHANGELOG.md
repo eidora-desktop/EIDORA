@@ -4,6 +4,32 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Open Vector Data Info tabs and cards without blocking the interface: remove whole-library scans, load details in the background and reuse them across tab switches.
+
+- Let panel rows grow to fit native and styled buttons, sharing minimum header heights across Media Sources, Preview Assets, Models and Vector Data without fixed height caps.
+
+- Keep panel row bindings working when Designer replaces decorative widget wrappers with nested layouts, including the Vector Data progress controls.
+
+- Hide Preview Assets options while jobs are active, matching Vector Data; keep the menu available when paused or finished.
+
+- Let active panel jobs use the full second line for progress and right-aligned controls, restoring info labels when idle. Use standard button heights and list-colored gaps between cards.
+
+- Unify Media Sources, Preview Assets, Models and Vector Data with stable two-line headers, compact progress and direct row actions. Keep Models and Media Sources non-expandable, anchor expanded details below the header, and remove outer-row selection and hover highlights.
+
+- Match Vector Data cards to Preview Assets using a full-width tree, consistent collapsed row height, keyboard expansion and elided names. Preserve live cards when their order changes.
+
+- Move live embedding and PCA activity text into the Progress textbox, coalescing rapid updates. Collapsed Vector Data cards now show only the header and progress controls.
+
+- Bind Preview Assets to the revised Model Run card design, with an inline expandable details table, visible job controls while collapsed, and height fitted to the Designer layout.
+
+- Reuse the existing Vector Data card progress bar and Cancel button for PCA reduction, removing the duplicate reduction activity controls. Disable Pause while PCA is running.
+
+- Simplify Preview Assets into compact expandable rows matching Media Sources height, with source context in details, live progress and adjacent Pause/Resume and Cancel controls, an options menu, and one settings/results section. Preserve expansion through publication and refresh; show actual generated counts and skip totals.
+
+- Redesign New Preview Assets to match Run Embeddings with a source heading, compact stacked controls and a separate action footer. Use media-specific default names for manual and automatic previews, including `(thumbs)` for images and `(frames)` for video stills.
+
+- Create previews directly from Media Source rows with source-specific image/video settings and informational Text/Audio placeholders. Show Link on unlinked sources and replace it with Create Previews once linked; show jobs and outputs in Preview Assets and remove its Add New button.
+
 - Start PCA copies in their own destination card immediately, with source-import history, progress and cancellation. Preserve the card through publication and keep replacement jobs in the original card.
 - Move Vector Data’s model, status and processed-item summary into the Progress activity log, removing the separate label above it.
 - Move PCA progress and cancellation into Progress, retaining method, dimension changes, variance and duration in saved results. Simplify Vector Data Info to dataset facts and reduction summaries, with technical details collapsed by default.

@@ -9,8 +9,10 @@ from PySide6 import QtCore, QtWidgets
 
 from EmbeddingsArea.domain import EmbeddingRunState
 from shared.qt.icons import apply_icon_color
+from shared.qt.background_tasks import BackgroundTasks
 from shared.qt.item_views import configure_panel_item_view
 from shared.qt.ui_loader import load_ui
+from shared.qt.panel_rows import PanelRowHeader, section_widget
 from shared.qt.widgets import require_child
 
 
@@ -53,6 +55,10 @@ class VectorDataCardController(QtCore.QObject):
         self._pending_records: list[dict] = []
         self._cluster_progress: dict[str, tuple[QtWidgets.QProgressBar, QtWidgets.QTreeWidgetItem]] = {}
         self._info_loaded = False
+        self._info_revision = 0
+        self._info_requested_revision = None
+        self._info_values = None
+        self._info_tasks = None
         self._active = False
         self._presented_execution_state = ""
         self._model_label = "Imported"
@@ -63,9 +69,17 @@ class VectorDataCardController(QtCore.QObject):
         self._last_diagnostics = ""
         self._last_execution_note = ""
         self._last_report_summary = ""
+        self._last_activity = ""
+        self._pending_activity = ""
+        self._activity_timer = QtCore.QTimer(self)
+        self._activity_timer.setSingleShot(True)
+        self._activity_timer.setInterval(1000)
+        self._activity_timer.timeout.connect(self._flush_activity)
         self._summary_key = None
         self._saved_summary = {}
         self._presented_reduction = None
+        self._sizing = False
+        self._name_text = ""
         self._info_loader: Callable[[], list[tuple[str, object]]] | None = None
 
         self.toggle = require_child(self.widget, QtWidgets.QToolButton, "button_toggle_details")
@@ -73,20 +87,17 @@ class VectorDataCardController(QtCore.QObject):
         self.name = require_child(self.widget, QtWidgets.QLabel, "label_run_name")
         self.status = require_child(self.widget, QtWidgets.QLabel, "label_status")
         self.progress = require_child(self.widget, QtWidgets.QProgressBar, "progress_run")
-        self.progress_control = require_child(self.widget, QtWidgets.QWidget, "progress_control")
+        self.progress_control = section_widget(self.widget, "layout_progress")
         self.pause = require_child(self.widget, QtWidgets.QPushButton, "button_pause_run")
         self.cancel = require_child(self.widget, QtWidgets.QPushButton, "button_cancel_run")
+        self.header = PanelRowHeader(self.widget)
+        self.summary = require_child(self.widget, QtWidgets.QLabel, "label_row_summary")
+        self._body = section_widget(self.widget, "layout_row_details")
+        self.header.resized.connect(self._resize)
         self.options = require_child(self.widget, QtWidgets.QPushButton, "button_run_options")
         self.info = require_child(self.widget, QtWidgets.QTreeWidget, "tree_run_info")
         self.progress_report = require_child(self.widget, QtWidgets.QPlainTextEdit, "edit_execution_report")
-        self.execution_activity = require_child(self.widget, QtWidgets.QLabel, "label_execution_activity")
         self.progress_tab = require_child(self.widget, QtWidgets.QWidget, "tab_progress")
-        self.reduction_progress_panel = require_child(self.widget, QtWidgets.QWidget, "panel_reduction_progress")
-        self.reduction_activity = require_child(self.widget, QtWidgets.QLabel, "label_reduction_activity")
-        self.reduction_progress = require_child(self.widget, QtWidgets.QProgressBar, "progress_reduction")
-        self.reduction_cancel = require_child(self.widget, QtWidgets.QPushButton, "button_cancel_reduction")
-        self.reduction_cancel.clicked.connect(self._cancel_reduction)
-        self.reduction_progress_panel.hide()
         self.progress_tab.installEventFilter(self)
         self.progress_control.installEventFilter(self)
         self.info_tab = require_child(self.widget, QtWidgets.QWidget, "tab_run_info")
@@ -106,8 +117,8 @@ class VectorDataCardController(QtCore.QObject):
         self.cluster_tree.header().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
         self.toggle.toggled.connect(self._toggle_details)
         self.tabs.currentChanged.connect(self._tab_changed)
-        self.pause.clicked.connect(lambda: self.on_action(self.run_id, "pause", None))
-        self.cancel.clicked.connect(lambda: self.on_action(self.run_id, "cancel", None))
+        self.pause.clicked.connect(self._pause_run)
+        self.cancel.clicked.connect(self._cancel_run)
         self.options.clicked.connect(lambda: self.on_action(self.run_id, "menu", self.options))
         self.add_clustering.clicked.connect(lambda: self.on_action(self.run_id, "cluster", None))
         self.progress_report.setVerticalScrollBarPolicy(
@@ -117,13 +128,21 @@ class VectorDataCardController(QtCore.QObject):
         progress_scroll.valueChanged.connect(self._progress_scroll_changed)
         progress_scroll.rangeChanged.connect(self._progress_scroll_range_changed)
         self.tabs.setVisible(False)
+        self._body.hide()
+        self.name.installEventFilter(self)
+        self.widget.installEventFilter(self)
 
     def update(self, run, dataset, records, model_label: str, info_loader) -> None:
         self._execution_note = dataset.execution_note if dataset else ""
         self._run, self._dataset = run, dataset
         self._info_loader = info_loader
-        self.name.setText(run.label)
+        self._info_revision += 1
+        self._name_text = run.label
+        self.name.setToolTip(run.label)
+        self._elide_name()
         self._model_label = model_label or "Imported"
+        dimensions = f" · {dataset.dimensions:,} dimensions" if dataset is not None else ""
+        self.header.set_text(self.summary, self._model_label + dimensions)
         item_count = dataset.item_count if dataset is not None else max(run.processed_items, run.prepared_input_count)
         self._item_count_label = f"{item_count:,} vector{'s' if item_count != 1 else ''}"
         self._storage_tooltip = ""
@@ -144,7 +163,7 @@ class VectorDataCardController(QtCore.QObject):
         self._pending_records = list(records)
         if not self.tabs.isHidden() and self.tabs.currentWidget() is self.clusters_tab:
             self._update_clusters(self._pending_records)
-        if self._info_loaded:
+        if not self.tabs.isHidden() and self.tabs.currentWidget() is self.info_tab:
             self._load_info()
         self._resize()
 
@@ -161,10 +180,19 @@ class VectorDataCardController(QtCore.QObject):
     def _reduction_state(self):
         return self.coordinator.reduction_state(self.run_id)
 
-    def _cancel_reduction(self):
+    def _pause_run(self):
         state = self._reduction_state()
-        if state is not None:
+        if state is None or state.state not in _ACTIVE:
+            live = self.coordinator.state("embedding", self.run_id)
+            paused = self._run.state == EmbeddingRunState.PAUSED and (live is None or live.state not in _ACTIVE)
+            self.on_action(self.run_id, "resume" if paused else "pause", None)
+
+    def _cancel_run(self):
+        state = self._reduction_state()
+        if state is not None and state.state in _ACTIVE:
             self.coordinator.cancel("reduction", state.id)
+        else:
+            self.on_action(self.run_id, "cancel", None)
 
     def update_reduction_progress(self):
         self._update_progress_report()
@@ -206,8 +234,12 @@ class VectorDataCardController(QtCore.QObject):
 
     def _toggle_details(self, checked: bool) -> None:
         self.toggle.setProperty("iconName", "down" if checked else "next")
+        text = "Hide vector data details" if checked else "Show vector data details"
+        self.toggle.setToolTip(text)
+        self.toggle.setAccessibleName(text)
         apply_icon_color(self.toggle)
         self.tabs.setVisible(checked)
+        self._body.setVisible(checked)
         if checked and self.tabs.currentWidget() is self.info_tab:
             self._load_info()
         elif checked and self.tabs.currentWidget() is self.clusters_tab:
@@ -227,11 +259,35 @@ class VectorDataCardController(QtCore.QObject):
         self._resize()
 
     def _load_info(self) -> None:
+        if self._info_requested_revision == self._info_revision:
+            return
+        if self._info_tasks is None:
+            self._info_tasks = BackgroundTasks(self)
+            self._info_tasks.finished.connect(self._info_ready)
+            self._info_tasks.failed.connect(self._info_failed)
+        self._info_requested_revision = self._info_revision
+        if not self._info_loaded:
+            self._render_info([("Status", "Loading details…")])
+        loader = self._info_loader
+        self._info_tasks.submit(self._info_revision, lambda _progress: loader() if loader is not None else [])
+
+    def _info_ready(self, revision, values) -> None:
+        if revision != self._info_revision:
+            return
         self._info_loaded = True
-        try:
-            values = self._info_loader() if self._info_loader is not None else []
-        except Exception as exc:  # noqa: BLE001
-            values = [("Diagnostics", str(exc))]
+        if values != self._info_values:
+            self._render_info(values)
+            self._info_values = values
+
+    def _info_failed(self, revision, message) -> None:
+        if revision != self._info_revision:
+            return
+        self._info_requested_revision = None  # Allow retry on the next visit.
+        self._info_loaded = False
+        self._info_values = None
+        self._render_info([("Diagnostics", message)])
+
+    def _render_info(self, values) -> None:
         old_count = self.info.topLevelItemCount()
         technical_expanded = any(self.info.topLevelItem(index).text(0) == "Technical details"
                                  and self.info.topLevelItem(index).isExpanded() for index in range(old_count))
@@ -270,9 +326,13 @@ class VectorDataCardController(QtCore.QObject):
         return item
 
     def _update_status(self) -> None:
+        self.pause.setText("Pause")
         reduction = self._reduction_state()
         if reduction is not None and reduction.state in _ACTIVE:
-            self._set_active_header(False)
+            self._set_active_header(True)
+            self.pause.setEnabled(False)
+            self.pause.setToolTip("PCA reduction cannot be paused. Use Cancel to stop it.")
+            self.cancel.setEnabled(reduction.state != "cancelling")
             self.status.setText("Reducing" if reduction.state == "running" else reduction.state.capitalize())
             self.status.setToolTip(reduction.detail)
             self.add_clustering.setEnabled(False)
@@ -293,11 +353,21 @@ class VectorDataCardController(QtCore.QObject):
             self.status.setToolTip(live.detail or live_label)
             self._show_active_progress()
             self.pause.setEnabled(live.state in {"queued", "running"})
+            self.pause.setToolTip("")
             self.cancel.setEnabled(live.state != "cancelling")
             self.update_progress(live.progress, live.detail)
             return
-        self._set_active_header(False)
         state = self._run.state
+        paused = state == EmbeddingRunState.PAUSED
+        self._set_active_header(paused)
+        if paused:
+            self.options.show()
+            self.pause.setText("Resume")
+            self.pause.setEnabled(bool(self._run.selected_model_id))
+            self.pause.setToolTip("Resume this embedding run")
+            self.cancel.setEnabled(True)
+            self.progress.setRange(0, 100)
+            self.progress.setValue(max(0, min(100, live.progress if live is not None else self._run.progress)))
         if state == EmbeddingRunState.COMPLETED:
             label = self._item_count_label
         else:
@@ -328,7 +398,7 @@ class VectorDataCardController(QtCore.QObject):
                 self.tabs.setCurrentWidget(self.progress_tab)
 
     def _set_active_header(self, active: bool) -> None:
-        """Swap the one-line card header between live controls and result metadata."""
+        """Swap controls without changing the two-line header geometry."""
         self._active = active
         self.tabs.setTabVisible(self.tabs.indexOf(self.clusters_tab), not active)
         for widget in (self.options,):
@@ -336,7 +406,9 @@ class VectorDataCardController(QtCore.QObject):
         self.toggle.setVisible(True)
         self.status.setVisible(True)
         self.progress_control.setVisible(active)
+        self.summary.setVisible(not active)
         self.tabs.setVisible(self.toggle.isChecked())
+        self._body.setVisible(self.toggle.isChecked())
 
     def _show_active_progress(self) -> None:
         if self._presented_execution_state != "active":
@@ -345,27 +417,38 @@ class VectorDataCardController(QtCore.QObject):
             self.toggle.setChecked(True)
 
     def eventFilter(self, watched, event):
+        if watched is self.name and event.type() in {QtCore.QEvent.Type.Resize, QtCore.QEvent.Type.FontChange}:
+            self._elide_name()
+        if watched is self.widget and event.type() in {QtCore.QEvent.Type.Resize, QtCore.QEvent.Type.LayoutRequest}:
+            self._resize()
         if watched in (self.progress_tab, self.progress_control) and event.type() == QtCore.QEvent.Type.Show:
             self._update_progress_report()
         return super().eventFilter(watched, event)
 
-    def _update_progress_report(self, *, progress: int | None = None, detail: str | None = None) -> None:
+    def _flush_activity(self):
+        self._update_progress_report(detail=self._pending_activity, flush_activity=True)
+
+    def _update_progress_report(self, *, progress: int | None = None, detail: str | None = None, flush_activity=False) -> None:
         if self._run is None or not self.widget.isVisible():
             return
         reduction = self._reduction_state()
         reducing = reduction is not None and reduction.state in _ACTIVE
-        self.reduction_progress_panel.setVisible(reducing)
         if reducing:
-            self.reduction_activity.setText(reduction.detail)
-            self.reduction_cancel.setEnabled(reduction.state != "cancelling")
-            self.reduction_progress.setRange(0, 0 if reduction.progress < 0 else 100)
+            self.cancel.setEnabled(reduction.state != "cancelling")
+            self.progress.setToolTip(reduction.detail)
+            self.progress.setRange(0, 0 if reduction.progress < 0 else 100)
             if reduction.progress >= 0:
-                self.reduction_progress.setValue(reduction.progress)
+                self.progress.setValue(reduction.progress)
         embedding = self.coordinator.state("embedding", self.run_id)
         embedding_state = embedding.state if embedding is not None else self._run.state.value
-        activity = (detail if detail is not None else embedding.detail if embedding else "") if embedding_state in _ACTIVE else embedding_state.replace("_", " ").capitalize()
-        self.execution_activity.setText(activity or "Working…")
+        activity = ""
+        if reducing:
+            activity = reduction.detail
+        elif embedding_state in _ACTIVE:
+            activity = detail if detail is not None else embedding.detail if embedding else ""
+        self._pending_activity = activity
         if not self.progress_tab.isVisible():
+            self._activity_timer.stop()
             return
         summary_error = ""
         try:
@@ -396,6 +479,7 @@ class VectorDataCardController(QtCore.QObject):
             self._report_state = live
             self._rendered_report_end = offset
             self._last_diagnostics = self._last_execution_note = self._last_report_summary = ""
+            self._last_activity = ""
         lines = report[self._rendered_report_end - offset:]
         self._rendered_report_end = offset + len(report)
         if summary != self._last_report_summary:
@@ -414,6 +498,16 @@ class VectorDataCardController(QtCore.QObject):
         if note and note != self._last_execution_note:
             lines.extend(("", "Execution note", "--------------", note))
         self._last_execution_note = note
+        if activity and activity != self._last_activity:
+            if flush_activity or lines:
+                if activity not in lines and (not report or report[-1] != activity):
+                    lines.append(activity)
+                self._last_activity = activity
+                self._activity_timer.stop()
+            elif not self._activity_timer.isActive():
+                self._activity_timer.start()
+        elif not activity:
+            self._activity_timer.stop()
         if not lines:
             return
         scroll_bar = self.progress_report.verticalScrollBar()
@@ -551,10 +645,27 @@ class VectorDataCardController(QtCore.QObject):
             return ", ".join(str(item) for item in value)
         return str(value if value not in (None, "") else "—")
 
+    def _elide_name(self):
+        self.name.setText(self.name.fontMetrics().elidedText(
+            self._name_text, QtCore.Qt.TextElideMode.ElideRight,
+            max(0, self.name.contentsRect().width() - max(0, self.name.indent())),
+        ))
+
     def _resize(self) -> None:
-        # QListWidget owns the card width. Calling adjustSize() here applies the
-        # current tab's intrinsic width and visibly narrows the card when the
-        # Clusters page has a smaller size hint. Only the row height belongs to
-        # the card binder.
-        self.widget.updateGeometry()
-        self.resized.emit()
+        # Match Preview Assets: the tree owns width, the form owns row height.
+        if self._sizing:
+            return
+        self._sizing = True
+        try:
+            self.widget.layout().activate()
+            height = self.header.collapsed_height
+            if not self._body.isHidden():
+                height += self._body.sizeHint().height()
+            changed = self.widget.minimumHeight() != height
+            if changed:
+                self.widget.setMinimumHeight(height)
+            self.widget.resize(self.widget.width(), height)
+            if changed:
+                self.resized.emit()
+        finally:
+            self._sizing = False
