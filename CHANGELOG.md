@@ -6,6 +6,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Keep tooltip feedback clear of its settings panel and separate text box width from font size, retaining the preview-size controls for text assets.
 
+- Right-click an Item in Pan or Selection mode to create a Pin using the saved scope or open Show Item.
+
 - Create Pins directly from the selected item dialog. Hold the Pin button to choose Collection-wide or Projection only, with the choice remembered across EIDORA sessions and Collection-wide as the default.
 
 - Use a consistent set of open, closed, and pointing-hand cursors with matching finger widths, outlines, and palms. Show the pointing hand over clickable canvas Items and Pin playback controls.

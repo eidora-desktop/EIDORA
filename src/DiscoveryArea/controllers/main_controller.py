@@ -15,6 +15,7 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 from shiboken6 import isValid
 
+from application_settings.repository import ApplicationPreferences
 from EmbeddingsArea.domain import EmbeddingRunState
 from EmbeddingsArea.repository import EmbeddingRunRepository
 from DiscoveryArea.controllers.area_export_dialog_controller import (
@@ -1266,6 +1267,10 @@ class DiscoveryAreaController:
             self._canvas_widget.lasso_status_hint_changed.connect(self._show_status)
             self._canvas_widget.pinned_annotations_changed.connect(self._handle_canvas_pins_changed)
             self._canvas_widget.pin_context_requested.connect(self._handle_pin_context_requested)
+            self._canvas_widget.point_context_requested.connect(
+                self._handle_item_context_requested,
+                QtCore.Qt.ConnectionType.QueuedConnection,
+            )
             self._canvas_widget.point_selection_requested.connect(
                 self._handle_canvas_point_selection_requested
             )
@@ -2477,6 +2482,29 @@ class DiscoveryAreaController:
         controller = self._selection_actions_dialog_controller
         if controller is not None:
             controller.apply_neighbor_failure(int(revision), str(message))
+
+    def _handle_item_context_requested(self, metadata_id: int, global_pos: object) -> None:
+        canvas = self._canvas_widget
+        if canvas is None or self._shutting_down:
+            return
+        self._hide_tooltip_popup()
+        position = global_pos if isinstance(global_pos, QtCore.QPoint) else QtGui.QCursor.pos()
+        revision = self._selection_session_revision
+        menu = QtWidgets.QMenu(self._widget)
+        create_pin = menu.addAction("Create Pin")
+        show_item = menu.addAction("Show Item…")
+        create_pin.setEnabled(not self._metadata_pin_scope_mode(metadata_id))
+        try:
+            chosen = menu.exec(position)
+            if (self._shutting_down or canvas is not self._canvas_widget
+                    or revision != self._selection_session_revision):
+                return
+            if chosen == create_pin:
+                self._set_selection_pin_scope(metadata_id, ApplicationPreferences().read()["pin_scope"])
+            elif chosen == show_item:
+                self._handle_canvas_point_selection_requested(metadata_id, position)
+        finally:
+            menu.deleteLater()
 
     def _handle_pin_context_requested(self, annotation_id: str, global_pos: object) -> None:
         canvas = self._canvas_widget

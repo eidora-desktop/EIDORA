@@ -2374,10 +2374,12 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                     self._update_cursor_from_pointer_event(mouse_event)
                     return True
             if (
-                self._interaction_mode in {"selection", "pin"}
+                self._interaction_mode in {"pan", "selection", "pin"}
                 and mouse_event.button() == QtCore.Qt.MouseButton.RightButton
             ):
-                target = self._hit_test_pin(release_pos) or self._pinned_annotation_id_at_point(release_pos)
+                target = self._hit_test_pin(release_pos)
+                if target is None and self._interaction_mode == "pin":
+                    target = self._pinned_annotation_id_at_point(release_pos)
                 if target is not None:
                     self._click_press_pos = None
                     self.pin_context_requested.emit(target, self.mapToGlobal(release_pos.toPoint()))
@@ -2427,7 +2429,8 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                     self._toggle_or_create_pin(metadata_id)
                     return True
                 self.point_clicked.emit(metadata_id)
-            elif mouse_event.button() == QtCore.Qt.MouseButton.RightButton:
+            elif (mouse_event.button() == QtCore.Qt.MouseButton.RightButton
+                    and self._interaction_mode in {"pan", "selection"}):
                 self.point_context_requested.emit(metadata_id, self.mapToGlobal(release_pos.toPoint()))
             return True
         if event.type() == QtCore.QEvent.Type.Wheel:
