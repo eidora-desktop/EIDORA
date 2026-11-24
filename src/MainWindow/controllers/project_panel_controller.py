@@ -21,9 +21,8 @@ class ProjectPanelController:
         delete: Callable[[Project], object],
     ) -> None:
         self._project: Project | None = None
-        self._label = require_child(window, QtWidgets.QLabel, "project_label")
-        self._label.setTextFormat(QtCore.Qt.TextFormat.PlainText)
-        button = require_child(window, QtWidgets.QPushButton, "button_project")
+        self._label = require_child(window, QtWidgets.QToolButton, "project_label")
+        button = self._label
         self._menu = QtWidgets.QMenu(button)
         self._switch_timer = QtCore.QTimer(button)
         self._switch_timer.setSingleShot(True)
@@ -50,8 +49,10 @@ class ProjectPanelController:
 
     def set_project(self, project: Project | None) -> None:
         self._project = project
-        self._label.setText(project.name if project is not None else "No project selected")
-        self._label.setToolTip(str(project.root) if project is not None else "")
+        name = project.name if project is not None else "No project selected"
+        self._label.setText(name.replace("&", "&&"))
+        self._label.setAccessibleName(name)
+        self._label.setToolTip(f"{name}\n{project.root}" if project is not None else "")
         for action in self._project_actions:
             action.setEnabled(project is not None)
 

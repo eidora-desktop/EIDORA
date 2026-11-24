@@ -10,6 +10,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Simplify the Project Chooser’s More Options menu: Settings opens directly on Storage, followed by a separator; remove the separate Storage action.
 
+- Open project actions from the project-name dropdown in the main navigation bar and use the full EIDORA wordmark for Settings.
+
 - Add confirmed bulk deletion for projects in the Settings Project Location, closing the active project and waiting for saves first. Move preset selection and deletion controls into the Presets tab.
 
 - Use basic and expandable advanced parameter tables for Preview Asset creation, with aligned Asset Type and Output name form rows, Reset defaults, and saved settings. Expose image/video quality, video/GIF frame-rate and size limits, audio bitrate/channels, GIF palette/dithering, and reproducible random seeds.

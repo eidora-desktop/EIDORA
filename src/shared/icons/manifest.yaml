@@ -4,6 +4,9 @@ icons:
   trash:
     source: Trash icon for resource removal
     size: 40
+  eidora_wordmark:
+    source: EIDORA full wordmark
+    size: 104
   eidora:
     source: EIDORA simplified E mark
     size: 40
