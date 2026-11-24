@@ -5,8 +5,12 @@ import logging
 from shared.persistence import json_store
 
 
-DEFAULTS = {"appearance": "system", "startup": "chooser"}
-CHOICES = {"appearance": {"system", "light", "dark"}, "startup": {"chooser", "last_project"}}
+DEFAULTS = {"appearance": "system", "startup": "chooser", "pin_scope": "project"}
+CHOICES = {
+    "appearance": {"system", "light", "dark"},
+    "startup": {"chooser", "last_project"},
+    "pin_scope": {"project", "projection"},
+}
 
 
 class ApplicationPreferences:

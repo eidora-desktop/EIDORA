@@ -6,6 +6,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Keep tooltip feedback clear of its settings panel and separate text box width from font size, retaining the preview-size controls for text assets.
 
+- Create Pins directly from the selected item dialog. Hold the Pin button to choose Collection-wide or Projection only, with the choice remembered across EIDORA sessions and Collection-wide as the default.
+
 - Use a consistent set of open, closed, and pointing-hand cursors with matching finger widths, outlines, and palms. Show the pointing hand over clickable canvas Items and Pin playback controls.
 
 - Show saved text excerpts directly in Pins with compact font and font-size controls, theme colors, background text loading for visible cards, and support for canvas exports. Resizing reflows text without scaling it or generating preview images.

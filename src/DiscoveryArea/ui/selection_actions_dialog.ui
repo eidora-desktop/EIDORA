@@ -121,6 +121,15 @@
       </item>
       <item alignment="Qt::AlignmentFlag::AlignTop">
        <widget class="QToolButton" name="button_pin_menu">
+        <property name="styleSheet">
+         <string notr="true">QToolButton#button_pin_menu::menu-indicator { width: 5px; height: 3px; subcontrol-position: bottom right; right: 2px; bottom: 2px; }</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+        <property name="popupMode">
+         <enum>QToolButton::DelayedPopup</enum>
+        </property>
         <property name="minimumSize">
          <size>
           <width>28</width>

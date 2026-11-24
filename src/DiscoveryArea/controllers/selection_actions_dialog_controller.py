@@ -10,11 +10,13 @@ from typing import Protocol
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from application_settings.repository import ApplicationPreferences
 from DiscoveryArea.controllers.text_preview_panel_controller import TextPreviewPanelController
 from DiscoveryArea.domain import ItemMediaSource
 from DiscoveryArea.nearest_neighbors import NeighborSearchRequest, NeighborSearchResult
 from DiscoveryArea.thumbnails.service import DecodedThumbnail, ThumbnailDecodeFailure
 from shared.qt.icons import apply_icon_color
+from shared.qt.message_dialogs import show_error
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
 
@@ -154,8 +156,9 @@ class SelectionActionsDialogController(QtCore.QObject):
     _NEIGHBOR_INITIAL_COUNT = 12
     _NEIGHBOR_BATCH_COUNT = 9
 
-    def __init__(self) -> None:
+    def __init__(self, *, preferences: ApplicationPreferences | None = None) -> None:
         super().__init__()
+        self._preferences = preferences if preferences is not None else ApplicationPreferences()
         self._connections = []
         self._event_loop: QtCore.QEventLoop | None = None
         self._grid_fill_timer = QtCore.QTimer(self)
@@ -310,48 +313,60 @@ class SelectionActionsDialogController(QtCore.QObject):
             if str(data.pin_scope_mode).strip().lower() == "project"
             else ""
         )
+        preferred_scope = self._preferences.read()["pin_scope"]
         menu = QtWidgets.QMenu(button)
-        collection_wide = menu.addAction("Create Pin - Collection Wide")
-        projection_exclusive = menu.addAction(
-            "Create Pin - This Projection Only"
-        )
-        menu.addSeparator()
-        remove_pin = menu.addAction("Remove Pin")
+        collection_wide = menu.addAction("Collection-wide")
+        projection_exclusive = menu.addAction("Projection only")
+        scopes = QtGui.QActionGroup(menu)
         collection_wide.setCheckable(True)
         projection_exclusive.setCheckable(True)
+        scopes.addAction(collection_wide)
+        scopes.addAction(projection_exclusive)
 
-        def show_scope(scope: str) -> None:
+        def show_scope() -> None:
+            scope = current_scope or preferred_scope
             collection_wide.setChecked(scope == "project")
             projection_exclusive.setChecked(scope == "projection")
-            remove_pin.setEnabled(bool(scope))
-            button.setToolTip(
-                "Change pin scope" if scope else "Create pin"
-            )
+            button.setChecked(bool(current_scope))
+            action = "Remove pin" if current_scope else "Create pin"
+            label = "Collection-wide" if scope == "project" else "Projection only"
+            button.setToolTip(f"{action} ({label}). Press and hold to change scope.")
+            button.setAccessibleName(action)
 
-        show_scope(current_scope)
+        show_scope()
         button.setEnabled(set_pin_scope is not None)
         button.setMenu(menu)
-        button.setPopupMode(
-            QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup
-        )
-        button.setStyleSheet(
-            "QToolButton::menu-indicator { image: none; width: 0px; height: 0px; }"
-        )
 
         def change_scope(scope: str) -> None:
             nonlocal current_scope
             if scope == current_scope:
-                show_scope(current_scope)
                 return
             if set_pin_scope is None or not set_pin_scope(scope):
-                show_scope(current_scope)
                 return
             current_scope = scope
-            show_scope(current_scope)
 
-        self._connect(collection_wide.triggered, lambda: change_scope("project"))
-        self._connect(projection_exclusive.triggered, lambda: change_scope("projection"))
-        self._connect(remove_pin.triggered, lambda: change_scope(""))
+        def choose_scope(scope: str) -> None:
+            nonlocal preferred_scope
+            if current_scope:
+                change_scope(scope)
+                if current_scope != scope:
+                    show_scope()
+                    return
+            try:
+                self._preferences.update(pin_scope=scope)
+            except OSError as exc:
+                show_error(dialog, "Pin Scope Could Not Be Saved", str(exc))
+            else:
+                preferred_scope = scope
+            show_scope()
+
+        def toggle_pin() -> None:
+            change_scope("" if current_scope else preferred_scope)
+            show_scope()
+
+        self._connect(button.clicked, toggle_pin)
+        self._connect(collection_wide.triggered, lambda: choose_scope("project"))
+        self._connect(projection_exclusive.triggered, lambda: choose_scope("projection"))
 
     def close(self) -> None:
         dialog, self._dialog = self._dialog, None
