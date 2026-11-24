@@ -68,6 +68,17 @@ selector or metadata-key pairing. Metadata columns are not offered, even if an
 older run registered one as a text source. Existing saved runs retain their input
 snapshots and service-level compatibility.
 
+Text files are whole documents regardless of extension, including CSV and JSONL.
+Importing a file does not select columns or expand records. Existing indexed text
+records and materialized metadata text retain their explicit record keys in run
+snapshots; previews and inference use the same distinction. Rescanning an old
+file source now catalogs the file as one document. Previously prepared runs must
+be prepared again before resuming with the updated preparation contract.
+Text preparation uses UTF-8 or BOM-marked UTF-16/32, rejects empty/invalid input
+with its path, and limits a document/record to 2,000,000 characters. Tokenization
+uses the package's existing length, truncation and padding settings; full-document
+chunking and format-specific extraction are not performed.
+
 **Run Model** saves the configuration and closes the dialog immediately. The
 embedding card opens with input preparation running in its background job, followed
 by inference. Preparation supports pause/cancel and reports failures on the card

@@ -14,6 +14,7 @@ class RuntimeInput:
     path: Path
     content_type: str
     components: dict[str, RuntimeInput] = field(default_factory=dict)
+    text_record_key: str = ""
 
 
 @dataclass(frozen=True)

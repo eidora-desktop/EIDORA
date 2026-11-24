@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Prepare text files consistently as whole documents, including JSONL, while preserving explicit indexed-record inputs. Support BOM-marked Unicode, identify failing files/records, bound text reads, and reuse tokenizers and record offsets without adding model dependencies.
+
 - Simplify the Project Chooser’s More Options menu: Settings opens directly on Storage, followed by a separator; remove the separate Storage action.
 
 - Add confirmed bulk deletion for projects in the Settings Project Location, closing the active project and waiting for saves first. Move preset selection and deletion controls into the Presets tab.

@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset, MediaSourceKind
+from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset
 from EmbeddingsArea.runtime.readers import inspect_embedding_matrix, load_embedding_matrix_with_ids
 from EmbeddingsArea.repository import EmbeddingRunRepository, MediaRepository
 from MetadataArea.repository import MetadataRepository
@@ -144,19 +144,7 @@ class DiscoveryService:
             ItemMediaSource(
                 asset.id, asset.source_id, sources[asset.source_id].label,
                 asset.absolute_path, asset.content_type.value,
-                text_record_key=(
-                    asset.source_key
-                    if asset.content_type.value == "text"
-                    and asset.absolute_path.suffix.lower() in {".jsonl", ".ndjson"}
-                    and (
-                        sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN
-                        or (
-                            sources[asset.source_id].source_kind == MediaSourceKind.FILE
-                            and sources[asset.source_id].path.suffix.lower() in {".jsonl", ".ndjson"}
-                        )
-                    )
-                    else ""
-                ),
+                text_record_key=asset.text_record_key,
             )
             for asset in assets
             if supports_media_preview(asset.content_type.value, asset.absolute_path)

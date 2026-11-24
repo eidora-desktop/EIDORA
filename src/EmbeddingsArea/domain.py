@@ -103,6 +103,12 @@ class MediaAsset:
     created_at: str = ""
     updated_at: str = ""
 
+    @property
+    def text_record_key(self) -> str:
+        """Record assets carry a fragment; ordinary files keep their full path."""
+        return (self.source_key if self.content_type == MediaContentType.TEXT
+                and self.relative_path.startswith(self.absolute_path.name + "#") else "")
+
 
 @dataclass(frozen=True)
 class MediaLink:
@@ -327,6 +333,7 @@ class EmbeddingRunInputSnapshot:
     mtime_ns: int | None
     link_revision: int = 0
     components: tuple[EmbeddingRunInputSnapshot, ...] = ()
+    text_record_key: str = ""
 
     @property
     def media_asset_id(self) -> str:

@@ -441,6 +441,7 @@ class EmbeddingRunService:
             source_key=asset.source_key, absolute_path=asset.absolute_path, content_type=asset.content_type,
             metadata_row_id=int(asset.source_key) if sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN else identity,
             size_bytes=asset.size_bytes, mtime_ns=asset.mtime_ns, link_revision=source_revisions[asset.source_id],
+            text_record_key=asset.text_record_key,
         ) for ordinal, (asset, identity) in enumerate(selected)]
         model = self._catalog.get_model(refreshed.selected_model_id)
         if model.runtime_contract.get("components") and pairing_field:
@@ -871,11 +872,13 @@ class EmbeddingRunService:
                     identifier=item.source_key,
                     path=item.absolute_path,
                     content_type=item.content_type.value,
+                    text_record_key=item.text_record_key,
                     components={
                         part.content_type.value: RuntimeInput(
                             ordinal=item.ordinal, media_item_id=part.media_item_id,
                             identifier=part.source_key, path=part.absolute_path,
                             content_type=part.content_type.value,
+                            text_record_key=part.text_record_key,
                         ) for part in item.components
                     },
                 )
@@ -970,6 +973,7 @@ class EmbeddingRunService:
                     "source_id": item.source_id,
                     "source_key": item.source_key,
                     "content_type": item.content_type.value,
+                    "text_record_key": item.text_record_key,
                     "metadata_row_id": item.metadata_row_id,
                     "size_bytes": item.size_bytes,
                     "mtime_ns": item.mtime_ns,

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from threading import Event
 
-from EmbeddingsArea.media_sources import IDENTIFIER_KEYS, TEXT_KEYS
+from shared.text import IDENTIFIER_KEYS, TEXT_KEYS, open_text, record_value
 
 
 MAX_PREVIEW_CHARACTERS = 200_000
@@ -21,14 +21,7 @@ def read_text_preview(path: Path, record_key: str, cancelled: Event) -> TextPrev
     if cancelled.is_set():
         return TextPreview()
     try:
-        with path.open("rb") as handle:
-            prefix = handle.read(4)
-        encoding = (
-            "utf-32" if prefix.startswith((b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff"))
-            else "utf-16" if prefix.startswith((b"\xff\xfe", b"\xfe\xff"))
-            else "utf-8-sig"
-        )
-        with path.open("r", encoding=encoding, errors="replace") as handle:
+        with open_text(path, errors="replace") as handle:
             if record_key:
                 text = _read_record(handle, record_key, cancelled)
                 if text is None:
@@ -59,14 +52,6 @@ def _read_record(handle, record_key: str, cancelled: Event) -> str | None:
             continue
         if not isinstance(payload, dict):
             continue
-        if _first_value(payload, IDENTIFIER_KEYS).strip() == record_key:
-            return _first_value(payload, TEXT_KEYS)
+        if record_value(payload, IDENTIFIER_KEYS).strip() == record_key:
+            return record_value(payload, TEXT_KEYS)
     return None
-
-
-def _first_value(payload: dict, keys: tuple[str, ...]) -> str:
-    for key in keys:
-        value = payload.get(key)
-        if value is not None and str(value).strip():
-            return str(value)
-    return ""

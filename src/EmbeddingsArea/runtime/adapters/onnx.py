@@ -152,8 +152,10 @@ class OnnxAdapter:
         self._config = None
         self._original_contract = {}
         self._providers = []
+        self._text_preparer = None
 
     def setup(self, config: AdapterRunConfig) -> None:
+        self._text_preparer = None
         self._phase_callback = config.phase_callback
         contract = config.runtime_contract
         if contract.get("schema_version") == 3 and not contract.get("preparation_version") and ("preparation" in contract or contract.get("components")):
@@ -314,10 +316,17 @@ class OnnxAdapter:
             items = batch[start : start + limit]
             self._phase("preparation")
             try:
-                feed = prepare_batch(items, self._contract, package_directory=self._package_directory)
+                if self._contract.get("modality") == "text" and self._text_preparer is None:
+                    from EmbeddingsArea.runtime.text import TextPreparer
+
+                    self._text_preparer = TextPreparer(self._contract["preparation"], self._package_directory)
+                feed = prepare_batch(items, self._contract, package_directory=self._package_directory,
+                                     text_preparer=self._text_preparer)
             except MemoryError as exc:
                 raise BatchMemoryError("Not enough memory to prepare the model batch.") from exc
             except Exception as exc:
+                if self._contract.get("modality") == "text":
+                    raise RuntimeError(f"Could not prepare text input: {exc}") from exc
                 identifiers = ", ".join(item.identifier or item.path.name for item in items[:3])
                 raise RuntimeError(f"Could not prepare model input ({identifiers}): {exc}") from exc
             prepared_bytes = sum(value.nbytes for value in feed.values())
@@ -417,6 +426,7 @@ class OnnxAdapter:
         self._session = None
         self._contract = {}
         self._package_directory = None
+        self._text_preparer = None
 
     def execution_providers(self) -> list[str]:
         if self._components:
