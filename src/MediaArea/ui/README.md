@@ -2,10 +2,19 @@
 
 `media_area.ui` owns one horizontal splitter:
 Media Sources on the left, Preview Assets on the right. `new_thumbnails_dialog.ui`
-follows the Run Embeddings form: a source heading, secondary summary, labels
-above full-width controls, and right-aligned actions in a separate footer.
+uses a source heading, secondary summary, aligned Asset Type and Output name
+form rows with labels beside their controls, and right-aligned footer actions.
 Source-row creation fixes the input; the generic entry point retains a selector.
-Only video sources show frame selection.
+The basic and advanced parameter tables follow New Projection. Advanced starts
+collapsed, with a disclosure button and Reset defaults beside it. Table rows are
+populated for the selected processing option; conditional rows remain hidden
+until relevant. Still frames show frame selection, clips show excerpt settings,
+and video has an unchecked Mute option. GIF loop remains basic; compression,
+frame rate, maximum edge, and audio encoding settings live in Advanced.
+`clip_inspector.ui` owns generated-clip inspection and playback controls.
+Text excerpts show character limit and position as basic parameters, with word
+boundary handling and the conditional random seed in Advanced.
+`text_inspector.ui` owns read-only text inspection and bounded Item navigation.
 The source row owns Create Previews…; the Preview Assets header has no creation
 button. `media_link_dialog.ui` exposes only the source key,
 one metadata column, and a bounded preview. Artifacts forms have been removed.

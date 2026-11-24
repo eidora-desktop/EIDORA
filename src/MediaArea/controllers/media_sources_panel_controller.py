@@ -10,7 +10,6 @@ from MediaArea.controllers.media_link_dialog_controller import MediaLinkDialogCo
 from MediaArea.controllers.media_source_jobs_controller import MediaSourceJobsController
 from MediaArea.controllers.media_source_row_controller import MediaSourceRowController
 from MediaArea import media_service
-from MediaArea.preview_names import default_preview_name
 from shared.qt.item_views import configure_panel_item_view
 from shared.qt.message_dialogs import show_error
 from shared.qt.panel_controller import UiPanelController
@@ -181,16 +180,13 @@ class MediaSourcesPanelController(UiPanelController):
         summary = self._summaries.get(source_id)
         if summary is None:
             return False, "Wait for this media source to finish indexing."
-        media_type = summary.source.content_type
-        if media_type in {MediaContentType.TEXT, MediaContentType.AUDIO}:
-            return True, f"{media_type.value.title()} preview creation is not implemented yet."
         if summary.linked_count == 0:
             return False, "Link this source to Items before creating previews."
         if self._in_use(source_id):
             return False, "This source is used by a queued or running process."
         enabled = bool(self._can_create_thumbnails and self._can_create_thumbnails(source_id))
         return enabled, ("Create Preview Assets from this source." if enabled
-                         else "No linked image or video files are available for previews.")
+                         else "No linked image, video, audio, or text sources are available for previews.")
 
     def _on_create_previews(self, source_id):
         enabled, tooltip = self._preview_creation_state(source_id)
@@ -198,19 +194,7 @@ class MediaSourcesPanelController(UiPanelController):
             self._show_status(tooltip)
             return
         self._scroll_to_source(source_id)
-        source = self._summaries[source_id].source
-        if source.content_type in {MediaContentType.TEXT, MediaContentType.AUDIO}:
-            dialog = QtWidgets.QMessageBox()
-            dialog.setWindowTitle(f"Create {source.content_type.value.title()} Previews")
-            dialog.setIcon(QtWidgets.QMessageBox.Icon.Information)
-            dialog.setTextFormat(QtCore.Qt.TextFormat.PlainText)
-            dialog.setText(f"Preview creation for {source.content_type.value} sources is not implemented yet.")
-            name = default_preview_name(source.label, source.content_type.value)
-            dialog.setInformativeText(f"Source: {source.label}\nDefault name: {name}")
-            dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Close)
-            dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
-            dialog.exec()
-        elif self._create_thumbnails is not None:
+        if self._create_thumbnails is not None:
             self._create_thumbnails(source_id)
 
     def _on_job_changed(self, source_id, progress, active):

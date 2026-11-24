@@ -1186,7 +1186,7 @@ class DiscoveryService:
         return SnapshotRepository(project.root, project.paths.snapshot_presets)
 
     def list_thumbnail_variants(self, project: "Project") -> list[ThumbnailVariant]:
-        return ThumbnailVariantRepository(project.paths.root).list_variants()
+        return [variant for variant in ThumbnailVariantRepository(project.paths.root).list_variants() if variant.preview_kind == "image"]
 
     def compute_visibility(
         self,

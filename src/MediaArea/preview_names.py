@@ -9,14 +9,16 @@ def default_preview_name(
     media_type: str,
     *,
     video_clips: bool = False,
+    preview_kind: str = "image",
     existing_names: Iterable[str] = (),
 ) -> str:
     suffix = {
         "image": "thumbs",
         "video": "video clips" if video_clips else "frames",
         "audio": "audio clips",
-        "text": "labels",
+        "text": "excerpts",
     }[media_type]
+    suffix = {"video_clip": "video clips", "audio_clip": "audio clips", "animated_gif": "GIFs"}.get(preview_kind, suffix)
     base = f"{source_label} ({suffix})"
     existing = {name.strip().casefold() for name in existing_names}
     candidate = base

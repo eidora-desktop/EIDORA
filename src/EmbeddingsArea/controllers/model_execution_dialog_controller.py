@@ -124,7 +124,8 @@ class ModelExecutionDialogController:
         subtitle.setText(" · ".join(details))
         subtitle.setVisible(bool(details))
         self._rebuild(configuration)
-        variants = ThumbnailVariantRepository(self._project.paths.root).list_variants()
+        variants = [variant for variant in ThumbnailVariantRepository(self._project.paths.root).list_variants()
+                    if variant.preview_kind == "image"]
         saved = {
             (value.scope, value.parameter_id): value.value
             for value in configuration.parameter_values

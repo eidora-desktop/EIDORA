@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
 import hashlib
 from pathlib import Path
 import shutil
@@ -34,6 +34,9 @@ class ThumbnailVariant:
     errors: tuple[str, ...] = ()
     input_kind: str = ""
     input_label: str = ""
+    preview_kind: str = "image"
+    parameters: dict = field(default_factory=dict)
+    total_bytes: int = 0
 
 
 @dataclass(frozen=True)
@@ -47,6 +50,34 @@ class ThumbnailVariantItem:
     source_path: str = ""
     selected_frame_seconds: float | None = None
     selected_frame_ordinal: int | None = None
+
+
+@dataclass(frozen=True)
+class PreviewText:
+    variant_id: str
+    metadata_id: int
+    text: str
+    source_asset_id: str
+    record_key: str
+    start_character: int
+    end_character: int
+    source_characters: int
+    size_bytes: int
+
+
+@dataclass(frozen=True)
+class PreviewClip:
+    variant_id: str
+    metadata_id: int
+    relative_path: str
+    poster_path: str
+    source_asset_id: str
+    start_seconds: float
+    duration_seconds: float
+    width: int
+    height: int
+    fps: float
+    size_bytes: int
 
 
 @dataclass(frozen=True)
@@ -121,14 +152,15 @@ class ThumbnailVariantRepository:
                 SELECT variant_id, label, source_dir, identifier_column, sizes_json, created_at,
                        resize_mode, source_id, source_media_type, video_frame_mode,
                        generated_files, failed_files, missing_files, errors_json,
-                       input_kind, input_label
+                       input_kind, input_label, preview_kind, parameters_json, total_bytes
                 FROM thumbnail_variants
                 ORDER BY created_at DESC, lower(label)
                 """
             ).fetchall()
         output: list[ThumbnailVariant] = []
         for row in rows:
-            sizes = self._parse_sizes_json(str(row["sizes_json"] or "[]"))
+            sizes = (() if row["preview_kind"] == "text_excerpt"
+                     else self._parse_sizes_json(str(row["sizes_json"] or "[]")))
             output.append(
                 ThumbnailVariant(
                     variant_id=str(row["variant_id"]),
@@ -147,6 +179,9 @@ class ThumbnailVariantRepository:
                     errors=tuple(json.loads(row["errors_json"])),
                     input_kind=str(row["input_kind"] or ""),
                     input_label=str(row["input_label"] or ""),
+                    preview_kind=str(row["preview_kind"]),
+                    parameters=json.loads(row["parameters_json"]),
+                    total_bytes=int(row["total_bytes"]),
                 )
             )
         return output
@@ -162,8 +197,8 @@ class ThumbnailVariantRepository:
                 variant_id, label, source_dir, identifier_column, sizes_json, created_at,
                 resize_mode, source_id, source_media_type, video_frame_mode,
                 generated_files, failed_files, missing_files, errors_json,
-                input_kind, input_label
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                input_kind, input_label, preview_kind, parameters_json, total_bytes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 variant.variant_id,
@@ -182,6 +217,9 @@ class ThumbnailVariantRepository:
                 json.dumps(variant.errors),
                 variant.input_kind,
                 variant.input_label,
+                variant.preview_kind,
+                json.dumps(variant.parameters),
+                variant.total_bytes,
             ),
         )
 
@@ -196,7 +234,7 @@ class ThumbnailVariantRepository:
             if staging.exists():
                 shutil.rmtree(staging)
 
-    def publish_variant(self, variant: ThumbnailVariant, items: list[ThumbnailVariantItem], staging: Path) -> None:
+    def publish_variant(self, variant: ThumbnailVariant, items: list[ThumbnailVariantItem], staging: Path, *, clips: list[PreviewClip] = (), texts: list[PreviewText] = ()) -> None:
         """Expose complete files and their index together, without replacing an existing ID."""
         destination = self.variants_root / variant.variant_id
         moved = False
@@ -204,6 +242,10 @@ class ThumbnailVariantRepository:
             with closing(sqlite3.connect(self._db_path)) as connection, connection:
                 self._insert_variant(connection, variant)
                 self._insert_variant_items(connection, items)
+                connection.executemany("INSERT INTO preview_clips VALUES (?, ?, ?)",
+                    ((clip.variant_id, clip.metadata_id, json.dumps(asdict(clip))) for clip in clips))
+                connection.executemany("INSERT INTO preview_texts VALUES (?, ?, ?)",
+                    ((text.variant_id, text.metadata_id, json.dumps(asdict(text), ensure_ascii=False)) for text in texts))
                 if destination.exists():
                     raise FileExistsError(f"Thumbnail directory already exists: {destination}")
                 staging.rename(destination)
@@ -250,6 +292,8 @@ class ThumbnailVariantRepository:
             connection.execute("DELETE FROM thumbnail_atlas_items WHERE variant_id = ?", (normalized_id,))
             connection.execute("DELETE FROM thumbnail_atlas_pages WHERE variant_id = ?", (normalized_id,))
             connection.execute("DELETE FROM thumbnail_variant_items WHERE variant_id = ?", (normalized_id,))
+            connection.execute("DELETE FROM preview_clips WHERE variant_id = ?", (normalized_id,))
+            connection.execute("DELETE FROM preview_texts WHERE variant_id = ?", (normalized_id,))
             connection.execute("DELETE FROM thumbnail_variants WHERE variant_id = ?", (normalized_id,))
             connection.commit()
         for root in (self._root / "variants", self._root / "atlases", self._root / "tiles"):
@@ -623,11 +667,14 @@ class ThumbnailVariantRepository:
         with closing(sqlite3.connect(self._db_path)) as connection, connection:
             row = connection.execute(
                 """
-                SELECT COUNT(DISTINCT metadata_id)
-                FROM thumbnail_variant_items
-                WHERE variant_id = ? AND status = 'ok'
+                SELECT COUNT(*) FROM (
+                    SELECT metadata_id FROM thumbnail_variant_items
+                    WHERE variant_id = ? AND status = 'ok'
+                    UNION
+                    SELECT metadata_id FROM preview_texts WHERE variant_id = ?
+                )
                 """,
-                (variant_id,),
+                (variant_id, variant_id),
             ).fetchone()
         return int(row[0] or 0) if row is not None else 0
 
@@ -857,10 +904,75 @@ class ThumbnailVariantRepository:
                 "errors_json": "TEXT NOT NULL DEFAULT '[]'",
                 "input_kind": "TEXT NOT NULL DEFAULT ''",
                 "input_label": "TEXT NOT NULL DEFAULT ''",
+                "preview_kind": "TEXT NOT NULL DEFAULT 'image'",
+                "parameters_json": "TEXT NOT NULL DEFAULT '{}'",
+                "total_bytes": "INTEGER NOT NULL DEFAULT 0",
             }.items():
                 if name not in variant_columns:
                     connection.execute(f"ALTER TABLE thumbnail_variants ADD COLUMN {name} {declaration}")
+            connection.execute("CREATE TABLE IF NOT EXISTS preview_clips (variant_id TEXT NOT NULL, metadata_id INTEGER NOT NULL, details_json TEXT NOT NULL, PRIMARY KEY (variant_id, metadata_id))")
+            connection.execute("CREATE TABLE IF NOT EXISTS preview_texts (variant_id TEXT NOT NULL, metadata_id INTEGER NOT NULL, details_json TEXT NOT NULL, PRIMARY KEY (variant_id, metadata_id))")
             connection.commit()
+
+    def find_preview_text(self, variant_id: str, metadata_id: int) -> PreviewText | None:
+        with closing(sqlite3.connect(self._db_path)) as connection:
+            row = connection.execute("SELECT details_json FROM preview_texts WHERE variant_id = ? AND metadata_id = ?",
+                                     (variant_id, metadata_id)).fetchone()
+            return PreviewText(**json.loads(row[0])) if row else None
+
+    def neighboring_text(self, variant_id: str, metadata_id: int | None = None, *, previous: bool = False) -> PreviewText | None:
+        comparison, order = ("<", "DESC") if previous else (">", "ASC")
+        condition = "" if metadata_id is None else f"AND metadata_id {comparison} ?"
+        arguments = (variant_id,) if metadata_id is None else (variant_id, metadata_id)
+        with closing(sqlite3.connect(self._db_path)) as connection:
+            row = connection.execute(f"SELECT details_json FROM preview_texts WHERE variant_id = ? {condition} ORDER BY metadata_id {order} LIMIT 1",
+                                     arguments).fetchone()
+            return PreviewText(**json.loads(row[0])) if row else None
+
+    @staticmethod
+    def read_preview_text(project_root: Path, variant_id: str, metadata_id: int) -> PreviewText | None:
+        """Read one saved excerpt without initializing storage or opening source media."""
+        database = Path(project_root) / "thumbnails" / "variants.db"
+        if not database.is_file():
+            return None
+        with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.25)) as connection:
+            if not connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'preview_texts'").fetchone():
+                return None
+            row = connection.execute(
+                "SELECT details_json FROM preview_texts WHERE variant_id = ? AND metadata_id = ? AND length(details_json) <= 100000",
+                (variant_id, metadata_id),
+            ).fetchone()
+            if row is None:
+                return None
+            preview = PreviewText(**json.loads(row[0]))
+            if not isinstance(preview.text, str) or len(preview.text) > 10000:
+                raise ValueError("The saved text excerpt exceeds the supported preview size.")
+            return preview
+
+    @staticmethod
+    def find_preview_clip(project_root: Path, variant_id: str, metadata_id: int) -> PreviewClip | None:
+        """Look up one generated clip without initializing or modifying storage."""
+        database = Path(project_root) / "thumbnails" / "variants.db"
+        if not database.is_file():
+            return None
+        with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True, timeout=0.25)) as connection:
+            row = connection.execute(
+                "SELECT details_json FROM preview_clips WHERE variant_id = ? AND metadata_id = ?",
+                (variant_id, metadata_id),
+            ).fetchone()
+            return PreviewClip(**json.loads(row[0])) if row else None
+
+    def clip_page(self, variant_id: str, *, after_id: int = -1, limit: int = 100) -> list[PreviewClip]:
+        """Read a bounded page without loading all clip metadata into the UI."""
+        with closing(sqlite3.connect(self._db_path)) as connection:
+            rows = connection.execute("SELECT details_json FROM preview_clips WHERE variant_id = ? AND metadata_id > ? ORDER BY metadata_id LIMIT ?", (variant_id, after_id, max(1, min(limit, 100))))
+            return [PreviewClip(**json.loads(row[0])) for row in rows]
+
+    def neighboring_clip(self, variant_id: str, metadata_id: int, *, previous: bool = False) -> PreviewClip | None:
+        comparison, order = ("<", "DESC") if previous else (">", "ASC")
+        with closing(sqlite3.connect(self._db_path)) as connection:
+            row = connection.execute(f"SELECT details_json FROM preview_clips WHERE variant_id = ? AND metadata_id {comparison} ? ORDER BY metadata_id {order} LIMIT 1", (variant_id, metadata_id)).fetchone()
+            return PreviewClip(**json.loads(row[0])) if row else None
 
     def _nearest_atlas_size(self, variant_id: str, target_px: int) -> int | None:
         with closing(sqlite3.connect(self._db_path)) as connection, connection:

@@ -223,7 +223,7 @@ def process(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         outputs = {int(size): Path(path) for size, path in payload["outputs"].items()}
         with image:
-            write_thumbnail_sizes(image, outputs, str(payload["resize_mode"]))
+            write_thumbnail_sizes(image, outputs, str(payload["resize_mode"]), int(payload.get("image_quality", 85)))
     except OSError as exc:
         return {"ok": False, "kind": "output", "error": f"{type(exc).__name__}: {exc}"}
     return {"ok": True, "timestamp_seconds": seconds, "frame_ordinal": ordinal}

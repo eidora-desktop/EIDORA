@@ -168,7 +168,7 @@ class ThumbnailsPanelController(UiPanelController):
                 item_count=summary.linked_count,
             )
             for summary in self._source_summaries
-            if summary.source.content_type in {MediaContentType.IMAGE, MediaContentType.VIDEO}
+            if summary.source.content_type in {MediaContentType.IMAGE, MediaContentType.VIDEO, MediaContentType.AUDIO, MediaContentType.TEXT}
             and summary.linked_count > 0
             and summary.asset_count - summary.missing_count - summary.error_count > 0
         )
@@ -181,7 +181,7 @@ class ThumbnailsPanelController(UiPanelController):
                 item_count=self._variant_item_count(variant),
             )
             for variant in self._repo.list_variants()
-            if variant.sizes and self._variant_item_count(variant) > 0
+            if variant.preview_kind == "image" and variant.sizes and self._variant_item_count(variant) > 0
         )
         self._render_records()
         self._notify_availability_changed()
@@ -384,6 +384,7 @@ class ThumbnailsPanelController(UiPanelController):
                     self._session.media_repository,
                     self._session.link_repository,
                     summary,
+                    preview_parameters=record.parameters,
                     video_frame_mode=(str(record.parameters.get("video_frame_mode") or "middle")
                                       if record.input.media_type == "video" else None),
                     **common,
@@ -393,6 +394,7 @@ class ThumbnailsPanelController(UiPanelController):
                 _create_artifact_thumbnails,
                 self._repo,
                 record.input.id,
+                preview_parameters=record.parameters,
                 **common,
             )
         self._update_record_row(record)
@@ -468,7 +470,10 @@ class ThumbnailsPanelController(UiPanelController):
         warnings = bool(result.failed_files or result.missing_files)
         state = ProcessState.COMPLETED_WITH_WARNINGS if warnings else ProcessState.COMPLETED
         parameters = dict(active.record.parameters)
-        parameters["sizes"] = DEFAULT_THUMBNAIL_SIZES
+        kind = parameters.get("preview_kind", "image")
+        parameters["sizes"] = () if kind == "text_excerpt" else (256,) if kind != "image" else DEFAULT_THUMBNAIL_SIZES
+        if kind != "image":
+            parameters["total_bytes"] = result.total_bytes
         record = replace(
             active.record, state=state, progress=100,
             message="Completed with warnings." if warnings else "Completed.", finished_at=_now(),
@@ -482,20 +487,21 @@ class ThumbnailsPanelController(UiPanelController):
         active.repository.delete(record.id)
         if current_project:
             self._display_records[record.id] = record
-            self._thumbnail_inputs = (
-                *(
-                    candidate
-                    for candidate in self._thumbnail_inputs
-                    if candidate.id != record.output_id
-                ),
-                ProcessInputReference(
-                    ProcessInputKind.ARTIFACT,
-                    record.output_id,
-                    record.output_name,
-                    "image",
-                    record.generated_files,
-                ),
-            )
+            if kind == "image":
+                self._thumbnail_inputs = (
+                    *(
+                        candidate
+                        for candidate in self._thumbnail_inputs
+                        if candidate.id != record.output_id
+                    ),
+                    ProcessInputReference(
+                        ProcessInputKind.ARTIFACT,
+                        record.output_id,
+                        record.output_name,
+                        "image",
+                        record.generated_files,
+                    ),
+                )
             self._update_record_row(record)
             if self._changed_callback is not None:
                 self._changed_callback()
@@ -696,6 +702,9 @@ class ThumbnailsPanelController(UiPanelController):
                 "resize_mode": variant.resize_mode,
                 "video_frame_mode": variant.video_frame_mode,
                 "sizes": variant.sizes,
+                "preview_kind": variant.preview_kind,
+                "total_bytes": variant.total_bytes,
+                **variant.parameters,
             },
             state=state,
             progress=100,
@@ -758,6 +767,9 @@ class ThumbnailsPanelController(UiPanelController):
         menu = QtWidgets.QMenu(self._widget)
         actions = {}
         if is_saved:
+            if record.parameters.get("preview_kind") in {"audio_clip", "video_clip", "animated_gif", "text_excerpt"}:
+                actions["inspect"] = menu.addAction("Inspect…")
+                actions["inspect"].setEnabled(record.generated_files > 0)
             actions["rename"] = menu.addAction("Rename…")
             actions["run_again"] = menu.addAction("Run Again…")
             actions["run_again"].setEnabled(current_input is not None)
@@ -781,7 +793,14 @@ class ThumbnailsPanelController(UiPanelController):
             actions["cancel"].setEnabled(process_id in self._active and record.state != ProcessState.CANCELLING)
         selected = self._exec_row_context_menu(menu, position)
         action = next((key for key, value in actions.items() if value is selected and value.isEnabled()), None)
-        if action == "resume":
+        if action == "inspect":
+            if record.parameters.get("preview_kind") == "text_excerpt":
+                from MediaArea.controllers.text_inspector_controller import TextInspectorController
+                TextInspectorController(self._repo, record.output_id, record.output_name).exec()
+            else:
+                from MediaArea.controllers.clip_inspector_controller import ClipInspectorController
+                ClipInspectorController(self._repo, record.output_id, record.output_name, record.parameters).exec()
+        elif action == "resume":
             self._toggle_pause(process_id)
         elif action == "create_from":
             self.open_create_dialog(thumbnail_input, fixed_input=True)

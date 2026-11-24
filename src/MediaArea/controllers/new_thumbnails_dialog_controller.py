@@ -5,13 +5,13 @@ from uuid import uuid4
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from MediaArea.domain import (
-    THUMBNAIL_RESIZE_MODES,
-    THUMBNAIL_VIDEO_FRAME_MODES,
     ProcessInputKind,
     ProcessInputReference,
     ProcessRequest,
 )
 from MediaArea.preview_names import default_preview_name
+from MediaArea.clip_options import PREVIEW_KINDS
+from MediaArea.controllers.preview_parameters_panel_controller import PreviewParametersPanelController
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
 
@@ -49,13 +49,6 @@ class NewThumbnailsDialogController:
         self._availability = require_child(
             self.dialog, QtWidgets.QLabel, "label_thumbnail_availability"
         )
-        self._resize = require_child(
-            self.dialog, QtWidgets.QComboBox, "combo_thumbnail_resize_mode"
-        )
-        self._frame = require_child(
-            self.dialog, QtWidgets.QComboBox, "combo_video_frame_mode"
-        )
-        self._video_panel = require_child(self.dialog, QtWidgets.QWidget, "panel_video_settings")
         self._error = require_child(self.dialog, QtWidgets.QLabel, "label_error")
         self._start = require_child(
             self.dialog, QtWidgets.QPushButton, "button_run_thumbnail_processing"
@@ -71,6 +64,8 @@ class NewThumbnailsDialogController:
         if fixed_input and self._preselected is not None:
             fixed_source.setText(self._preselected.label)
             fixed_source.setToolTip(self._preselected.label)
+        self._kind = require_child(self.dialog, QtWidgets.QComboBox, "combo_preview_kind")
+        self._parameter_panel = PreviewParametersPanelController(self.dialog)
         self._populate()
         self._connect()
         self._refresh()
@@ -91,10 +86,7 @@ class NewThumbnailsDialogController:
             input=selected,
             output_id=uuid4().hex,
             output_name=self._name.text().strip(),
-            parameters={
-                "resize_mode": str(self._resize.currentData() or "original_aspect"),
-                "video_frame_mode": str(self._frame.currentData() or "middle"),
-            },
+            parameters=self._request_parameters(),
         )
 
     def _populate(self) -> None:
@@ -136,48 +128,38 @@ class NewThumbnailsDialogController:
                 -1,
             )
         self._input.setCurrentIndex(selected_index)
-        for label, value in THUMBNAIL_RESIZE_MODES:
-            self._resize.addItem(label, value)
-        for label, value in THUMBNAIL_VIDEO_FRAME_MODES:
-            self._frame.addItem(label, value)
-        self._resize.setCurrentIndex(
-            max(0, self._resize.findData(self._parameters.get("resize_mode", "original_aspect")))
-        )
-        self._frame.setCurrentIndex(
-            max(0, self._frame.findData(self._parameters.get("video_frame_mode", "middle")))
-        )
+        self._populate_processing()
         if self._initial_name:
             self._name.setText(self._initial_name)
         else:
             self._set_default_name()
 
     def _connect(self) -> None:
-        self._input.currentIndexChanged.connect(self._input_changed)
-        self._name.textChanged.connect(self._refresh)
-        self._resize.currentIndexChanged.connect(self._refresh)
-        self._frame.currentIndexChanged.connect(self._refresh)
-        self._start.clicked.connect(self.dialog.accept)
-        self._cancel.clicked.connect(self.dialog.reject)
-
-    def _disconnect(self) -> None:
-        for signal, slot in (
+        self._connections = [
+            (self._kind.currentIndexChanged, self._kind_changed),
             (self._input.currentIndexChanged, self._input_changed),
             (self._name.textChanged, self._refresh),
-            (self._resize.currentIndexChanged, self._refresh),
-            (self._frame.currentIndexChanged, self._refresh),
+            (self._parameter_panel.changed, self._refresh),
+            (self._parameter_panel.geometry_changed, self._fit_dialog_height),
             (self._start.clicked, self.dialog.accept),
             (self._cancel.clicked, self.dialog.reject),
-        ):
-            try:
-                signal.disconnect(slot)
-            except (RuntimeError, TypeError):
-                pass
+        ]
+        for signal, slot in self._connections:
+            signal.connect(slot)
+
+    def _disconnect(self) -> None:
+        self._parameter_panel.disconnect()
+        for signal, slot in self._connections:
+            signal.disconnect(slot)
+        self._connections.clear()
 
     def _selected_input(self) -> ProcessInputReference | None:
         value = self._input.currentData()
         return value if isinstance(value, ProcessInputReference) else None
 
     def _input_changed(self, _index: int) -> None:
+        self._parameters = {}
+        self._populate_processing()
         self._set_default_name()
         self._refresh()
         self._fit_dialog_height()
@@ -187,7 +169,7 @@ class NewThumbnailsDialogController:
         if selected is None:
             return
         self._name.setText(default_preview_name(
-            selected.label, selected.media_type, existing_names=self._existing_names,
+            selected.label, selected.media_type, preview_kind=str(self._kind.currentData()), existing_names=self._existing_names,
         ))
 
     def _fit_dialog_height(self) -> None:
@@ -209,7 +191,7 @@ class NewThumbnailsDialogController:
         selected = self._selected_input()
         if not self._inputs:
             self._availability.setText(
-                "No eligible input is available. Link an image or video source to Items first."
+                "No eligible input is available. Link an image, video, audio, or text source to Items first."
             )
         elif selected is None:
             self._availability.setText("Choose an eligible media source or existing Preview Assets.")
@@ -218,12 +200,10 @@ class NewThumbnailsDialogController:
                 "The largest stored Preview Asset is used for each Item."
             )
         else:
-            description = {"image": "Image thumbnails", "video": "Video frames",
-                           "audio": "Audio clips", "text": "Text labels"}[selected.media_type]
+            description = PREVIEW_KINDS.get(self._kind.currentData()) or {
+                "image": "Image thumbnails", "video": "Video frames",
+                "audio": "Audio clips", "text": "Text excerpts"}[selected.media_type]
             self._availability.setText(f"{description} · {selected.item_count:,} linked files")
-        is_video = bool(selected and selected.media_type == "video")
-        self._frame.setVisible(is_video)
-        self._video_panel.setVisible(is_video)
         name = self._name.text().strip()
         error = ""
         if selected is not None:
@@ -234,3 +214,30 @@ class NewThumbnailsDialogController:
         self._error.setText(error)
         self._error.setVisible(bool(error))
         self._start.setEnabled(selected is not None and not error)
+
+    def _populate_processing(self):
+        selected = self._selected_input()
+        media = selected.media_type if selected else "image"
+        choices = [("Image thumbnails", "image")]
+        if media == "video":
+            choices = [("Still frames", "image"), ("Video clips", "video_clip"), ("Animated GIFs", "animated_gif")]
+        elif media == "audio":
+            choices = [("Audio clips", "audio_clip")]
+        elif media == "text":
+            choices = [("Text excerpts", "text_excerpt")]
+        with QtCore.QSignalBlocker(self._kind):
+            self._kind.clear()
+            for label, kind in choices:
+                self._kind.addItem(label, kind)
+            self._kind.setCurrentIndex(max(0, self._kind.findData(self._parameters.get("preview_kind", choices[0][1]))))
+        self._parameter_panel.configure(self._kind.currentData(), media, self._parameters)
+
+    def _kind_changed(self, _index):
+        selected = self._selected_input()
+        self._parameter_panel.configure(self._kind.currentData(), selected.media_type if selected else "image")
+        self._set_default_name()
+        self._refresh()
+        self._fit_dialog_height()
+
+    def _request_parameters(self):
+        return self._parameter_panel.parameters()

@@ -23,8 +23,9 @@ def write_thumbnail_sizes(
     image: Image.Image,
     outputs: dict[int, Path],
     resize_mode: str,
+    quality: int = 85,
 ) -> None:
     for size_px, output_path in outputs.items():
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with resize_thumbnail(image, size_px, resize_mode) as resized:
-            resized.save(output_path, "webp", quality=85)
+            resized.save(output_path, "webp", quality=quality)

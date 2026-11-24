@@ -5,6 +5,8 @@ from datetime import datetime
 from PySide6 import QtCore, QtWidgets
 
 from DiscoveryArea.thumbnails.repository import DEFAULT_THUMBNAIL_SIZES
+from MediaArea.clip_options import PREVIEW_KINDS, LOOP_MODES, POSITIONS, compression_description
+from MediaArea.text_options import text_description
 from MediaArea.domain import THUMBNAIL_RESIZE_MODES, THUMBNAIL_VIDEO_FRAME_MODES, ProcessRecord, ProcessState
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
@@ -28,6 +30,9 @@ _STATE_LABELS = {
 _DETAIL_LABELS = {
     "source": "Source", "type": "Preview type", "resize": "Image sizing",
     "frame": "Frame selection", "sizes": "Output sizes", "created": "Created",
+    "duration": "Excerpt duration", "position": "Excerpt position", "loop": "Loop",
+    "text_selection": "Text selection",
+    "compression": "Compression", "storage": "Storage", "seed": "Random seed",
     "results": "Results", "message": "Status", "errors": "Errors",
 }
 
@@ -101,7 +106,12 @@ class PreviewAssetRowController(QtCore.QObject):
         self._progress_panel.setVisible(show_progress)
         self.summary.setVisible(not show_progress)
         sizes = record.parameters.get("sizes") or DEFAULT_THUMBNAIL_SIZES
-        self.header.set_text(self.summary, f"{record.input.label} · {', '.join(map(str, sizes))} px")
+        description = f"{', '.join(map(str, sizes))} px"
+        if record.parameters.get("preview_kind") in PREVIEW_KINDS:
+            description = f"{PREVIEW_KINDS[record.parameters['preview_kind']]} · {record.parameters.get('duration', 5):g} s"
+        elif record.parameters.get("preview_kind") == "text_excerpt":
+            description = f"Text excerpts · Up to {record.parameters.get('character_limit', 400):,} characters"
+        self.header.set_text(self.summary, f"{record.input.label} · {description}")
         self.cancel.setVisible(active and cancellable)
         self.cancel.setEnabled(record.state != ProcessState.CANCELLING)
         self.pause.setVisible(active and cancellable)
@@ -155,7 +165,7 @@ class PreviewAssetRowController(QtCore.QObject):
                 pass
         details = {
             "source": record.input.label,
-            "type": {"image": "Image thumbnails", "video": "Video frames", "audio": "Audio clips", "text": "Text labels"}.get(media_type, media_type),
+            "type": {"image": "Image thumbnails", "video": "Video frames", "audio": "Audio clips", "text": "Text excerpts"}.get(media_type, media_type),
             "resize": dict((value, label) for label, value in THUMBNAIL_RESIZE_MODES).get(resize, resize),
             "sizes": ", ".join(str(size) for size in sizes) + " px",
             "created": created,
@@ -163,6 +173,20 @@ class PreviewAssetRowController(QtCore.QObject):
         if media_type == "video":
             frame = str(parameters.get("video_frame_mode") or "middle")
             details["frame"] = dict((value, label) for label, value in THUMBNAIL_VIDEO_FRAME_MODES).get(frame, frame)
+        if parameters.get("preview_kind") in PREVIEW_KINDS:
+            details.update(type=PREVIEW_KINDS[parameters["preview_kind"]], resize="", sizes="", frame="",
+                duration=f"{parameters.get('duration', 5):g} s", position=POSITIONS.get(parameters.get("position", "middle"), ""),
+                loop=LOOP_MODES.get(parameters.get("loop"), "") if parameters["preview_kind"] == "animated_gif" else "",
+                compression=compression_description(parameters),
+                storage=f"{parameters['total_bytes'] / 1024:.1f} KiB" if "total_bytes" in parameters else "")
+        if parameters.get("preview_kind", "image") == "image":
+            details["compression"] = f"WebP · Quality {parameters.get('image_quality', 85)}"
+        if parameters.get("preview_kind") == "text_excerpt":
+            details.update(resize="", sizes="", text_selection=text_description(parameters),
+                           position=POSITIONS.get(parameters.get("position", "first"), ""),
+                           storage=f"{parameters['total_bytes'] / 1024:.1f} KiB of text" if "total_bytes" in parameters else "")
+        if parameters.get("position") == "random" or parameters.get("video_frame_mode") == "random":
+            details["seed"] = str(parameters.get("random_seed", 0))
         if record.state.terminal:
             results = [f"{record.generated_files:,} created"]
             if record.failed_files:

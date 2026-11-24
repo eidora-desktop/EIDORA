@@ -4,13 +4,19 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Create plain-text excerpt Preview Assets from linked text sources in Media. Choose beginning, middle, end, or reproducible random excerpts, with a character limit and optional word-boundary trimming. Inspect saved excerpts without the original source and reuse the existing pause, cancel, retry, and set-management workflow.
+
 - Prepare text files consistently as whole documents, including JSONL, while preserving explicit indexed-record inputs. Support BOM-marked Unicode, identify failing files/records, bound text reads, and reuse tokenizers and record offsets without adding model dependencies.
 
 - Simplify the Project Chooser’s More Options menu: Settings opens directly on Storage, followed by a separator; remove the separate Storage action.
 
 - Add confirmed bulk deletion for projects in the Settings Project Location, closing the active project and waiting for saves first. Move preset selection and deletion controls into the Presets tab.
 
+- Use basic and expandable advanced parameter tables for Preview Asset creation, with aligned Asset Type and Output name form rows, Reset defaults, and saved settings. Expose image/video quality, video/GIF frame-rate and size limits, audio bitrate/channels, GIF palette/dithering, and reproducible random seeds.
+
 - Connect the Settings Storage tab to background size measurement and confirmed model cleanup through its trash icon. Nonempty folder changes offer relocation or keeping the current folder; relocation closes the project, verifies and moves its contents, and returns to the Project Chooser after Settings closes.
+
+- Create compact audio clips, video clips, and animated GIFs from linked Media Sources. Add excerpt settings, optional video muting, GIF palette/dithering and Play once/Forever/Ping-Pong controls, stored output sizes, and a Media inspector. Keep clip sets separate from Canvas previews until later integration.
 
 - Rename the project-menu action to “Switch Projects…”.
 

@@ -14,6 +14,7 @@ from EmbeddingsArea.repository import MediaLinkRepository, MediaRepository
 from pathlib import Path
 from MediaArea.preview_names import default_preview_name
 from MediaArea.thumbnail_pause import ThumbnailPause
+from MediaArea.thumbnail_options import image_parameters
 
 
 def create_source_thumbnails(
@@ -25,6 +26,7 @@ def create_source_thumbnails(
     label: str,
     resize_mode: str,
     video_frame_mode: str | None = None,
+    preview_parameters: dict | None = None,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancellationCallback | None = None,
     pause: ThumbnailPause | None = None,
@@ -67,7 +69,22 @@ def create_source_thumbnails(
             check_cancelled()
             if asset.content_type == source_content_type:
                 inputs_by_metadata[item_id] = ThumbnailGenerationInput(
-                    asset.absolute_path, item_id, asset.content_type.value)
+                    asset.absolute_path, item_id, asset.content_type.value, str(asset.id),
+                    asset.text_record_key if source_content_type == MediaContentType.TEXT else "")
+    if source_content_type == MediaContentType.TEXT:
+        from MediaArea.text_generator import create_text_variant
+        return create_text_variant(repo, label=label, source_dir=str(summary.source.path),
+            identifier_column=summary.metadata_column or "metadata_row_id", inputs=inputs_by_metadata.values(),
+            source_id=summary.source.id, parameters=preview_parameters or {},
+            progress_callback=progress_callback, should_cancel=should_cancel, pause=pause,
+            variant_id=variant_id, input_label=summary.source.label)
+    if preview_parameters and preview_parameters.get("preview_kind") in {"audio_clip", "video_clip", "animated_gif"}:
+        from MediaArea.clip_generator import create_clip_variant
+        return create_clip_variant(repo, label=label, source_dir=str(summary.source.path),
+            identifier_column=summary.metadata_column or "metadata_row_id", inputs=inputs_by_metadata.values(),
+            source_id=summary.source.id, source_media_type=source_content_type.value,
+            parameters=preview_parameters, progress_callback=progress_callback, should_cancel=should_cancel,
+            pause=pause, variant_id=variant_id, input_label=summary.source.label)
     return create_thumbnail_variant(
         repo,
         label=label,
@@ -75,6 +92,7 @@ def create_source_thumbnails(
         identifier_column=summary.metadata_column or "metadata_row_id",
         inputs=inputs_by_metadata.values(),
         resize_mode=resize_mode,
+        **image_parameters(preview_parameters or {}),
         source_id=summary.source.id,
         source_media_type=source_content_type.value,
         video_frame_mode=video_frame_mode,
@@ -93,6 +111,7 @@ def create_artifact_thumbnails(
     *,
     label: str,
     resize_mode: str,
+    preview_parameters: dict | None = None,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancellationCallback | None = None,
     pause: ThumbnailPause | None = None,
@@ -128,6 +147,7 @@ def create_artifact_thumbnails(
         identifier_column=source.identifier_column,
         inputs=inputs,
         resize_mode=resize_mode,
+        **image_parameters(preview_parameters or {}),
         source_id=source_variant_id,
         source_media_type="image",
         input_kind="artifact",
@@ -145,12 +165,12 @@ def default_embedding_thumbnail_request(configuration, available_inputs, repo):
     from MediaArea.domain import ProcessInputKind, ProcessRequest
     from EmbeddingsArea.domain import EmbeddingRunState
 
-    if configuration.run.state != EmbeddingRunState.COMPLETED or repo.list_variants():
+    if configuration.run.state != EmbeddingRunState.COMPLETED or any(variant.preview_kind == "image" for variant in repo.list_variants()):
         return None
     source_ids = [binding.source_id for binding in configuration.input_bindings]
     if not source_ids:
         source_ids = configuration.run.selected_source_ids
-    sources = {item.id: item for item in available_inputs if item.kind == ProcessInputKind.MEDIA_SOURCE}
+    sources = {item.id: item for item in available_inputs if item.kind == ProcessInputKind.MEDIA_SOURCE and item.media_type in {"image", "video"}}
     source = next((sources[identity] for identity in source_ids if identity in sources), None)
     if source is None:
         return None

@@ -9,7 +9,7 @@ from collections.abc import Sequence
 
 
 INTERNAL_WORKER_FLAG = "--internal-worker"
-_WORKER_NAMES = frozenset({"discovery", "gif", "native-probe", "video-thumbnail", "onnx-audit", "cuda-device", "diagnostic-trace", "media-playback-audit"})
+_WORKER_NAMES = frozenset({"discovery", "gif", "native-probe", "video-thumbnail", "preview-clip", "onnx-audit", "cuda-device", "diagnostic-trace", "media-playback-audit"})
 
 
 def internal_worker_arguments(name: str, *arguments: object) -> list[str]:
@@ -70,6 +70,10 @@ def dispatch_internal_worker(argv: Sequence[str]) -> int:
         return main(worker_args)
     if name == "gif":
         from FiguresArea.animation_gif_worker import main
+
+        return main(worker_args)
+    if name == "preview-clip":
+        from MediaArea.clip_worker import main
 
         return main(worker_args)
     if name == "video-thumbnail":

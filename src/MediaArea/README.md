@@ -4,7 +4,7 @@
 in one equally divided horizontal splitter. In Media Sources, link images, video,
 audio, and text to Items, then use **Create Previews…** on a source row.
 Preview Assets shows queued and running jobs and saved previews from linked
-images and video frames. Project storage stays in `project`;
+images, video frames, audio/video clips, animated GIFs, and text excerpts. Project storage stays in `project`;
 thumbnail persistence stays in `DiscoveryArea.thumbnails`. There is no Artifacts
 panel or creation workflow. Internal thumbnail-reuse and embedding artifact
 contracts remain unchanged.
@@ -21,10 +21,10 @@ the path on the second line. Folder and ZIP inspection creates a cancellable row
 immediately and reuses it for indexing. Project changes reset rows and their lookup.
 
 **Create Previews…** opens a dialog fixed to that source. Images offer the preview
-name and resize method; videos also offer frame selection. Image/video sources
-without links show Link instead. Linked Text and Audio sources open
-informational placeholders and create no jobs or assets. Confirming an image/video
-dialog creates a progress row in Preview Assets, which becomes a saved set on
+name and resize method. Video sources offer Still frames, Video clips, and
+Animated GIFs; audio sources offer Audio clips, and text sources offer Text excerpts.
+Sources without links show Link instead. Confirming a
+supported creation dialog creates a progress row in Preview Assets, which becomes a saved set on
 success. Cancelling the dialog creates nothing. Preview Assets has no Add New
 button; its existing set-management and reuse actions remain available.
 
@@ -46,9 +46,8 @@ jobs offer Retry and Dismiss. Retry/Run Again are disabled when their original
 input is unavailable, and removal is disabled while an output is in use.
 
 Default names append `(thumbs)` for images and `(frames)` for video stills.
-Automatic previews after embeddings use the same names. Planned short video
-clips use `(video clips)`; Audio and Text placeholders show `(audio clips)` and
-`(labels)`. Existing names receive a numeric suffix, and the dialog explains
+Automatic previews after embeddings use the same names. Video clips use `(video clips)`, audio clips `(audio clips)`, and GIFs `(GIFs)`.
+Text excerpts use `(excerpts)`. Existing names receive a numeric suffix, and the dialog explains
 empty or duplicate names before creation.
 
 Adding or rescanning sources only indexes assets and never opens a matching dialog.
@@ -150,3 +149,108 @@ Media matching saves the selected columns together. Link adds missing asset/Item
 pairs without duplicating existing links; checking replacement replaces only the
 selected source’s complete set. Exact filenames retain extensions, and duplicate
 media keys remain ambiguous. Source preview lists every linked supported asset.
+
+## Audio/video clips and animated GIFs
+
+Clip creation uses the selected linked source and the existing deterministic
+one-asset-per-Item resolver. It never creates Items. Choose an excerpt duration
+(1–30 seconds, default 5) and Beginning, Middle, End, or Random (default Middle).
+Short inputs use their available duration; random selection is stable for the
+same registered source/asset and random seed. Each set retains its type, settings, source asset
+IDs, actual start times/durations, dimensions, and byte sizes.
+
+Video clips use H.264 MP4, with Compact (CRF 32), Balanced (26), or High (20)
+quality; Compact is the default. The maximum edge is 128/192/256 px (default
+256), and the frame-rate cap is 1–24 fps (default 24). Sources are never upscaled
+or increased in frame rate. Audio is included by default when present;
+**Mute video clip** omits it. Audio clips use AAC M4A. Both support
+32/48/64/96/128 kbit/s audio (default 48) and Mono/Stereo (default Mono).
+Stereo preserves stereo sources; mono sources remain mono.
+Video and audio clips contain one forward excerpt and have no loop setting.
+
+Animated GIFs are silent, at most 256 pixels on the longest edge, with a
+configurable 1–24 fps cap (default 12), 64/128/256-color palette (default 128),
+and optional dithering (default off). Loop offers **Play once**, **Forever**,
+and **Ping-Pong**. Ping-Pong encodes the forward and reversed frames without
+repeating the endpoint frames, then loops forever. Its playback cycle is roughly
+twice the selected excerpt duration. GIFs can be larger than equivalent videos.
+
+`clip_generator.py` runs one isolated `preview-clip` worker at a time for each
+job. `clip_worker.py` keeps scaled video frames in temporary disk-backed storage,
+uses a bounded mono/stereo audio buffer, and writes a poster or waveform alongside each
+clip. Multiple Items sharing an input within a set reuse the encoded files.
+Pause drains the active file; cancellation terminates its worker before cleanup.
+Bad sources are reported separately from missing files. Output/storage failures
+abort publication. Successful sets publish through the existing preview repository
+in one transaction; old image-only projects remain compatible.
+
+Completed sets provide **Inspect…** with bounded Item navigation, manual playback,
+seeking for audio/video, and playback muting. Switching Items or closing stops
+and unloads playback. The inspector honors the loop instructions embedded in GIFs.
+Cards show settings and actual total storage, counting each Item once regardless
+of its supporting files. Rename, Run Again, Retry, and Remove retain their existing
+semantics. Generated clips remain inspectable without the original media.
+
+Clip/GIF sets cannot be used as image-derived preview inputs. Discovery playback
+is owned by its preview controllers.
+
+## Preview parameters
+
+Creation follows the projection dialog's parameter/value table layout. Basic
+parameters remain visible; **Advanced parameters** starts collapsed, and
+**Reset defaults** resets both sections without changing the output name.
+Collapsing preserves edits. Changing processing type loads its defaults;
+**Run Again** restores the saved basic and advanced settings. The summary shows
+effective settings even while Advanced is collapsed.
+
+- Image thumbnails: image sizing is basic; WebP quality (1–100, default 85) is
+  advanced. Output sizes remain 32/64/128/256 px.
+- Video still frames: frame selection and image sizing are basic; WebP quality
+  and the conditional random seed are advanced.
+- Audio clips: duration and position are basic; bitrate, channels, and the
+  conditional random seed are advanced.
+- Video clips: duration, position, and muting are basic; quality, FPS cap, maximum
+  edge, audio settings, and the conditional random seed are advanced. Muting hides
+  audio controls without discarding their values.
+- GIFs: duration, position, and loop are basic; FPS cap, maximum edge, palette,
+  dithering, and the conditional random seed are advanced.
+
+Random seed appears only for Random selection, defaults to zero, and accepts
+0–2147483647. The same seed and source identity reproduce selections across new
+sets; changing it requests different selections. Saved generation settings are
+validated again outside the UI and recorded with each completed set. Older sets
+without the new settings use their previous encoding defaults.
+
+
+## Text excerpts
+
+Linked text sources offer **Text excerpts**, named `Source (excerpts)` by default.
+Basic parameters are maximum characters (1–10,000, default 400) and Beginning,
+Middle, End, or Random (default Beginning). Advanced parameters offer **Prefer
+complete words** (default) or **Character cut-off**, plus the shared random seed
+when Random is selected. Word boundaries use whitespace; unbroken text falls
+back to the character limit. Short sources use their available text, and
+paragraph breaks remain intact. Leading/trailing excerpt whitespace is trimmed.
+
+`text_source_repository.py` reads whole files unless the linked asset explicitly
+identifies a JSONL record. BOM-marked UTF-8/16/32 inputs are supported. Reads are
+cancellable, with a 2,000,000-character limit per document or record; larger inputs
+are reported as failures rather than silently treating a truncated prefix as the
+whole document. Shared record files are grouped and their seek offsets reused.
+Missing, empty, malformed, and ambiguous record inputs produce bounded error
+reports. Pause, resume, cancellation, retry, and publication use the existing job
+lifecycle. Output/storage failures abort publication.
+
+`text_generator.py` selects literal excerpts and saves them in `preview_texts`
+inside the existing preview repository, indexed by set and Item. Each excerpt
+retains its source asset ID, optional record key, character offsets, source length,
+and UTF-8 content size. Set storage reports text bytes, excluding database overhead.
+Text sets have no pixel sizes, image files, font settings, or colors.
+
+**Inspect…** opens a Designer-owned plain-text viewer with Previous/Next Item
+navigation, omission markers, and source positions. It reads saved excerpts in a
+background worker and works without the original media. **Run Again…** restores
+saved selection settings; rename and removal use normal set management. Text
+sets are excluded from image-derived generation and canvas image previews.
+Discovery tooltips and Pins display saved text excerpts with independent font and
+size settings owned by their respective settings panels.

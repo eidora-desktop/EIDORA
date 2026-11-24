@@ -17,6 +17,7 @@ from PIL import Image, ImageOps
 
 from MediaArea.thumbnail_images import write_thumbnail_sizes
 from MediaArea.thumbnail_pause import ThumbnailPause
+from MediaArea.thumbnail_options import image_parameters
 from shared.internal_workers import internal_worker_command, read_worker_result
 
 from DiscoveryArea.thumbnails.repository import (
@@ -43,6 +44,8 @@ class ThumbnailGenerationInput:
     path: Path
     metadata_id: int
     media_type: str = "image"
+    source_asset_id: str = ""
+    text_record_key: str = ""
 
 
 @dataclass(frozen=True)
@@ -53,6 +56,7 @@ class ThumbnailGenerationResult:
     failed_files: int
     missing_files: int = 0
     errors: tuple[str, ...] = ()
+    total_bytes: int = 0
 
 
 class _InvalidSource(RuntimeError):
@@ -80,6 +84,8 @@ def create_thumbnail_variant(
     identifier_column: str,
     inputs: Iterable[ThumbnailGenerationInput],
     resize_mode: str = "original_aspect",
+    image_quality: int = 85,
+    random_seed: int = 0,
     progress_callback: ProgressCallback | None = None,
     should_cancel: CancellationCallback | None = None,
     pause: ThumbnailPause | None = None,
@@ -103,6 +109,7 @@ def create_thumbnail_variant(
     normalized_frame_mode = str(video_frame_mode or "middle").strip().lower()
     if normalized_frame_mode not in {"first", "middle", "last", "random"}:
         raise ValueError(f"Unsupported video frame mode: {video_frame_mode}")
+    encoding = image_parameters(dict(image_quality=image_quality, random_seed=random_seed))
     stopped = threading.Event()
 
     def check_cancelled() -> None:
@@ -125,7 +132,7 @@ def create_thumbnail_variant(
         item_media_type = str(item.media_type or normalized_media_type).strip().lower()
         if item_media_type != normalized_media_type:
             raise ValueError("Preview Assets cannot mix image and video inputs.")
-        matched.append(ThumbnailGenerationInput(Path(item.path), metadata_id, item_media_type))
+        matched.append(ThumbnailGenerationInput(Path(item.path), metadata_id, item_media_type, item.source_asset_id))
     checkpoint()
     if not matched:
         raise RuntimeError("No linked media files are available for creating Preview Assets.")
@@ -165,6 +172,8 @@ def create_thumbnail_variant(
                         normalized_resize,
                         check_cancelled,
                         normalized_frame_mode,
+                        encoding["image_quality"],
+                        encoding["random_seed"],
                     ))
 
             try:
@@ -230,6 +239,7 @@ def create_thumbnail_variant(
             errors=tuple(errors),
             input_kind=str(input_kind).strip(),
             input_label=str(input_label).strip(),
+            parameters=encoding,
         )
         _emit(progress_callback, "index", len(entries), 0, "Saving Preview Assets…")
         check_cancelled()
@@ -249,6 +259,8 @@ def _process_image(
     resize_mode: str,
     check_cancelled: Callable[[], None],
     _video_frame_mode: str = "middle",
+    image_quality: int = 85,
+    _random_seed: int = 0,
 ) -> list[ThumbnailVariantItem]:
     check_cancelled()
     try:
@@ -265,7 +277,7 @@ def _process_image(
         outputs = _output_paths(repo, staging, variant_id, item.metadata_id)
         check_cancelled()
         # Storage failures abort the job; they are not bad input files.
-        write_thumbnail_sizes(image, outputs, resize_mode)
+        write_thumbnail_sizes(image, outputs, resize_mode, image_quality)
     return [
             ThumbnailVariantItem(
                 variant_id=variant_id, metadata_id=item.metadata_id, size_px=size_px,
@@ -311,6 +323,8 @@ def _process_video(
     resize_mode: str,
     check_cancelled: Callable[[], None],
     video_frame_mode: str,
+    image_quality: int = 85,
+    random_seed: int = 0,
 ) -> list[ThumbnailVariantItem]:
     check_cancelled()
     if not item.path.exists():
@@ -321,7 +335,8 @@ def _process_video(
         "outputs": {str(size): str(path) for size, path in outputs.items()},
         "resize_mode": resize_mode,
         "frame_mode": video_frame_mode,
-        "seed": f"{variant_id}:{item.metadata_id}",
+        "seed": f"{item.source_asset_id or item.path.resolve()}:{item.metadata_id}:{random_seed}",
+        "image_quality": image_quality,
     }
     # Each concurrent item owns its reply. Remove it before publishing staging.
     result_path = staging / f".video-result-{uuid4().hex}.json"
