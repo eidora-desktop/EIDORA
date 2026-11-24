@@ -50,6 +50,7 @@ from DiscoveryArea.canvas.render_backend import (
     ThumbnailSourceEntry,
 )
 from shared.cursors import (
+    CLICKABLE,
     LASSO_ADD_POINT,
     LASSO_ADD_ANCHOR,
     LASSO_CLOSE_POINT,
@@ -5101,20 +5102,25 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             if self._lasso_hover_polygon_index is not None:
                 return LASSO_SELECT_AREA
             return LASSO_ADD_POINT
-        if self._interaction_mode == "selection":
-            return SELECTION_MODE
-        if self._interaction_mode == "pin":
+        if self._interaction_mode in {"selection", "pin"}:
+            if self._pin_drag_annotation_id is not None:
+                return PIN_MOVE
             position = self._cursor_canvas_position
             if position is not None:
                 hit_pin = self._hit_test_pin(position)
                 hit_pinned_point = self._pinned_annotation_id_at_point(position)
                 if self._option_modifier_held() and (hit_pin is not None or hit_pinned_point is not None):
                     return PIN_REMOVE
+                media_hit = self._pin_media_layer.hit(position)
+                if media_hit is not None:
+                    if media_hit[1] != "busy":
+                        return CLICKABLE
+                    return PIN_MODE if self._interaction_mode == "pin" else SELECTION_MODE
                 if hit_pin is not None:
                     return PIN_MOVE
                 if self._pick_metadata_id(position.x(), position.y()) is not None:
-                    return PIN_ADD
-            return PIN_MODE
+                    return PIN_ADD if self._interaction_mode == "pin" else CLICKABLE
+            return PIN_MODE if self._interaction_mode == "pin" else SELECTION_MODE
         return PAN_OPEN
 
     def _update_cursor_from_pointer_event(self, event: QtGui.QSinglePointEvent) -> None:

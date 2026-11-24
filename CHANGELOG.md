@@ -6,7 +6,11 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Keep tooltip feedback clear of its settings panel and separate text box width from font size, retaining the preview-size controls for text assets.
 
+- Use a consistent set of open, closed, and pointing-hand cursors with matching finger widths, outlines, and palms. Show the pointing hand over clickable canvas Items and Pin playback controls.
+
 - Show saved text excerpts directly in Pins with compact font and font-size controls, theme colors, background text loading for visible cards, and support for canvas exports. Resizing reflows text without scaling it or generating preview images.
+
+- Restore the move cursor over Pins in canvas selection mode, including the remove cursor when a removal modifier is held.
 
 - Show immediate preview feedback for changes in Tooltip Settings, use the curated Figures font choices for text, and keep settings open when selecting dropdown entries outside the panel.
 
