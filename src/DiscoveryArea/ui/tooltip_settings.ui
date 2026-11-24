@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="sizePolicy">
-   <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+   <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
     <horstretch>0</horstretch>
     <verstretch>0</verstretch>
    </sizepolicy>
@@ -25,7 +25,7 @@
   <property name="maximumSize">
    <size>
     <width>315</width>
-    <height>315</height>
+    <height>16777215</height>
    </size>
   </property>
   <property name="windowTitle">
@@ -35,6 +35,7 @@
    <string>panel</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="sizeConstraint"><enum>QLayout::SizeConstraint::SetFixedSize</enum></property>
    <property name="spacing">
     <number>18</number>
    </property>
@@ -52,6 +53,15 @@
    </property>
    <item>
     <widget class="QGroupBox" name="info_field_group">
+     <property name="flat">
+      <bool>false</bool>
+     </property>
+     <property name="checkable">
+      <bool>false</bool>
+     </property>
+     <property name="title">
+      <string/>
+     </property>
      <property name="sizePolicy">
       <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
        <horstretch>0</horstretch>
@@ -67,59 +77,25 @@
      <property name="toolTip">
       <string>Show metadata text</string>
      </property>
-     <property name="title">
-      <string>Info Field</string>
-     </property>
-     <property name="checkable">
-      <bool>true</bool>
-     </property>
-     <layout class="QHBoxLayout" name="layout_horizontal_layout_32">
-      <property name="spacing">
-       <number>6</number>
-      </property>
-      <property name="leftMargin">
-       <number>6</number>
-      </property>
-      <property name="topMargin">
+     <layout class="QVBoxLayout" name="layout_tooltip_info_section">
+      <property name="bottomMargin">
        <number>6</number>
       </property>
       <property name="rightMargin">
        <number>6</number>
       </property>
-      <property name="bottomMargin">
+      <property name="topMargin">
        <number>6</number>
       </property>
+      <property name="leftMargin">
+       <number>6</number>
+      </property>
+      <property name="spacing">
+       <number>0</number>
+      </property>
       <item>
-       <widget class="QListWidget" name="list_pin_selected_metadata_fields_tooltip">
-        <property name="maximumSize">
-         <size>
-          <width>16777215</width>
-          <height>16777215</height>
-         </size>
-        </property>
-        <property name="toolTip">
-         <string>Choose and order tooltip fields</string>
-        </property>
-        <property name="alternatingRowColors">
-         <bool>true</bool>
-        </property>
-       </widget>
-      </item>
-      <item>
-       <widget class="QWidget" name="panel_pin_sort_container_tooltip" native="true">
-        <property name="sizePolicy">
-         <sizepolicy hsizetype="Fixed" vsizetype="Expanding">
-          <horstretch>0</horstretch>
-          <verstretch>0</verstretch>
-         </sizepolicy>
-        </property>
-        <property name="styleSheet">
-         <string notr="true"/>
-        </property>
-        <layout class="QVBoxLayout" name="layout_vertical_layout_12">
-         <property name="spacing">
-          <number>6</number>
-         </property>
+       <widget class="QWidget" name="panel_tooltip_info_header" native="true">
+        <layout class="QVBoxLayout" name="layout_tooltip_info_header">
          <property name="leftMargin">
           <number>0</number>
          </property>
@@ -130,23 +106,75 @@
           <number>0</number>
          </property>
          <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <item>
+          <widget class="QCheckBox" name="check_tooltip_info">
+           <property name="styleSheet">
+            <string notr="true">QCheckBox::indicator:unchecked { border: 1px solid palette(text); border-radius: 2px; background: palette(base); }</string>
+           </property>
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Metadata</string>
+           </property>
+           <property name="checked">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="panel_tooltip_info_controls" native="true">
+        <layout class="QHBoxLayout" name="layout_horizontal_layout_32">
+         <property name="bottomMargin">
           <number>0</number>
          </property>
-         <item alignment="Qt::AlignmentFlag::AlignTop">
-          <widget class="QWidget" name="panel_pin_arrow_buttons_tooltip" native="true">
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="spacing">
+          <number>6</number>
+         </property>
+         <item>
+          <widget class="QListWidget" name="list_pin_selected_metadata_fields_tooltip">
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>100</height>
+            </size>
+           </property>
+           <property name="toolTip">
+            <string>Choose and order tooltip fields</string>
+           </property>
+           <property name="alternatingRowColors">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="panel_pin_sort_container_tooltip" native="true">
            <property name="sizePolicy">
-            <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+            <sizepolicy hsizetype="Fixed" vsizetype="Expanding">
              <horstretch>0</horstretch>
              <verstretch>0</verstretch>
             </sizepolicy>
            </property>
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>0</height>
-            </size>
+           <property name="styleSheet">
+            <string notr="true"/>
            </property>
-           <layout class="QVBoxLayout" name="layout_vertical_layout_18">
+           <layout class="QVBoxLayout" name="layout_vertical_layout_12">
             <property name="spacing">
              <number>6</number>
             </property>
@@ -162,52 +190,114 @@
             <property name="bottomMargin">
              <number>0</number>
             </property>
-            <item>
-             <widget class="QToolButton" name="button_pin_move_up_tooltip">
+            <item alignment="Qt::AlignmentFlag::AlignTop">
+             <widget class="QWidget" name="panel_pin_arrow_buttons_tooltip" native="true">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
               </property>
               <property name="minimumSize">
                <size>
-                <width>22</width>
-                <height>22</height>
+                <width>0</width>
+                <height>0</height>
                </size>
               </property>
-              <property name="maximumSize">
-               <size>
-                <width>22</width>
-                <height>22</height>
-               </size>
-              </property>
-              <property name="toolTip">
-               <string>Move field up</string>
-              </property>
-              <property name="styleSheet">
-               <string notr="true">m</string>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="icon">
-               <iconset>
-                <normaloff>../../shared/icons/material/up.svg</normaloff>../../shared/icons/material/up.svg</iconset>
-              </property>
-              <property name="iconName" stdset="0">
-               <string>up</string>
-              </property>
+              <layout class="QVBoxLayout" name="layout_vertical_layout_18">
+               <property name="spacing">
+                <number>6</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QToolButton" name="button_pin_move_up_tooltip">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>22</width>
+                   <height>22</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>22</width>
+                   <height>22</height>
+                  </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Move field up</string>
+                 </property>
+                 <property name="styleSheet">
+                  <string notr="true">m</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="icon">
+                  <iconset>
+                   <normaloff>../../shared/icons/material/up.svg</normaloff>../../shared/icons/material/up.svg</iconset>
+                 </property>
+                 <property name="iconName" stdset="0">
+                  <string>up</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QToolButton" name="button_pin_move_down_tooltip">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>22</width>
+                   <height>22</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>22</width>
+                   <height>22</height>
+                  </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Move field down</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="icon">
+                  <iconset>
+                   <normaloff>../../shared/icons/material/down.svg</normaloff>../../shared/icons/material/down.svg</iconset>
+                 </property>
+                 <property name="iconName" stdset="0">
+                  <string>down</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
              </widget>
             </item>
             <item>
-             <widget class="QToolButton" name="button_pin_move_down_tooltip">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
+             <widget class="QToolButton" name="button_pin_sync_metadata_fields_tooltip">
               <property name="minimumSize">
                <size>
                 <width>22</width>
@@ -221,50 +311,21 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>Move field down</string>
+               <string>take fields from Pins</string>
               </property>
               <property name="text">
                <string/>
               </property>
               <property name="icon">
                <iconset>
-                <normaloff>../../shared/icons/material/down.svg</normaloff>../../shared/icons/material/down.svg</iconset>
+                <normaloff>../../shared/icons/material/sync.svg</normaloff>../../shared/icons/material/sync.svg</iconset>
               </property>
               <property name="iconName" stdset="0">
-               <string>down</string>
+               <string>sync</string>
               </property>
              </widget>
             </item>
            </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QToolButton" name="button_pin_sync_metadata_fields_tooltip">
-           <property name="minimumSize">
-            <size>
-             <width>22</width>
-             <height>22</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>22</width>
-             <height>22</height>
-            </size>
-           </property>
-           <property name="toolTip">
-            <string>take fields from Pins</string>
-           </property>
-           <property name="text">
-            <string/>
-           </property>
-           <property name="icon">
-            <iconset>
-             <normaloff>../../shared/icons/material/sync.svg</normaloff>../../shared/icons/material/sync.svg</iconset>
-           </property>
-           <property name="iconName" stdset="0">
-            <string>sync</string>
-           </property>
           </widget>
          </item>
         </layout>
@@ -288,10 +349,13 @@
       </size>
      </property>
      <property name="title">
-      <string>Preview Assets</string>
+      <string/>
+     </property>
+     <property name="flat">
+      <bool>false</bool>
      </property>
      <property name="checkable">
-      <bool>true</bool>
+      <bool>false</bool>
      </property>
      <layout class="QVBoxLayout" name="verticalLayout_2">
       <property name="spacing">
@@ -310,11 +374,8 @@
        <number>0</number>
       </property>
       <item>
-       <widget class="QWidget" name="widget" native="true">
-        <layout class="QHBoxLayout" name="horizontalLayout">
-         <property name="spacing">
-          <number>6</number>
-         </property>
+       <widget class="QWidget" name="panel_tooltip_assets_header" native="true">
+        <layout class="QVBoxLayout" name="layout_tooltip_assets_header">
          <property name="leftMargin">
           <number>0</number>
          </property>
@@ -325,19 +386,52 @@
           <number>0</number>
          </property>
          <property name="bottomMargin">
+          <number>12</number>
+         </property>
+         <item>
+          <widget class="QCheckBox" name="check_tooltip_assets">
+           <property name="styleSheet">
+            <string notr="true">QCheckBox::indicator:unchecked { border: 1px solid palette(text); border-radius: 2px; background: palette(base); }</string>
+           </property>
+           <property name="font">
+            <font>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>Preview Assets</string>
+           </property>
+           <property name="checked">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      <item>
+       <widget class="QWidget" name="panel_tooltip_asset_controls" native="true">
+        <layout class="QVBoxLayout" name="layout_tooltip_asset_controls">
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="spacing">
           <number>0</number>
          </property>
          <item>
-          <widget class="QWidget" name="thumbnail_icon" native="true">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <layout class="QHBoxLayout" name="layout_horizontal_layout_19">
+          <widget class="QWidget" name="panel_tooltip_asset_choice" native="true">
+           <layout class="QHBoxLayout" name="horizontalLayout">
             <property name="spacing">
-             <number>0</number>
+             <number>6</number>
             </property>
             <property name="leftMargin">
              <number>0</number>
@@ -352,52 +446,130 @@
              <number>0</number>
             </property>
             <item>
-             <widget class="QLabel" name="label_thumbnails_tooltip">
+             <widget class="QWidget" name="thumbnail_icon" native="true">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
               </property>
-              <property name="minimumSize">
-               <size>
-                <width>0</width>
-                <height>0</height>
-               </size>
-              </property>
-              <property name="maximumSize">
-               <size>
-                <width>16777215</width>
-                <height>16777215</height>
-               </size>
+              <layout class="QHBoxLayout" name="layout_horizontal_layout_19">
+               <property name="spacing">
+                <number>0</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QLabel" name="label_thumbnails_tooltip">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Preview Assets</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="pixmap">
+                  <pixmap>../../shared/icons/material/preview_assets.svg</pixmap>
+                 </property>
+                 <property name="iconSize" stdset="0">
+                  <number>20</number>
+                 </property>
+                 <property name="iconName" stdset="0">
+                  <string>preview_assets</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="label_thumbnail_field_separator_tooltip">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="text">
+                  <string>:</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="combo_tooltip_thumbnail_field">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
               </property>
               <property name="toolTip">
-               <string>Preview Assets</string>
-              </property>
-              <property name="text">
-               <string/>
-              </property>
-              <property name="pixmap">
-               <pixmap>../../shared/icons/material/preview_assets.svg</pixmap>
-              </property>
-              <property name="iconSize" stdset="0">
-               <number>20</number>
-              </property>
-              <property name="iconName" stdset="0">
-               <string>preview_assets</string>
+               <string>Preview Assets source</string>
               </property>
              </widget>
             </item>
             <item>
-             <widget class="QLabel" name="label_thumbnail_field_separator_tooltip">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
+             <widget class="QToolButton" name="check_loop">
+              <property name="enabled">
+               <bool>false</bool>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>22</width>
+                <height>22</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>22</width>
+                <height>22</height>
+               </size>
+              </property>
+              <property name="toolTip">
+               <string>Loop autoplay clips</string>
               </property>
               <property name="text">
-               <string>:</string>
+               <string/>
+              </property>
+              <property name="icon">
+               <iconset>
+                <normaloff>../../shared/icons/material/repeat.svg</normaloff>../../shared/icons/material/repeat.svg</iconset>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+              <property name="iconName" stdset="0">
+               <string>repeat</string>
               </property>
              </widget>
             </item>
@@ -405,29 +577,10 @@
           </widget>
          </item>
          <item>
-          <widget class="QComboBox" name="combo_tooltip_thumbnail_field">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="toolTip">
-            <string>Preview Assets source</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QWidget" name="thumbnail_alignment_icon" native="true">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <layout class="QHBoxLayout" name="horizontalLayout_7">
+          <widget class="QWidget" name="panel_tooltip_autoplay" native="true">
+           <layout class="QHBoxLayout" name="layout_tooltip_autoplay">
             <property name="spacing">
-             <number>0</number>
+             <number>12</number>
             </property>
             <property name="leftMargin">
              <number>0</number>
@@ -442,14 +595,8 @@
              <number>0</number>
             </property>
             <item>
-             <widget class="QWidget" name="alignment_options" native="true">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
-              <layout class="QHBoxLayout" name="layout_horizontal_layout_31">
+             <widget class="QWidget" name="panel_tooltip_position_choice" native="true">
+              <layout class="QHBoxLayout" name="horizontalLayout_3">
                <property name="spacing">
                 <number>6</number>
                </property>
@@ -466,140 +613,92 @@
                 <number>0</number>
                </property>
                <item>
-                <widget class="QToolButton" name="button_align_left">
+                <widget class="QWidget" name="panel_tooltip_position_icon" native="true">
                  <property name="sizePolicy">
-                  <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
                  </property>
-                 <property name="minimumSize">
-                  <size>
-                   <width>22</width>
-                   <height>22</height>
-                  </size>
-                 </property>
-                 <property name="maximumSize">
-                  <size>
-                   <width>22</width>
-                   <height>22</height>
-                  </size>
-                 </property>
-                 <property name="toolTip">
-                  <string>Align Preview Assets left</string>
-                 </property>
-                 <property name="text">
-                  <string/>
-                 </property>
-                 <property name="icon">
-                  <iconset>
-                   <normaloff>../../shared/icons/material/thumb_left.svg</normaloff>../../shared/icons/material/thumb_left.svg</iconset>
-                 </property>
-                 <property name="checkable">
-                  <bool>true</bool>
-                 </property>
-                 <property name="iconName" stdset="0">
-                  <string>thumb_left</string>
-                 </property>
+                 <layout class="QHBoxLayout" name="horizontalLayout_4">
+                  <property name="spacing">
+                   <number>0</number>
+                  </property>
+                  <property name="leftMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="bottomMargin">
+                   <number>0</number>
+                  </property>
+                  <item>
+                   <widget class="QLabel" name="label_tooltip_layout_icon">
+                    <property name="sizePolicy">
+                     <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                     </sizepolicy>
+                    </property>
+                    <property name="toolTip">
+                     <string>Preview position</string>
+                    </property>
+                    <property name="pixmap">
+                     <pixmap>../../shared/icons/material/layout.svg</pixmap>
+                    </property>
+                    <property name="iconName" stdset="0">
+                     <string>layout</string>
+                    </property>
+                    <property name="iconSize" stdset="0">
+                     <number>20</number>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="label_tooltip_autoplay">
+                    <property name="sizePolicy">
+                     <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                      <horstretch>0</horstretch>
+                      <verstretch>0</verstretch>
+                     </sizepolicy>
+                    </property>
+                    <property name="text">
+                     <string>:</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
                 </widget>
                </item>
                <item>
-                <widget class="QToolButton" name="button_align_right">
-                 <property name="minimumSize">
-                  <size>
-                   <width>22</width>
-                   <height>22</height>
-                  </size>
-                 </property>
-                 <property name="maximumSize">
-                  <size>
-                   <width>22</width>
-                   <height>22</height>
-                  </size>
-                 </property>
+                <widget class="QComboBox" name="combo_preview_position">
                  <property name="toolTip">
-                  <string>Align Preview Assets right</string>
-                 </property>
-                 <property name="text">
                   <string/>
                  </property>
-                 <property name="icon">
-                  <iconset>
-                   <normaloff>../../shared/icons/material/thumb_right.svg</normaloff>../../shared/icons/material/thumb_right.svg</iconset>
-                 </property>
-                 <property name="checkable">
-                  <bool>true</bool>
-                 </property>
-                 <property name="checked">
-                  <bool>false</bool>
-                 </property>
-                 <property name="iconName" stdset="0">
-                  <string>thumb_right</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QToolButton" name="button_align_top">
-                 <property name="minimumSize">
-                  <size>
-                   <width>22</width>
-                   <height>22</height>
-                  </size>
-                 </property>
-                 <property name="maximumSize">
-                  <size>
-                   <width>22</width>
-                   <height>22</height>
-                  </size>
-                 </property>
-                 <property name="toolTip">
-                  <string>Align Preview Assets top</string>
-                 </property>
-                 <property name="text">
-                  <string/>
-                 </property>
-                 <property name="icon">
-                  <iconset>
-                   <normaloff>../../shared/icons/material/thumb_top.svg</normaloff>../../shared/icons/material/thumb_top.svg</iconset>
-                 </property>
-                 <property name="checkable">
-                  <bool>true</bool>
-                 </property>
-                 <property name="iconName" stdset="0">
-                  <string>thumb_top</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QToolButton" name="button_align_bottom">
-                 <property name="minimumSize">
-                  <size>
-                   <width>22</width>
-                   <height>22</height>
-                  </size>
-                 </property>
-                 <property name="maximumSize">
-                  <size>
-                   <width>22</width>
-                   <height>22</height>
-                  </size>
-                 </property>
-                 <property name="toolTip">
-                  <string>Align Preview Assets bottom</string>
-                 </property>
-                 <property name="text">
-                  <string/>
-                 </property>
-                 <property name="icon">
-                  <iconset>
-                   <normaloff>../../shared/icons/material/thumb_bottom.svg</normaloff>../../shared/icons/material/thumb_bottom.svg</iconset>
-                 </property>
-                 <property name="checkable">
-                  <bool>true</bool>
-                 </property>
-                 <property name="iconName" stdset="0">
-                  <string>thumb_bottom</string>
-                 </property>
+                 <item>
+                  <property name="text">
+                   <string>top</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>bottom</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>left</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>right</string>
+                  </property>
+                 </item>
                 </widget>
                </item>
               </layout>
@@ -608,38 +707,11 @@
            </layout>
           </widget>
          </item>
-        </layout>
-       </widget>
-      </item>
-      <item>
-       <widget class="QWidget" name="widget" native="true">
-        <layout class="QHBoxLayout" name="horizontalLayout_2">
-         <property name="spacing">
-          <number>6</number>
-         </property>
-         <property name="leftMargin">
-          <number>0</number>
-         </property>
-         <property name="topMargin">
-          <number>0</number>
-         </property>
-         <property name="rightMargin">
-          <number>0</number>
-         </property>
-         <property name="bottomMargin">
-          <number>0</number>
-         </property>
          <item>
-          <widget class="QWidget" name="thumbnail_size_icon" native="true">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <layout class="QHBoxLayout" name="horizontalLayout_6">
+          <widget class="QWidget" name="panel_tooltip_text_settings" native="true">
+           <layout class="QVBoxLayout" name="layout_tooltip_text_settings">
             <property name="spacing">
-             <number>0</number>
+             <number>6</number>
             </property>
             <property name="leftMargin">
              <number>0</number>
@@ -654,9 +726,246 @@
              <number>0</number>
             </property>
             <item>
-             <widget class="QLabel" name="label_thumbnails_tooltip_size">
+             <layout class="QHBoxLayout" name="layout_tooltip_text_font">
+              <property name="spacing">
+               <number>6</number>
+              </property>
+              <property name="leftMargin">
+               <number>0</number>
+              </property>
+              <property name="topMargin">
+               <number>0</number>
+              </property>
+              <property name="rightMargin">
+               <number>0</number>
+              </property>
+              <property name="bottomMargin">
+               <number>0</number>
+              </property>
+              <item>
+               <widget class="QWidget" name="panel_tooltip_font_size_icon" native="true">
+                <layout class="QHBoxLayout" name="layout_tooltip_text_icon">
+                 <property name="spacing">
+                  <number>0</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QLabel" name="label_tooltip_text_size_icon">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="maximumSize">
+                    <size>
+                     <width>22</width>
+                     <height>22</height>
+                    </size>
+                   </property>
+                   <property name="toolTip">
+                    <string>Preview text size</string>
+                   </property>
+                   <property name="text">
+                    <string />
+                   </property>
+                   <property name="pixmap">
+                    <pixmap>../../shared/icons/material/text_size.svg</pixmap>
+                   </property>
+                   <property name="iconName" stdset="0">
+                    <string>text_size</string>
+                   </property>
+                   <property name="iconSize" stdset="0">
+                    <number>20</number>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="label_tooltip_text_size_separator">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
+                   <property name="text">
+                    <string>:</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="combo_tooltip_font">
+                <property name="sizeAdjustPolicy">
+                 <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
+                </property>
+                <property name="minimumContentsLength">
+                 <number>8</number>
+                </property>
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>16777215</width>
+                  <height>16777215</height>
+                 </size>
+                </property>
+                <property name="toolTip">
+                 <string>Preview font</string>
+                </property>
+                <property name="currentFont">
+                 <font>
+                  <family>Sans Serif</family>
+                 </font>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QSpinBox" name="spin_tooltip_text_size">
+                <property name="sizePolicy">
+                 <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                  <horstretch>0</horstretch>
+                  <verstretch>0</verstretch>
+                 </sizepolicy>
+                </property>
+                <property name="toolTip">
+                 <string>Preview text size</string>
+                </property>
+                <property name="minimum">
+                 <number>8</number>
+                </property>
+                <property name="maximum">
+                 <number>36</number>
+                </property>
+                <property name="value">
+                 <number>12</number>
+                </property>
+                <property name="suffix">
+                 <string> pt</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QWidget" name="panel_tooltip_asset_size" native="true">
+           <layout class="QHBoxLayout" name="horizontalLayout_2">
+            <property name="spacing">
+             <number>6</number>
+            </property>
+            <property name="leftMargin">
+             <number>0</number>
+            </property>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QWidget" name="thumbnail_size_icon" native="true">
               <property name="sizePolicy">
                <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <layout class="QHBoxLayout" name="horizontalLayout_6">
+               <property name="spacing">
+                <number>0</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QLabel" name="label_thumbnails_tooltip_size">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="minimumSize">
+                  <size>
+                   <width>0</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>16777215</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="toolTip">
+                  <string>Preview size / text box width</string>
+                 </property>
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="pixmap">
+                  <pixmap>../../shared/icons/material/thumbnail_size.svg</pixmap>
+                 </property>
+                 <property name="iconSize" stdset="0">
+                  <number>20</number>
+                 </property>
+                 <property name="iconName" stdset="0">
+                  <string>thumbnail_size</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="label_thumbnail_tooltip_size_separator">
+                 <property name="sizePolicy">
+                  <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
+                   <horstretch>0</horstretch>
+                   <verstretch>0</verstretch>
+                  </sizepolicy>
+                 </property>
+                 <property name="text">
+                  <string>: </string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSlider" name="slider_tooltip_thumbnail_size">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
@@ -674,85 +983,35 @@
                </size>
               </property>
               <property name="toolTip">
-               <string>Preview Assets size</string>
+               <string>Preview size / text box width</string>
               </property>
-              <property name="text">
-               <string/>
+              <property name="minimum">
+               <number>32</number>
               </property>
-              <property name="pixmap">
-               <pixmap>../../shared/icons/material/thumbnail_size.svg</pixmap>
+              <property name="maximum">
+               <number>320</number>
               </property>
-              <property name="iconSize" stdset="0">
-               <number>20</number>
+              <property name="singleStep">
+               <number>1</number>
               </property>
-              <property name="iconName" stdset="0">
-               <string>thumbnail_size</string>
+              <property name="pageStep">
+               <number>16</number>
               </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="label_thumbnail_tooltip_size_separator">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Fixed" vsizetype="Preferred">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
+              <property name="value">
+               <number>256</number>
               </property>
-              <property name="text">
-               <string>: </string>
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="tickPosition">
+               <enum>QSlider::TickPosition::TicksAbove</enum>
+              </property>
+              <property name="tickInterval">
+               <number>32</number>
               </property>
              </widget>
             </item>
            </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QSlider" name="slider_tooltip_thumbnail_size">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <property name="toolTip">
-            <string>Tooltip Preview Assets size</string>
-           </property>
-           <property name="minimum">
-            <number>32</number>
-           </property>
-           <property name="maximum">
-            <number>320</number>
-           </property>
-           <property name="singleStep">
-            <number>1</number>
-           </property>
-           <property name="pageStep">
-            <number>16</number>
-           </property>
-           <property name="value">
-            <number>256</number>
-           </property>
-           <property name="orientation">
-            <enum>Qt::Orientation::Horizontal</enum>
-           </property>
-           <property name="tickPosition">
-            <enum>QSlider::TickPosition::TicksAbove</enum>
-           </property>
-           <property name="tickInterval">
-            <number>32</number>
-           </property>
           </widget>
          </item>
         </layout>
@@ -765,4 +1024,7 @@
  </widget>
  <resources/>
  <connections/>
+ <buttongroups>
+  <buttongroup name="buttonGroup"/>
+ </buttongroups>
 </ui>

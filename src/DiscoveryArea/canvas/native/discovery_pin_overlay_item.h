@@ -6,6 +6,7 @@
 #include <QPointF>
 #include <QStringList>
 #include <QImage>
+#include <QFont>
 
 class DiscoveryPinOverlayItem : public QQuickPaintedItem {
     Q_OBJECT
@@ -30,6 +31,13 @@ private:
         QPointF screenOffset;
         QStringList lines;
         QImage thumbnail;
+        bool hasTextPreview = false;
+        QStringList previewLines;
+        QSizeF previewSize;
+        QFont previewFont;
+        QColor previewForeground;
+        QColor previewBackground;
+        double previewLineSpacing = 0.0;
         int thumbnailSize = 96;
         bool hasBoxWorldAnchor = false;
     };

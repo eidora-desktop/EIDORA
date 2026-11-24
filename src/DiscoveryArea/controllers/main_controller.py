@@ -44,6 +44,11 @@ from DiscoveryArea.controllers.snapshots_panel_controller import SNAPSHOT_PREVIE
 from DiscoveryArea.controllers.thumbnail_plan_coordinator import (
     ThumbnailPlanCoordinator,
 )
+from DiscoveryArea.controllers.tooltip_preview_controller import TooltipPreviewController
+from DiscoveryArea.controllers.tooltip_position import settings_preview_position
+from DiscoveryArea.controllers.pin_playback_controller import PinPlaybackController
+from DiscoveryArea.controllers.pin_text_preview_controller import PinTextPreviewController
+from DiscoveryArea.tooltip_preview_service import PLAYABLE_PREVIEW_KINDS
 from DiscoveryArea.canvas.thumbnail_planner import (
     MAXIMUM_THUMBNAIL_LIMIT,
     MINIMUM_THUMBNAIL_LIMIT,
@@ -148,6 +153,19 @@ class _ThumbnailReadyBridge(QtCore.QObject):
     ready = QtCore.Signal(object)
 
 
+class _TooltipPreviewPositionFilter(QtCore.QObject):
+    def __init__(self, owner):
+        super().__init__(owner.widget)
+        self._timer = QtCore.QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(owner._position_settings_preview_tooltip)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QtCore.QEvent.Type.Move, QtCore.QEvent.Type.Resize, QtCore.QEvent.Type.Show):
+            self._timer.start(0)
+        return False
+
+
 class _CanvasStyleBuildTask:
     def __init__(
         self,
@@ -208,6 +226,10 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(content)
         self._thumbnail_label = require_child(content, QtWidgets.QLabel, "label_tooltip_thumbnail")
+        from DiscoveryArea.controllers.tooltip_text_view import TooltipTextView
+        self._excerpt_label = require_child(content, QtWidgets.QLabel, "label_tooltip_excerpt")
+        self._excerpt_view = TooltipTextView(self._excerpt_label)
+        self._excerpt_view.geometry_changed.connect(self._fit_to_content)
         self._text_label = require_child(content, QtWidgets.QLabel, "label_tooltip_identifier")
         self._text_panel = require_child(content, QtWidgets.QWidget, "panel_tooltip_identifier")
         self._text_panel.setSizePolicy(
@@ -232,6 +254,7 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
         self._thumbnail_label.hide()
         self._thumbnail_max_edge = 96
         self._thumbnail_alignment = ""
+        self._preview_layout_widget = None
         self._text_layout_key: tuple[tuple[str, ...], str] | None = None
         self._text_height = 0
 
@@ -239,9 +262,11 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
         alignment = str(value or "bottom").strip().lower()
         if alignment not in {"left", "right", "top", "bottom"}:
             alignment = "bottom"
-        if alignment == self._thumbnail_alignment:
+        preview = self._excerpt_label if not self._excerpt_label.isHidden() else self._thumbnail_label
+        if alignment == self._thumbnail_alignment and preview is self._preview_layout_widget:
             return
         self._thumbnail_alignment = alignment
+        self._preview_layout_widget = preview
         content_layout = self._content.layout()
         if not isinstance(content_layout, QtWidgets.QBoxLayout):
             return
@@ -251,9 +276,9 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
             else QtWidgets.QBoxLayout.Direction.TopToBottom
         )
         first, second = (
-            (self._thumbnail_label, self._text_panel)
+            (preview, self._text_panel)
             if alignment in {"left", "top"}
-            else (self._text_panel, self._thumbnail_label)
+            else (self._text_panel, preview)
         )
         content_layout.insertWidget(0, first)
         content_layout.insertWidget(1, second)
@@ -392,27 +417,63 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
         )
 
     def set_placeholder(self) -> None:
+        self._excerpt_label.hide()
         self._thumbnail_label.clear()
+        self._thumbnail_label.setToolTip("")
         self._thumbnail_label.setText("...")
         self._thumbnail_label.show()
+        if self._thumbnail_alignment:
+            self.set_thumbnail_alignment(self._thumbnail_alignment)
         self._fit_to_content()
 
+    @property
+    def preview_label(self) -> QtWidgets.QLabel:
+        return self._thumbnail_label
+
+    def show_preview_error(self, message: str) -> None:
+        if self._thumbnail_label.pixmap().isNull():
+            self.clear_thumbnail()
+        lines = list(self._text_layout_key[0]) if self._text_layout_key else []
+        self.set_lines([*lines, "Playback unavailable"])
+        self._thumbnail_label.setToolTip(message)
+
     def clear_thumbnail(self) -> None:
+        self._excerpt_label.hide()
         self._thumbnail_label.clear()
         self._thumbnail_label.hide()
         self._fit_to_content()
 
     def set_thumbnail_image(self, image: QtGui.QImage) -> None:
+        self._excerpt_label.hide()
         pixmap = QtGui.QPixmap.fromImage(image)
         fitted = pixmap.scaled(
             QtCore.QSize(self._thumbnail_max_edge, self._thumbnail_max_edge),
             QtCore.Qt.AspectRatioMode.KeepAspectRatio,
             QtCore.Qt.TransformationMode.SmoothTransformation,
         )
+        geometry_changed = self._thumbnail_label.size() != fitted.size() or self._thumbnail_label.isHidden()
         self._thumbnail_label.setFixedSize(fitted.size())
         self._thumbnail_label.setPixmap(fitted)
         self._thumbnail_label.show()
-        self._fit_to_content()
+        if self._thumbnail_alignment:
+            self.set_thumbnail_alignment(self._thumbnail_alignment)
+        if geometry_changed:
+            self._fit_to_content()
+
+    def set_text_preview_style(self, payload):
+        self._excerpt_view.set_style(payload)
+
+    def set_text_preview(self, preview):
+        prefix = "…" if preview.start_character else ""
+        suffix = "…" if preview.end_character < preview.source_characters else ""
+        self.set_text_preview_message(prefix + preview.text + suffix)
+
+    def set_text_preview_message(self, text):
+        self._thumbnail_label.hide()
+        self._thumbnail_label.clear()
+        self._excerpt_view.set_text(text)
+        self._excerpt_label.show()
+        self.set_thumbnail_alignment(self._thumbnail_alignment)
 
     def _fit_to_content(self) -> None:
         text_visible = not self._text_panel.isHidden()
@@ -429,6 +490,8 @@ class _CanvasTooltipPopup(QtWidgets.QFrame):
         thumbnail_enabled = not self._thumbnail_label.isHidden()
         thumbnail_width = self._thumbnail_label.width() if thumbnail_enabled else 0
         thumbnail_height = self._thumbnail_label.height() if thumbnail_enabled else 0
+        if not self._excerpt_label.isHidden():
+            thumbnail_width, thumbnail_height = self._excerpt_label.width(), self._excerpt_label.height()
         if self._thumbnail_alignment in {"top", "bottom"}:
             width = max(thumbnail_width, text_width)
             height = thumbnail_height + text_height
@@ -518,6 +581,10 @@ class DiscoveryAreaController:
         self._discovery_selection_before_run: str | None = None
         self._shutting_down = False
         self._tooltip_popup: _CanvasTooltipPopup | None = None
+        self._tooltip_position_filter = _TooltipPreviewPositionFilter(self)
+        self._tooltip_preview: TooltipPreviewController | None = None
+        self._pin_playback: PinPlaybackController | None = None
+        self._pin_text_preview: PinTextPreviewController | None = None
         self._selection_actions_dialog_controller: SelectionActionsDialogController | None = None
         self._selection_session_revision = 0
         self._selection_neighbor_group_changed = False
@@ -633,11 +700,17 @@ class DiscoveryAreaController:
     def activate(self) -> None:
         if self._canvas_widget is not None:
             self._canvas_widget.activate_render_host()
+        if self._pin_text_preview is not None:
+            self._apply_pin_display_elements()
 
     def deactivate(self) -> None:
         """Close transient Discovery windows when its stacked page is left."""
 
         self._close_selection_actions()
+        if self._pin_playback is not None:
+            self._pin_playback.suspend()
+        if self._pin_text_preview is not None:
+            self._pin_text_preview.reset()
         canvas_layers = self._panel(CanvasLayersPanelController)
         if canvas_layers is not None:
             canvas_layers.close_layer_settings_popups()
@@ -716,6 +789,11 @@ class DiscoveryAreaController:
         self._set_project(project)
 
     def _set_project(self, project: Project | None) -> None:
+        self._hide_tooltip_popup()
+        if self._pin_playback is not None:
+            self._pin_playback.reset()
+        if self._pin_text_preview is not None:
+            self._pin_text_preview.reset()
         self._snapshot_write_revision += 1
         if project is not self._project:
             self._close_selection_actions()
@@ -809,10 +887,17 @@ class DiscoveryAreaController:
     def refresh_thumbnail_variants(self) -> None:
         """Reload thumbnail choices without resetting the active projection."""
 
+        self._hide_tooltip_popup()
+        if self._pin_playback is not None:
+            self._pin_playback.reset()
+        if self._pin_text_preview is not None:
+            self._pin_text_preview.reset()
         layers_panel = self._panel(LayersSettingPanelController)
         if layers_panel is not None:
             variants = layers_panel.refresh_thumbnail_variants()
             self._disable_missing_thumbnail_variant(variants)
+            if self._pin_playback is not None or self._pin_text_preview is not None:
+                self._apply_pin_display_elements()
 
     def set_metadata_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._metadata_changed_callback = callback
@@ -867,6 +952,15 @@ class DiscoveryAreaController:
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        if self._pin_text_preview is not None:
+            self._pin_text_preview.shutdown()
+            self._pin_text_preview = None
+        if self._pin_playback is not None:
+            self._pin_playback.shutdown()
+            self._pin_playback = None
+        if self._tooltip_preview is not None:
+            self._tooltip_preview.shutdown()
+            self._tooltip_preview = None
         self._snapshot_write_revision += 1
         self._close_selection_actions()
         self._flush_pin_persistence()
@@ -1146,6 +1240,7 @@ class DiscoveryAreaController:
                 self._handle_thumbnail_limit_auto_requested
             )
         if canvas_layers_panel is not None and layers_panel is not None:
+            layers_panel.layer_settings_view("tooltip").installEventFilter(self._tooltip_position_filter)
             canvas_layers_panel.set_layer_settings_view_provider(
                 layers_panel.layer_settings_view
             )
@@ -2031,6 +2126,8 @@ class DiscoveryAreaController:
         canvas = self._canvas_widget
         if canvas is None or not canvas.select_metadata_id(metadata_id):
             return
+        if self._pin_playback is not None:
+            self._pin_playback.suspend()
         self._hide_tooltip_popup()
         position = global_pos if isinstance(global_pos, QtCore.QPoint) else None
         revision = self._selection_session_revision
@@ -3122,12 +3219,28 @@ class DiscoveryAreaController:
         tooltip_thumbnail_size = self._tooltip_thumbnail_size_from_payload(display_payload)
         self._hovered_metadata_id = int(metadata_id)
         self._hovered_thumbnail_variant_id = variant_id
-        self._request_tooltip_thumbnail(
-            metadata_id=int(metadata_id),
-            variant_id=variant_id,
-            target_px=tooltip_thumbnail_size,
-            popup=popup,
-        )
+        kind = panel.tooltip_preview_kind() if panel is not None else "image"
+        if kind == "text_excerpt":
+            popup.set_text_preview_style(display_payload)
+        if variant_id != "none" and kind in (PLAYABLE_PREVIEW_KINDS | {"text_excerpt"}) and self._project_has_storage():
+            self._tooltip_thumbnail_pending_request = None
+            if self._tooltip_preview is None:
+                self._tooltip_preview = TooltipPreviewController(popup)
+                self._tooltip_preview.geometry_changed.connect(self._position_settings_preview_tooltip)
+            self._tooltip_preview.show_preview(
+                self._project.paths.root, variant_id, int(metadata_id), kind, tooltip_thumbnail_size,
+                loop=display_payload.get("tooltip_autoplay_mode", "loop") == "loop",
+                autoplay=not settings_preview and not (self._pin_playback is not None and self._pin_playback.playing),
+            )
+        else:
+            if self._tooltip_preview is not None:
+                self._tooltip_preview.stop()
+            self._request_tooltip_thumbnail(
+                metadata_id=int(metadata_id),
+                variant_id=variant_id,
+                target_px=tooltip_thumbnail_size,
+                popup=popup,
+            )
         self._settings_preview_tooltip_active = bool(settings_preview)
         if settings_preview:
             global_pos = self._settings_preview_tooltip_position(popup)
@@ -3135,6 +3248,12 @@ class DiscoveryAreaController:
         popup.show()
 
     def _handle_pin_display_changed(self) -> None:
+        panel = self._panel(LayersSettingPanelController)
+        tooltip_settings = panel.layer_settings_view("tooltip") if panel is not None else None
+        if self._settings_preview_tooltip_active or (tooltip_settings is not None and tooltip_settings.isVisible()):
+            self._show_settings_preview_tooltip()
+        else:
+            self._hide_tooltip_popup()
         self._queue_project_exploration_settings_save()
         self._apply_pin_display_elements()
         if self._restoring_project_state:
@@ -3149,7 +3268,7 @@ class DiscoveryAreaController:
         self._hide_tooltip_popup()
 
     def _show_settings_preview_tooltip(self) -> None:
-        if self._restoring_project_state or not self._tooltip_layer_enabled:
+        if self._restoring_project_state:
             return
         if self._canvas_widget is None:
             return
@@ -3171,7 +3290,13 @@ class DiscoveryAreaController:
         margin = 16
         local_x = max(margin, self._canvas_widget.width() - popup.width() - margin)
         local_y = max(margin, (self._canvas_widget.height() - popup.height()) // 2)
-        return self._canvas_widget.mapToGlobal(QtCore.QPoint(local_x, local_y))
+        preferred = self._canvas_widget.mapToGlobal(QtCore.QPoint(local_x, local_y))
+        panel = self._panel(LayersSettingPanelController)
+        settings = panel.layer_settings_view("tooltip") if panel is not None else None
+        if settings is None or not settings.isVisible():
+            return preferred
+        screen = settings.screen() or self._canvas_widget.screen()
+        return settings_preview_position(popup.size(), preferred, screen.availableGeometry(), settings.frameGeometry())
 
     def _tooltip_preview_metadata_id(self) -> int | None:
         if self._hovered_metadata_id is not None:
@@ -3201,6 +3326,7 @@ class DiscoveryAreaController:
         thumbnails_enabled = bool(style.get("thumbnail_visible", False)) and variant_id != "none"
         original_payload = self._canvas_widget.pinned_annotations_payload()
         if not original_payload:
+            self._queue_pin_thumbnail_requests([], variant_id=variant_id, enabled=thumbnails_enabled)
             return
         payload = self._pin_display_entries(
             original_payload,
@@ -3234,6 +3360,9 @@ class DiscoveryAreaController:
             display=True,
         )
         labels = self._metadata_field_labels()
+        panel = self._panel(LayersSettingPanelController)
+        text_preview = panel is not None and panel.pin_preview_kind() == "text_excerpt"
+        display = panel.pin_display_settings_payload() if text_preview else {}
         for idx, item in enumerate(payload):
             metadata_id = int(item.get("metadata_id", -1))
             lines: list[str] = []
@@ -3245,11 +3374,25 @@ class DiscoveryAreaController:
                 value = values[idx] if values is not None and idx < values.shape[0] else ""
                 lines.append(f"{labels.get(field, field)}\t{value}")
             item["lines"] = lines
+            changed_variant = item.get("thumbnail_variant_id") != variant_id
+            changed_preview = (changed_variant
+                               or item.get("thumbnail_size") != int(thumbnail_size))
             item["thumbnail_variant_id"] = variant_id
             item["thumbnail_size"] = int(thumbnail_size)
-            item.pop("thumbnail_rgba", None)
-            item.pop("thumbnail_width", None)
-            item.pop("thumbnail_height", None)
+            if changed_preview:
+                item.pop("thumbnail_rgba", None)
+                item.pop("thumbnail_width", None)
+                item.pop("thumbnail_height", None)
+            if changed_variant or not text_preview:
+                item.pop("preview_text", None)
+                item.pop("preview_text_font", None)
+                item.pop("preview_text_size", None)
+            if text_preview:
+                item.setdefault("preview_text", "Loading…")
+                item["preview_text_font"] = display["pin_preview_text_font"]
+                item["preview_text_size"] = display["pin_preview_text_size"]
+                for key in ("thumbnail_rgba", "thumbnail_width", "thumbnail_height"):
+                    item.pop(key, None)
         return payload
 
     def _queue_pin_thumbnail_requests(
@@ -3261,6 +3404,31 @@ class DiscoveryAreaController:
     ) -> None:
         self._pin_thumbnail_generation += 1
         self._pin_thumbnail_pending_requests.clear()
+        panel = self._panel(LayersSettingPanelController)
+        kind = panel.pin_preview_kind() if panel is not None else "image"
+        if enabled and kind == "text_excerpt" and self._project_has_storage():
+            if self._pin_playback is not None:
+                self._pin_playback.reset()
+            if self._pin_text_preview is None:
+                self._pin_text_preview = PinTextPreviewController(self._canvas_widget)
+                self._pin_text_preview.previews_ready.connect(self._apply_pin_text_previews)
+            self._pin_text_preview.configure(self._project.paths.root, variant_id, entries)
+            return
+        if self._pin_text_preview is not None:
+            self._pin_text_preview.reset()
+        if enabled and kind in PLAYABLE_PREVIEW_KINDS and self._project_has_storage():
+            if self._pin_playback is None:
+                self._pin_playback = PinPlaybackController(self._canvas_widget)
+                self._pin_playback.posters_ready.connect(self._apply_pin_media_posters)
+                self._pin_playback.playing_changed.connect(self._pin_playback_changed)
+            display = panel.pin_display_settings_payload()
+            size = int(entries[0].get("thumbnail_size", 96)) if entries else 96
+            self._pin_playback.configure(self._project.paths.root, variant_id, kind,
+                                         display.get("pin_playback_mode") == "loop", size, entries)
+            return
+        if self._pin_playback is not None:
+            self._pin_playback.reset()
+        self._canvas_widget.configure_pin_media("image")
         if not enabled or self._thumbnail_service is None:
             return
         target_px = max(32, int(entries[0].get("thumbnail_size", 96))) if entries else 96
@@ -3280,6 +3448,34 @@ class DiscoveryAreaController:
             )
             if ref is None:
                 self._pin_thumbnail_pending_requests.pop(key, None)
+
+    def _pin_playback_changed(self, playing: bool) -> None:
+        if playing:
+            self._hide_tooltip_popup()
+
+    def _apply_pin_media_posters(self, posters: dict) -> None:
+        entries = self._canvas_widget.pinned_annotations_payload()
+        for entry in entries:
+            poster = posters.get(str(entry.get("annotation_id")))
+            if poster is not None:
+                entry["thumbnail_rgba"], entry["thumbnail_width"], entry["thumbnail_height"] = poster[:3]
+        self._applying_pin_display = True
+        try:
+            self._canvas_widget.set_pinned_annotations(entries)
+        finally:
+            self._applying_pin_display = False
+
+    def _apply_pin_text_previews(self, excerpts: dict) -> None:
+        entries = self._canvas_widget.pinned_annotations_payload()
+        for entry in entries:
+            text = excerpts.get(str(entry.get("annotation_id")))
+            if text is not None:
+                entry["preview_text"] = text
+        self._applying_pin_display = True
+        try:
+            self._canvas_widget.set_pinned_annotations(entries)
+        finally:
+            self._applying_pin_display = False
 
     def _apply_ready_pin_thumbnail(self, payload: DecodedThumbnail) -> bool:
         if self._canvas_widget is None:
@@ -3387,9 +3583,16 @@ class DiscoveryAreaController:
     def _ensure_tooltip_popup(self) -> _CanvasTooltipPopup:
         if self._tooltip_popup is None:
             self._tooltip_popup = _CanvasTooltipPopup(self._widget.window())
+            self._tooltip_popup.installEventFilter(self._tooltip_position_filter)
         return self._tooltip_popup
 
+    def _position_settings_preview_tooltip(self) -> None:
+        if self._settings_preview_tooltip_active and self._tooltip_popup is not None:
+            self._tooltip_popup.move(self._settings_preview_tooltip_position(self._tooltip_popup))
+
     def _hide_tooltip_popup(self) -> None:
+        if self._tooltip_preview is not None:
+            self._tooltip_preview.stop()
         if self._tooltip_popup is not None:
             self._tooltip_popup.hide()
         self._settings_preview_tooltip_active = False

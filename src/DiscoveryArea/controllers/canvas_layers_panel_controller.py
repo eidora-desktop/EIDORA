@@ -49,7 +49,7 @@ class _LayerSettingsClickFilter(QtCore.QObject):
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         if event.type() in (QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.MouseButtonDblClick):
-            self._owner._close_layer_settings_if_clicked_outside(event)
+            self._owner._close_layer_settings_if_clicked_outside(event, obj)
         return False
 
 
@@ -344,7 +344,9 @@ class CanvasLayersPanelController(UiPanelController):
         popup.resize(width, height)
         popup.move(x, y)
 
-    def _close_layer_settings_if_clicked_outside(self, event: QtGui.QMouseEvent) -> None:
+    def _close_layer_settings_if_clicked_outside(
+        self, event: QtGui.QMouseEvent, receiver: QtCore.QObject | None = None,
+    ) -> None:
         layer = self._active_layer_settings_layer
         popup = self._layer_settings_popups.get(layer)
         if popup is None or not popup.isVisible():
@@ -352,6 +354,16 @@ class CanvasLayersPanelController(UiPanelController):
         position = event.globalPosition().toPoint()
         if popup.rect().contains(popup.mapFromGlobal(position)):
             return
+        # A dropdown is a separate window. Its event target remains owned by
+        # the settings even when Qt no longer reports an active popup.
+        if isinstance(receiver, QtWidgets.QWidget) and popup.isAncestorOf(receiver):
+            window = receiver.window()
+            if window.rect().contains(window.mapFromGlobal(position)):
+                return
+        for combo in popup.findChildren(QtWidgets.QComboBox):
+            dropdown = combo.view().window()
+            if dropdown.isVisible() and dropdown.rect().contains(dropdown.mapFromGlobal(position)):
+                return
         # Let the active arrow handle its own toggle on release.
         button = self._layer_settings_buttons[layer]
         if event.button() == QtCore.Qt.MouseButton.LeftButton and button.rect().contains(

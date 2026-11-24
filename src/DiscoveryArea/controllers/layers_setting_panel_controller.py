@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.domain import DiscoveryPinDisplaySettings
+from DiscoveryArea.controllers.text_preview_settings_controller import TextPreviewSettingsController
 from DiscoveryArea.palettes import palette_options
 from DiscoveryArea.thumbnails.repository import ThumbnailVariant
 from DiscoveryArea.thumbnails.repository import ThumbnailVariantRepository
@@ -27,13 +28,16 @@ class _SwatchClickFilter(QtCore.QObject):
         return False
 
 
-class _TooltipThumbnailSizeSliderFilter(QtCore.QObject):
+class _TooltipSettingsPreviewFilter(QtCore.QObject):
     def __init__(self, owner: "LayersSettingPanelController") -> None:
         super().__init__(owner.widget)
         self._owner = owner
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        if event.type() == QtCore.QEvent.Type.Enter:
+        if obj is self._owner._tooltip_settings_panel:
+            if event.type() == QtCore.QEvent.Type.Hide:
+                self._owner._handle_tooltip_thumbnail_size_slider_left()
+        elif event.type() == QtCore.QEvent.Type.Enter:
             self._owner._handle_tooltip_thumbnail_size_slider_entered()
         elif event.type() == QtCore.QEvent.Type.Leave:
             self._owner._handle_tooltip_thumbnail_size_slider_left()
@@ -75,6 +79,12 @@ class LayersSettingPanelController(UiPanelController):
         "previews": "ui/previews_settings.ui",
         "areas": "ui/areas_settings.ui",
     }
+    _PIN_SECTIONS = (
+        ("pin_metadata", "text_visible"),
+        ("pin_assets", "thumbnail_visible"),
+        ("pin_box", "box_visible"),
+        ("pin_connector", "connector_visible"),
+    )
     _PREVIEW_THUMBNAIL_SIZE_MIN = 16
     _PREVIEW_THUMBNAIL_SIZE_MAX = 128
     _PREVIEW_THUMBNAIL_SIZE_STEP = 16
@@ -136,36 +146,50 @@ class LayersSettingPanelController(UiPanelController):
         self._tooltip_thumbnail_size_slider.setRange(25, 500)
         self._tooltip_thumbnail_size_slider.valueChanged.connect(self._handle_tooltip_thumbnail_size_changed)
         self._tooltip_thumbnail_alignment = "bottom"
-        self._tooltip_info_field_group = require_child(
-            self._tooltip_settings_panel,
-            QtWidgets.QGroupBox,
-            "info_field_group",
+        self._tooltip_info_checkbox = require_child(
+            self._tooltip_settings_panel, QtWidgets.QCheckBox, "check_tooltip_info"
         )
-        self._tooltip_thumbnail_group = require_child(
-            self._tooltip_settings_panel,
-            QtWidgets.QGroupBox,
-            "thumbnail_group",
+        self._tooltip_info_controls = require_child(
+            self._tooltip_settings_panel, QtWidgets.QWidget, "panel_tooltip_info_controls"
         )
+        self._tooltip_assets_checkbox = require_child(
+            self._tooltip_settings_panel, QtWidgets.QCheckBox, "check_tooltip_assets"
+        )
+        self._tooltip_asset_controls = require_child(
+            self._tooltip_settings_panel, QtWidgets.QWidget, "panel_tooltip_asset_controls"
+        )
+        self._tooltip_loop_button = require_child(
+            self._tooltip_settings_panel, QtWidgets.QToolButton, "check_loop"
+        )
+        self._tooltip_loop_button.setChecked(self._pin_settings.tooltip_autoplay_mode == "loop")
+        self._tooltip_loop_button.setEnabled(False)
+        self._tooltip_loop_button.toggled.connect(self._handle_tooltip_loop_toggled)
         self._button_hide_tooltip_label: QtWidgets.QAbstractButton | None = None
         self._pin_settings_panel = self._settings_views["pins"]
-        self._pin_info_field_group = require_child(
-            self._pin_settings_panel, QtWidgets.QGroupBox, "group_info_field"
+        self._pin_assets_checkbox = require_child(
+            self._pin_settings_panel, QtWidgets.QCheckBox, "check_pin_assets"
         )
-        self._pin_thumbnail_group = require_child(
-            self._pin_settings_panel, QtWidgets.QGroupBox, "group_thumbnail"
-        )
+        self._pin_loop_button = require_child(self._pin_settings_panel, QtWidgets.QToolButton, "button_pin_loop")
+        self._pin_loop_button.setChecked(self._pin_settings.pin_playback_mode == "loop")
+        self._pin_loop_button.toggled.connect(lambda _checked: self._emit_pin_display_changed())
         self._pin_thumbnail_field = self._pin_settings.pin_thumbnail_variant_id
         self._tooltip_thumbnail_field = self._pin_settings.tooltip_thumbnail_variant_id
         self._tooltip_thumbnail_size_slider_hovered = False
-        self._tooltip_thumbnail_size_slider_filter = _TooltipThumbnailSizeSliderFilter(self)
+        self._tooltip_thumbnail_size_slider_filter = _TooltipSettingsPreviewFilter(self)
         self._tooltip_thumbnail_size_slider.installEventFilter(self._tooltip_thumbnail_size_slider_filter)
+        self._tooltip_settings_panel.installEventFilter(self._tooltip_thumbnail_size_slider_filter)
         self._available_metadata_fields: list[str] = ["id", "label", "category"]
         self._metadata_field_labels: dict[str, str] = {}
         self._metadata_field_aliases: dict[str, str] = {}
         self._last_thumbnail_selection: dict[str, str] = {"pins": "none", "tooltip": "none"}
         self._active_thumbnail_variants: list[tuple[str, str]] = []
+        self._thumbnail_preview_kinds: dict[str, str] = {}
         self._thumbnail_defaults_applied = False
         self._suspend_pin_display_changed = False
+        self._tooltip_text_settings = TextPreviewSettingsController(self._tooltip_settings_panel)
+        self._tooltip_text_settings.changed.connect(self._handle_tooltip_text_style_changed)
+        self._pin_text_settings = TextPreviewSettingsController(self._pin_settings_panel, "pin_preview")
+        self._pin_text_settings.changed.connect(self._handle_pin_text_style_changed)
         self._render_combo = require_child(self._widget, QtWidgets.QComboBox, "combo_render_options")
         self._render_combo.currentIndexChanged.connect(self._on_render_combo_changed)
         self._thumbnail_size_slider = require_child(
@@ -251,8 +275,8 @@ class LayersSettingPanelController(UiPanelController):
             self._button_auto_density.setChecked(True)
         self._tooltip_fields = self._bind_fields_selection(self._tooltip_settings_panel, mode="tooltip")
         self._pin_fields = self._bind_fields_selection(self._pin_settings_panel, mode="pins")
-        self._tooltip_info_field_group.toggled.connect(self._handle_tooltip_info_field_toggled)
-        self._tooltip_thumbnail_group.toggled.connect(self._handle_tooltip_thumbnail_toggled)
+        self._tooltip_info_checkbox.toggled.connect(self._handle_tooltip_info_field_toggled)
+        self._tooltip_assets_checkbox.toggled.connect(self._handle_tooltip_thumbnail_toggled)
         with QtCore.QSignalBlocker(self._tooltip_thumbnail_size_slider):
             self._tooltip_thumbnail_size_slider.setValue(int(self._pin_settings.tooltip_thumbnail_size))
         self._wire_pin_thumbnail_size_control(self._pin_settings_panel)
@@ -274,6 +298,8 @@ class LayersSettingPanelController(UiPanelController):
     def set_project(self, project) -> None:
         if project is not self._project:
             self._thumbnail_defaults_applied = False
+            self._active_thumbnail_variants = []
+            self._thumbnail_preview_kinds = {}
         super().set_project(project)
         self.refresh_thumbnail_variants()
 
@@ -284,9 +310,9 @@ class LayersSettingPanelController(UiPanelController):
         variants = self._thumbnail_variants()
         if variants and not self._thumbnail_defaults_applied:
             default_variant_id = str(variants[0].variant_id)
-            if self._normalize_thumbnail_selection(pin_value) == "none":
+            if self._normalize_thumbnail_selection(pin_value, include_playable=True, include_text=True) == "none":
                 pin_value = default_variant_id
-            if self._normalize_thumbnail_selection(tooltip_value) == "none":
+            if self._normalize_thumbnail_selection(tooltip_value, include_playable=True, include_text=True) == "none":
                 tooltip_value = default_variant_id
             self._thumbnail_defaults_applied = True
         self.set_render_options(variants, selected=render_value)
@@ -773,7 +799,7 @@ class LayersSettingPanelController(UiPanelController):
             add_widget_to_container(host, fields)
         combo = self._thumbnail_combo(fields, mode)
         if combo is not None:
-            self._populate_thumbnail_combo(combo, include_none=False)
+            self._populate_thumbnail_combo(combo, include_none=False, include_playable=mode in {"tooltip", "pins"})
             combo.currentIndexChanged.connect(
                 lambda _index, current_mode=mode, current_combo=combo: self._handle_thumbnail_combo_changed(
                     current_mode,
@@ -1031,32 +1057,24 @@ class LayersSettingPanelController(UiPanelController):
         return selected or ["id"]
 
     def _wire_tooltip_alignment_options(self) -> None:
-        self._tooltip_alignment_button_group = QtWidgets.QButtonGroup(
-            self._tooltip_settings_panel
+        self._tooltip_position_combo = require_child(
+            self._tooltip_settings_panel, QtWidgets.QComboBox, "combo_preview_position"
         )
-        self._tooltip_alignment_button_group.setExclusive(True)
-        for alignment in ("left", "right", "top", "bottom"):
-            button = require_child(
-                self._tooltip_settings_panel,
-                QtWidgets.QAbstractButton,
-                f"button_align_{alignment}",
+        for index in range(self._tooltip_position_combo.count()):
+            self._tooltip_position_combo.setItemData(
+                index, self._tooltip_position_combo.itemText(index).strip().lower()
             )
-            self._tooltip_alignment_button_group.addButton(button)
-            button.toggled.connect(
-                lambda checked, value=alignment: self._set_thumbnail_alignment(
-                    "tooltip", value
-                )
-                if checked
-                else None
+        self._tooltip_position_combo.currentIndexChanged.connect(
+            lambda _index: self._set_thumbnail_alignment(
+                "tooltip", str(self._tooltip_position_combo.currentData())
             )
+        )
         self._sync_tooltip_alignment_options()
 
     def _sync_tooltip_alignment_options(self) -> None:
-        for alignment in ("left", "right", "top", "bottom"):
-            self._set_button_checked(
-                self._tooltip_settings_panel,
-                f"button_align_{alignment}",
-                alignment == self._tooltip_thumbnail_alignment,
+        with QtCore.QSignalBlocker(self._tooltip_position_combo):
+            self._tooltip_position_combo.setCurrentIndex(
+                self._tooltip_position_combo.findData(self._tooltip_thumbnail_alignment)
             )
 
     def _wire_pin_alignment_options(self) -> None:
@@ -1139,34 +1157,33 @@ class LayersSettingPanelController(UiPanelController):
             lambda value: self._update_pin_style_setting("thumbnail_size", int(value))
         )
 
+    def _sync_pin_section_controls(self, panel: QtWidgets.QWidget) -> None:
+        for section, _key in self._PIN_SECTIONS:
+            checkbox = require_child(panel, QtWidgets.QCheckBox, f"check_{section}")
+            controls = require_child(panel, QtWidgets.QWidget, f"panel_{section}_controls")
+            controls.setEnabled(checkbox.isChecked())
+
     def _wire_pin_settings_controls(self, panel: QtWidgets.QWidget) -> None:
         self._wire_color_swatch(panel, "swatch_pin_background_color", "#f0f0f0")
         self._wire_color_swatch(panel, "swatch_pin_border_color", "#666666")
         self._wire_color_swatch(panel, "swatch_pin_connector_color", "#333333")
         self._wire_color_swatch(panel, "swatch_connector_color", "#333333")
         self._wire_color_swatch(panel, "swatch_pin_text_color", "#222222")
-        for name in ("group_thumbnail", "group_box", "group_connector", "group_info_field"):
-            box = panel.findChild(QtWidgets.QGroupBox, name)
-            if box is not None:
-                state_key = {
-                    "group_thumbnail": "thumbnail_visible",
-                    "group_box": "box_visible",
-                    "group_connector": "connector_visible",
-                    "group_info_field": "text_visible",
-                }[name]
-                if name == "group_box":
-                    box.toggled.connect(
-                        lambda checked, current_panel=panel: self._handle_pin_box_toggled(
-                            current_panel,
-                            bool(checked),
-                        )
-                    )
-                elif name == "group_thumbnail":
-                    box.toggled.connect(self._handle_pin_thumbnail_toggled)
-                else:
-                    box.toggled.connect(
-                        lambda checked, key=state_key: self._update_pin_style_setting(key, bool(checked))
-                    )
+        for section, state_key in self._PIN_SECTIONS:
+            checkbox = require_child(panel, QtWidgets.QCheckBox, f"check_{section}")
+            checkbox.toggled.connect(
+                lambda _checked, current_panel=panel: self._sync_pin_section_controls(current_panel)
+            )
+            if section == "pin_box":
+                checkbox.toggled.connect(
+                    lambda checked, current_panel=panel: self._handle_pin_box_toggled(current_panel, checked)
+                )
+            elif section == "pin_assets":
+                checkbox.toggled.connect(self._handle_pin_thumbnail_toggled)
+            else:
+                checkbox.toggled.connect(
+                    lambda checked, key=state_key: self._update_pin_style_setting(key, bool(checked))
+                )
         for name, key, transform in (
             ("spin_pin_opacity", "box_opacity", lambda value: float(value) / 100.0),
             ("spin_pin_outline_width", "border_width", float),
@@ -1266,16 +1283,11 @@ class LayersSettingPanelController(UiPanelController):
         self._suspend_pin_display_changed = True
         try:
             style = self._pin_settings.style
-            for key, widget_name in (
-                ("thumbnail_visible", "group_thumbnail"),
-                ("box_visible", "group_box"),
-                ("connector_visible", "group_connector"),
-                ("text_visible", "group_info_field"),
-            ):
-                box = panel.findChild(QtWidgets.QGroupBox, widget_name)
-                if box is not None:
-                    with QtCore.QSignalBlocker(box):
-                        box.setChecked(bool(style.get(key, box.isChecked())))
+            for section, key in self._PIN_SECTIONS:
+                checkbox = require_child(panel, QtWidgets.QCheckBox, f"check_{section}")
+                with QtCore.QSignalBlocker(checkbox):
+                    checkbox.setChecked(bool(style.get(key, checkbox.isChecked())))
+            self._sync_pin_section_controls(panel)
             for key, widget_name, default in (
                 ("box_color", "swatch_pin_background_color", "#f0f0f0"),
                 ("border_color", "swatch_pin_border_color", "#666666"),
@@ -1455,14 +1467,18 @@ class LayersSettingPanelController(UiPanelController):
 
     def pin_display_settings_payload(self) -> dict[str, object]:
         payload = self._pin_settings.to_payload()
+        payload["tooltip_autoplay_mode"] = "loop" if self._tooltip_loop_button.isChecked() else "once"
+        payload["pin_playback_mode"] = "loop" if self._pin_loop_button.isChecked() else "once"
         payload["pin_fields"] = self.selected_pin_fields()
         payload["tooltip_fields"] = self.selected_tooltip_fields()
         payload["fields"] = list(payload["pin_fields"])
-        payload["thumbnail_variant_id"] = self._normalize_thumbnail_selection(self._pin_thumbnail_field)
-        payload["tooltip_thumbnail_variant_id"] = self._normalize_thumbnail_selection(self._tooltip_thumbnail_field)
+        payload["thumbnail_variant_id"] = self._normalize_thumbnail_selection(self._pin_thumbnail_field, include_playable=True, include_text=True)
+        payload["tooltip_thumbnail_variant_id"] = self._normalize_thumbnail_selection(
+            self._tooltip_thumbnail_field, include_playable=True, include_text=True
+        )
         payload["tooltip_thumbnail_size"] = self._current_tooltip_thumbnail_size()
-        payload["tooltip_thumbnail_visible"] = self._tooltip_thumbnail_group.isChecked()
-        payload["tooltip_info_field_visible"] = self._tooltip_info_field_group.isChecked()
+        payload["tooltip_thumbnail_visible"] = self._tooltip_assets_checkbox.isChecked()
+        payload["tooltip_info_field_visible"] = self._tooltip_info_checkbox.isChecked()
         payload["tooltip_show_label"] = self._tooltip_show_label()
         self._pin_settings = DiscoveryPinDisplaySettings.from_payload(payload)
         return self._pin_settings.to_payload()
@@ -1478,13 +1494,15 @@ class LayersSettingPanelController(UiPanelController):
         allow_empty_pin_fields = isinstance(raw_pin_fields, list | tuple) and len(raw_pin_fields) == 0
         raw_tooltip_fields = payload.get("tooltip_fields")
         allow_empty_tooltip_fields = isinstance(raw_tooltip_fields, list | tuple) and len(raw_tooltip_fields) == 0
-        pin_thumbnail = self._normalize_thumbnail_selection(settings.pin_thumbnail_variant_id)
-        tooltip_thumbnail = self._normalize_thumbnail_selection(settings.tooltip_thumbnail_variant_id)
+        pin_thumbnail = self._normalize_thumbnail_selection(settings.pin_thumbnail_variant_id, include_playable=True, include_text=True)
+        tooltip_thumbnail = self._normalize_thumbnail_selection(
+            settings.tooltip_thumbnail_variant_id, include_playable=True, include_text=True
+        )
         tooltip_thumbnail_visible = bool(
             payload.get("tooltip_thumbnail_visible", tooltip_thumbnail != "none")
         )
         if tooltip_thumbnail == "none":
-            tooltip_thumbnail = self.first_available_thumbnail_variant_id() or "none"
+            tooltip_thumbnail = self.first_available_thumbnail_variant_id(include_playable=True, include_text=True) or "none"
         settings = DiscoveryPinDisplaySettings.from_payload(
             {
                 **settings.to_payload(),
@@ -1507,13 +1525,19 @@ class LayersSettingPanelController(UiPanelController):
         self._suspend_pin_display_changed = True
         try:
             self._pin_settings = settings
+            with QtCore.QSignalBlocker(self._pin_loop_button):
+                self._pin_loop_button.setChecked(settings.pin_playback_mode == "loop")
+            with QtCore.QSignalBlocker(self._tooltip_loop_button):
+                self._tooltip_loop_button.setChecked(settings.tooltip_autoplay_mode == "loop")
             self._pin_thumbnail_field = pin_thumbnail
             self._tooltip_thumbnail_field = tooltip_thumbnail
+            self._last_thumbnail_selection["pins"] = pin_thumbnail
+            self._last_thumbnail_selection["tooltip"] = tooltip_thumbnail
             self._tooltip_thumbnail_alignment = settings.tooltip_thumbnail_alignment
-            with QtCore.QSignalBlocker(self._tooltip_thumbnail_group):
-                self._tooltip_thumbnail_group.setChecked(settings.tooltip_thumbnail_visible)
-            with QtCore.QSignalBlocker(self._tooltip_info_field_group):
-                self._tooltip_info_field_group.setChecked(settings.tooltip_info_field_visible)
+            with QtCore.QSignalBlocker(self._tooltip_assets_checkbox):
+                self._tooltip_assets_checkbox.setChecked(settings.tooltip_thumbnail_visible)
+            with QtCore.QSignalBlocker(self._tooltip_info_checkbox):
+                self._tooltip_info_checkbox.setChecked(settings.tooltip_info_field_visible)
             self._sync_tooltip_alignment_options()
             with QtCore.QSignalBlocker(self._tooltip_thumbnail_size_slider):
                 self._tooltip_thumbnail_size_slider.setValue(int(settings.tooltip_thumbnail_size))
@@ -1539,14 +1563,16 @@ class LayersSettingPanelController(UiPanelController):
         if self._suspend_pin_display_changed:
             return
         payload = self._pin_settings.to_payload()
+        payload["tooltip_autoplay_mode"] = "loop" if self._tooltip_loop_button.isChecked() else "once"
+        payload["pin_playback_mode"] = "loop" if self._pin_loop_button.isChecked() else "once"
         payload["pin_fields"] = self.selected_pin_fields()
         payload["tooltip_fields"] = self.selected_tooltip_fields()
         payload["fields"] = list(payload["pin_fields"])
         payload["thumbnail_variant_id"] = self._current_pin_thumbnail_field()
         payload["tooltip_thumbnail_variant_id"] = self._current_tooltip_thumbnail_field()
         payload["tooltip_thumbnail_size"] = self._current_tooltip_thumbnail_size()
-        payload["tooltip_thumbnail_visible"] = self._tooltip_thumbnail_group.isChecked()
-        payload["tooltip_info_field_visible"] = self._tooltip_info_field_group.isChecked()
+        payload["tooltip_thumbnail_visible"] = self._tooltip_assets_checkbox.isChecked()
+        payload["tooltip_info_field_visible"] = self._tooltip_info_checkbox.isChecked()
         payload["tooltip_show_label"] = self._tooltip_show_label()
         self._pin_settings = DiscoveryPinDisplaySettings.from_payload(payload)
         self._pin_thumbnail_field = self._pin_settings.pin_thumbnail_variant_id
@@ -1559,17 +1585,22 @@ class LayersSettingPanelController(UiPanelController):
         combo: QtWidgets.QComboBox,
         *,
         include_none: bool = True,
+        include_playable: bool = False,
+        include_text: bool = False,
     ) -> None:
         combo.clear()
         if include_none:
             combo.addItem("none", "none")
-        for variant_id, label in self._thumbnail_variant_entries():
-            combo.addItem(label, variant_id)
+        for variant in self._thumbnail_variants(include_playable=include_playable, include_text=include_text):
+            combo.addItem(variant.label, variant.variant_id)
+            combo.setItemData(combo.count() - 1, variant.preview_kind, QtCore.Qt.ItemDataRole.UserRole + 1)
         combo.insertSeparator(combo.count())
         combo.addItem("Create Preview Assets…", "create")
 
     def _set_combo_data(self, combo: QtWidgets.QComboBox, target: str) -> None:
-        normalized = self._normalize_thumbnail_selection(target)
+        normalized = str(target or "none").strip() or "none"
+        if normalized == "create":
+            normalized = "none"
         with QtCore.QSignalBlocker(combo):
             for idx in range(combo.count()):
                 if str(combo.itemData(idx) or "") == normalized:
@@ -1583,12 +1614,13 @@ class LayersSettingPanelController(UiPanelController):
                 if str(combo.itemData(idx) or "") not in {"", "create"}:
                     combo.setCurrentIndex(idx)
                     return
+            combo.setCurrentIndex(-1)
 
-    def _normalize_thumbnail_selection(self, value: str) -> str:
+    def _normalize_thumbnail_selection(self, value: str, *, include_playable: bool = False, include_text: bool = False) -> str:
         target = str(value or "none").strip() or "none"
         if target in {"none", "create"}:
             return "none"
-        available = {variant_id for variant_id, _label in self._thumbnail_variant_entries()}
+        available = {variant.variant_id for variant in self._thumbnail_variants(include_playable=include_playable, include_text=include_text)}
         return target if target in available else "none"
 
     def _current_pin_thumbnail_field(self) -> str:
@@ -1614,13 +1646,38 @@ class LayersSettingPanelController(UiPanelController):
             return int(self._pin_settings.tooltip_thumbnail_size)
         return max(25, min(500, int(self._tooltip_thumbnail_size_slider.value())))
 
+    def _sync_tooltip_section_controls(self) -> None:
+        self._tooltip_info_controls.setEnabled(self._tooltip_info_checkbox.isChecked())
+        self._tooltip_asset_controls.setEnabled(self._tooltip_assets_checkbox.isChecked())
+
     def _sync_tooltip_thumbnail_size_enabled(self) -> None:
-        if self._tooltip_thumbnail_size_slider is None:
-            return
+        self._sync_tooltip_section_controls()
+        combo = self._thumbnail_combo(self._tooltip_settings_panel, "tooltip")
+        kind = combo.currentData(QtCore.Qt.ItemDataRole.UserRole + 1) if combo is not None else None
+        self._tooltip_loop_button.setEnabled(kind in {"audio_clip", "video_clip"})
+        text = kind == "text_excerpt"
+        self._tooltip_text_settings.panel.setVisible(text)
+        self._tooltip_text_settings.apply(self._pin_settings.to_payload())
+        require_child(self._tooltip_settings_panel, QtWidgets.QWidget, "thumbnail_size_icon").show()
+        slider = self._tooltip_thumbnail_size_slider
+        with QtCore.QSignalBlocker(slider):
+            slider.setRange(25, 500)
+            slider.setValue(self._pin_settings.tooltip_thumbnail_size)
+            slider.setTickInterval(32)
+            slider.setPageStep(16)
+        slider.setToolTip(f"Text preview width: {slider.value()} px" if text else f"Preview Assets size: {slider.value()} px")
+        slider.setAccessibleName("Text preview width" if text else "Preview Assets size")
         selected = str(self._tooltip_thumbnail_field or "none").strip() or "none"
         self._tooltip_thumbnail_size_slider.setEnabled(
-            self._tooltip_thumbnail_group.isChecked() and selected != "none"
+            self._tooltip_assets_checkbox.isChecked() and selected != "none"
         )
+
+    def tooltip_preview_kind(self) -> str:
+        """Return the cached selection kind without reading project storage."""
+        return self._thumbnail_preview_kinds.get(self._tooltip_thumbnail_field, "image")
+
+    def _handle_tooltip_loop_toggled(self, checked: bool) -> None:
+        self._emit_pin_display_changed()
 
     def _handle_tooltip_thumbnail_toggled(self, checked: bool) -> None:
         if self._suspend_pin_display_changed:
@@ -1636,16 +1693,33 @@ class LayersSettingPanelController(UiPanelController):
             return
         payload = self._pin_settings.to_payload()
         payload["tooltip_info_field_visible"] = bool(checked)
+        self._sync_tooltip_section_controls()
         self._pin_settings = DiscoveryPinDisplaySettings.from_payload(payload)
         self._emit_pin_display_changed()
 
+    def pin_preview_kind(self) -> str:
+        return self._thumbnail_preview_kinds.get(self._pin_thumbnail_field, "image")
+
+    def _handle_pin_text_style_changed(self, values):
+        if self._suspend_pin_display_changed:
+            return
+        self._pin_settings = DiscoveryPinDisplaySettings.from_payload({**self._pin_settings.to_payload(), **values})
+        self._emit_pin_display_changed()
+
     def _sync_pin_thumbnail_size_enabled(self) -> None:
+        text = self.pin_preview_kind() == "text_excerpt"
+        self._pin_text_settings.panel.setVisible(text)
+        self._pin_text_settings.apply(self._pin_settings.to_payload())
+        self._pin_loop_button.setVisible(not text)
+        self._pin_loop_button.setEnabled(self.pin_preview_kind() in {"audio_clip", "video_clip"})
         slider = getattr(self, "_pin_thumbnail_size_slider", None)
         if slider is None:
             return
+        slider.setToolTip("Text preview width" if text else "Preview Assets size")
+        slider.setAccessibleName("Text preview width" if text else "Preview Assets size")
         selected = str(self._pin_thumbnail_field or "none").strip() or "none"
         slider.setEnabled(
-            self._pin_thumbnail_group.isChecked() and selected != "none"
+            self._pin_assets_checkbox.isChecked() and selected != "none"
         )
 
     def _tooltip_show_label(self) -> bool:
@@ -1654,30 +1728,38 @@ class LayersSettingPanelController(UiPanelController):
         return not bool(self._button_hide_tooltip_label.isChecked())
 
     def _handle_tooltip_thumbnail_size_changed(self, value: int) -> None:
+        text = self.tooltip_preview_kind() == "text_excerpt"
         size = max(25, min(500, int(value)))
         if self._suspend_pin_display_changed:
             return
         payload = self._pin_settings.to_payload()
         payload["tooltip_thumbnail_size"] = size
         self._pin_settings = DiscoveryPinDisplaySettings.from_payload(payload)
+        self._tooltip_text_settings.apply(self._pin_settings.to_payload())
+        self._tooltip_thumbnail_size_slider.setToolTip(f"Text preview width: {size} px" if text else f"Preview Assets size: {size} px")
         self._emit_pin_display_changed()
         if self._tooltip_thumbnail_size_slider_hovered and callable(self._tooltip_thumbnail_size_changed_callback):
             self._tooltip_thumbnail_size_changed_callback(size)
+
+    def _handle_tooltip_text_style_changed(self, values):
+        if self._suspend_pin_display_changed:
+            return
+        self._pin_settings = DiscoveryPinDisplaySettings.from_payload({**self._pin_settings.to_payload(), **values})
+        self._emit_pin_display_changed()
 
     def _handle_tooltip_thumbnail_size_slider_entered(self) -> None:
         self._tooltip_thumbnail_size_slider_hovered = True
 
     def _handle_tooltip_thumbnail_size_slider_left(self) -> None:
         self._tooltip_thumbnail_size_slider_hovered = False
+        if self._tooltip_settings_panel.isVisible():
+            return
         if callable(self._tooltip_thumbnail_size_preview_hidden_callback):
             self._tooltip_thumbnail_size_preview_hidden_callback()
 
-    def _thumbnail_variant_entries(self) -> list[tuple[str, str]]:
-        return [(variant.variant_id, variant.label) for variant in self._thumbnail_variants()]
-
-    def _thumbnail_variants(self) -> list[ThumbnailVariant]:
+    def _thumbnail_variants(self, *, include_playable: bool = False, include_text: bool = False) -> list[ThumbnailVariant]:
         if self._project is None:
-            return [
+            variants = [
                 ThumbnailVariant(
                     variant_id=variant_id,
                     label=label,
@@ -1685,13 +1767,19 @@ class LayersSettingPanelController(UiPanelController):
                     identifier_column="",
                     sizes=(),
                     created_at="",
+                    preview_kind=self._thumbnail_preview_kinds.get(variant_id, "image"),
                 )
                 for variant_id, label in self._active_thumbnail_variants
             ]
-        repo = ThumbnailVariantRepository(self._project.paths.root)
-        variants = repo.list_variants()
-        self._active_thumbnail_variants = [(variant.variant_id, variant.label) for variant in variants]
-        return variants
+        else:
+            repo = ThumbnailVariantRepository(self._project.paths.root)
+            variants = repo.list_variants()
+            self._active_thumbnail_variants = [(variant.variant_id, variant.label) for variant in variants]
+            self._thumbnail_preview_kinds = {variant.variant_id: variant.preview_kind for variant in variants}
+        supported = {"image", "audio_clip", "video_clip", "animated_gif"} if include_playable else {"image"}
+        if include_text:
+            supported.add("text_excerpt")
+        return [variant for variant in variants if variant.preview_kind in supported]
 
     def _refresh_pin_thumbnail_combo(self, selected: str) -> None:
         if self._pin_fields is None:
@@ -1699,11 +1787,11 @@ class LayersSettingPanelController(UiPanelController):
         combo = self._thumbnail_combo(self._pin_fields, "pins")
         if combo is None:
             return
-        selected = self._normalize_thumbnail_selection(selected)
+        selected = self._normalize_thumbnail_selection(selected, include_playable=True, include_text=True)
         if selected == "none":
-            selected = self.first_available_thumbnail_variant_id() or "none"
+            selected = self.first_available_thumbnail_variant_id(include_playable=True, include_text=True) or "none"
         self._pin_thumbnail_field = selected
-        self._populate_thumbnail_combo(combo, include_none=False)
+        self._populate_thumbnail_combo(combo, include_none=False, include_playable=True, include_text=True)
         self._set_combo_data(combo, selected)
         self._sync_pin_thumbnail_size_enabled()
 
@@ -1713,19 +1801,19 @@ class LayersSettingPanelController(UiPanelController):
         combo = self._thumbnail_combo(self._tooltip_fields, "tooltip")
         if combo is None:
             return
-        selected = self._normalize_thumbnail_selection(selected)
+        selected = self._normalize_thumbnail_selection(selected, include_playable=True, include_text=True)
         if selected == "none":
-            selected = self.first_available_thumbnail_variant_id() or "none"
+            selected = self.first_available_thumbnail_variant_id(include_playable=True, include_text=True) or "none"
         self._tooltip_thumbnail_field = selected
-        self._populate_thumbnail_combo(combo, include_none=False)
+        self._populate_thumbnail_combo(combo, include_none=False, include_playable=True, include_text=True)
         self._set_combo_data(combo, selected)
         self._sync_tooltip_thumbnail_size_enabled()
 
-    def first_available_thumbnail_variant_id(self) -> str | None:
-        entries = self._thumbnail_variant_entries()
-        if not entries:
+    def first_available_thumbnail_variant_id(self, *, include_playable: bool = False, include_text: bool = False) -> str | None:
+        variants = self._thumbnail_variants(include_playable=include_playable, include_text=include_text)
+        if not variants:
             return None
-        return str(entries[0][0] or "").strip() or None
+        return str(variants[0].variant_id or "").strip() or None
 
     def _handle_thumbnail_combo_changed(self, mode: str, combo: QtWidgets.QComboBox) -> None:
         if self._suspend_pin_display_changed:

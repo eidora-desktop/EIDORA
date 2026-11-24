@@ -1,6 +1,13 @@
 # EIDORA semantic icon manifest
 # Material Symbols are used as replaceable starter assets.
 icons:
+  layout:
+    source: Preview position layout
+    size: 40
+  autoplay:
+    material: autoplay
+    style: outlined
+    size: 40
   trash:
     source: Trash icon for resource removal
     size: 40

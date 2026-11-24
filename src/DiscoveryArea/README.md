@@ -74,6 +74,69 @@ for longer values. Text wraps within a maximum 360 px section, including URLs
 and identifiers without spaces. Short tooltips remain compact; preview size
 and placement are independent. Full metadata stays unchanged.
 
+Tooltip Preview Assets also support generated audio/video clips and animated
+GIFs. Posters load on hover; playback starts after 200 ms on the same Item.
+Audio/video use the saved Loop toggle and play any audio included in the clip;
+videos retain their final frame when Loop is off until the tooltip closes or
+changes. Audio waveforms show a red playhead updated at 25 Hz while playing;
+it resets on looping and stays at the end after Once playback, without changing
+the poster or canvas. GIFs retain their encoded timing and repeats. Size-slider
+previews show only the poster. Missing previews show a local status without
+opening source media.
+`controllers/tooltip_preview_controller.py` owns the single visible playback
+session. `tooltip_preview_service.py` resolves one generated clip in a lazy
+worker, coalesces pending requests, and streams GIFs through a two-message
+queue. Hiding the tooltip, leaving Discovery, switching projects, or changing
+Preview Assets cancels loading and stops playback. The canvas renderer and
+its static thumbnail atlas do not participate in playback.
+
+Saved **Text excerpts** also appear in Tooltip Settings' Preview Assets selector.
+Selecting text shows the Designer-owned font and font-size row (8–36 pt, default
+12). The existing preview-size row and icon remain visible; its slider controls
+text box width (25–500 px) independently of font size, matching Pins. Every tooltip
+settings change previews the current Item (or first
+available Item), even when canvas hover tooltips are disabled. Feedback stays
+visible while editing and closes with settings. Feedback is placed outside the
+settings window and repositioned when either box moves or resizes. The font menu uses Figures'
+curated families available to Qt, preserving saved families outside that list
+without initializing plotting. The application font is the default; font selection,
+font size, and preview width are saved with the project's tooltip settings.
+Text and background follow light/dark theme colors, with no per-asset styling.
+
+The existing latest-only tooltip worker reads one saved excerpt by set and Item
+without opening the source or initializing storage. Missing excerpts show a local
+message. Literal markup, paragraph breaks, and Unicode are preserved; reading
+direction sets automatic alignment. Text wraps within the selected width and a bounded number
+of lines, with ellipses for source omissions or display clipping. Font changes
+reflow the loaded excerpt without rereading it. Text is not offered for canvas
+image previews.
+
+Pins also accept saved text excerpts. Their Preview Assets section shows the same
+curated Font and Font size controls (8–36 pt), independent of metadata typography
+and tooltip settings. The existing asset-size slider sets the text preview width;
+Loop is hidden for text. Text and background follow the application theme.
+`pin_text_preview_controller.py` prepares only visible pin excerpts through a
+single background worker, cancels replaced requests, and rejects stale results.
+`pin_text_preview_service.py` reads saved text without opening the source and
+returns plain strings, never images. `canvas/pin_text.py` caches bounded wrapping
+and shares layout metrics with the native pin overlay and export painter. Both
+draw text directly at the selected font size. Width changes reflow the excerpt;
+font, width, and theme changes reuse loaded text without reading storage again.
+Appearance is saved with pin display settings; loaded excerpts are transient.
+
+Pins accept the same generated Preview Assets with explicit Play/Pause and a
+clickable progress track. Audio shows a red playhead; audio/video use the Pins
+Loop setting (off by default), while GIFs retain their encoded repeat settings.
+Playback continues when the pointer leaves. Starting another pin releases the
+previous decoder and remembers its position. Hidden, removed, fully covered, or
+offscreen pins stop playback, as do project changes and leaving Discovery.
+Tooltip autoplay is suppressed while a pin plays. No source media is opened.
+`controllers/pin_playback_controller.py` owns the player and bounded background
+work; `canvas/pin_media.py` supplies small transient surfaces using existing pin
+geometry and input routing. Frame updates do not serialize pins or rebuild the
+canvas scene. Snapshots and exports retain the generated posters, without
+playback controls or playheads.
+
 Individual-item dialogs show the selected permanent item's metadata through the
 Items service: the same column labels, order, and resolved linked values, without
 Discovery-only mapping fields. The row is fetched by primary key. The field-name

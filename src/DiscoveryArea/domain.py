@@ -179,8 +179,14 @@ class DiscoveryPinDisplaySettings:
     pin_thumbnail_variant_id: str = "none"
     tooltip_thumbnail_variant_id: str = "none"
     tooltip_thumbnail_size: int = 250
+    pin_preview_text_size: int = 12
+    pin_preview_text_font: str = ""
+    tooltip_text_size: int = 12
+    tooltip_text_font: str = ""
     tooltip_thumbnail_alignment: str = "bottom"
     tooltip_thumbnail_visible: bool = True
+    pin_playback_mode: str = "once"
+    tooltip_autoplay_mode: str = "loop"
     tooltip_info_field_visible: bool = True
     tooltip_show_label: bool = True
     style: dict[str, Any] = field(default_factory=lambda: dict(PIN_DISPLAY_STYLE_DEFAULTS))
@@ -206,10 +212,16 @@ class DiscoveryPinDisplaySettings:
             pin_thumbnail_variant_id=pin_thumbnail,
             tooltip_thumbnail_variant_id=tooltip_thumbnail,
             tooltip_thumbnail_size=_clamp_int(payload.get("tooltip_thumbnail_size"), 25, 500, 250),
+            pin_preview_text_size=_clamp_int(payload.get("pin_preview_text_size"), 8, 36, 12),
+            pin_preview_text_font=str(payload.get("pin_preview_text_font") or "").strip(),
+            tooltip_text_size=_clamp_int(payload.get("tooltip_text_size"), 8, 36, 12),
+            tooltip_text_font=str(payload.get("tooltip_text_font") or "").strip(),
             tooltip_thumbnail_alignment=_thumbnail_alignment(payload.get("tooltip_thumbnail_alignment")),
             tooltip_thumbnail_visible=bool(
                 payload.get("tooltip_thumbnail_visible", tooltip_thumbnail != "none")
             ),
+            pin_playback_mode="loop" if payload.get("pin_playback_mode") == "loop" else "once",
+            tooltip_autoplay_mode="once" if payload.get("tooltip_autoplay_mode") == "once" else "loop",
             tooltip_info_field_visible=bool(payload.get("tooltip_info_field_visible", True)),
             tooltip_show_label=bool(payload.get("tooltip_show_label", True)),
             style=style,
@@ -228,8 +240,14 @@ class DiscoveryPinDisplaySettings:
             "thumbnail_variant_id": _thumbnail_id(self.pin_thumbnail_variant_id),
             "tooltip_thumbnail_variant_id": _thumbnail_id(self.tooltip_thumbnail_variant_id),
             "tooltip_thumbnail_size": _clamp_int(self.tooltip_thumbnail_size, 25, 500, 250),
+            "pin_preview_text_size": _clamp_int(self.pin_preview_text_size, 8, 36, 12),
+            "pin_preview_text_font": str(self.pin_preview_text_font or "").strip(),
+            "tooltip_text_size": _clamp_int(self.tooltip_text_size, 8, 36, 12),
+            "tooltip_text_font": str(self.tooltip_text_font or "").strip(),
             "tooltip_thumbnail_alignment": _thumbnail_alignment(self.tooltip_thumbnail_alignment),
             "tooltip_thumbnail_visible": bool(self.tooltip_thumbnail_visible),
+            "pin_playback_mode": "loop" if self.pin_playback_mode == "loop" else "once",
+            "tooltip_autoplay_mode": "once" if self.tooltip_autoplay_mode == "once" else "loop",
             "tooltip_info_field_visible": bool(self.tooltip_info_field_visible),
             "tooltip_show_label": bool(self.tooltip_show_label),
             "style": _normalized_pin_style(self.style),

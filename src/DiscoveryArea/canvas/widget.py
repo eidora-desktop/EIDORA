@@ -12,6 +12,8 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtQml, QtQuick, QtQuickWidgets, QtWidgets
 
 from DiscoveryArea.canvas.indexing import UniformGridIndex, Viewport, points_in_polygon
+from DiscoveryArea.canvas.pin_media import PinMediaLayer
+from DiscoveryArea.canvas.pin_text import layout_pin_text, paint_pin_text
 from DiscoveryArea.canvas.lod import AdaptiveRenderBudget, LodDecision, marker_coverage_ratio
 from DiscoveryArea.canvas.native.runtime import detect_native_renderer_runtime
 from DiscoveryArea.canvas.scene import (
@@ -1575,6 +1577,8 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
     point_context_requested = QtCore.Signal(int, object)
     point_selection_requested = QtCore.Signal(int, object)
     pin_context_requested = QtCore.Signal(str, object)
+    pin_media_requested = QtCore.Signal(str, str, float)
+    pin_media_visibility_changed = QtCore.Signal(object)
     point_clicked = QtCore.Signal(int)
     point_hovered = QtCore.Signal(object)
     lasso_selection_changed = QtCore.Signal(object)
@@ -1658,6 +1662,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._pin_overlay = _PinOverlay(self)
         self._pin_overlay.setObjectName("overlay_pinned_annotations")
         self._pin_overlay.setGeometry(self.rect())
+        self._pin_media_layer = PinMediaLayer()
+        self._pin_media_kind = "image"
+        self._pin_media_visible_ids = frozenset()
         self._find_item_timer = QtCore.QTimer(self)
         self._find_item_timer.setInterval(45)
         self._find_item_timer.timeout.connect(self._on_find_item_blink_tick)
@@ -1936,6 +1943,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return platform not in {"offscreen", "minimal"}
 
     def _load_qml(self) -> None:
+        self._pin_media_layer.clear()
         engine = self._quick_engine()
         if engine is None:
             return
@@ -2159,6 +2167,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     def event(self, event: QtCore.QEvent) -> bool:
         if event.type() in {
+            QtCore.QEvent.Type.PaletteChange, QtCore.QEvent.Type.ApplicationFontChange,
+        } and hasattr(self, "_pinned_annotations"):
+            self._sync_pin_overlay_state()
+        if event.type() in {
             QtCore.QEvent.Type.WindowDeactivate, QtCore.QEvent.Type.FocusOut,
             QtCore.QEvent.Type.UngrabMouse,
         }:
@@ -2173,6 +2185,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._finish_camera_drag()
             self.end_temporary_pan()
             self._reset_zoom_drag()
+            self._pin_media_layer.cancel_press()
         if event.type() == QtCore.QEvent.Type.Enter:
             self._update_keyboard_modifier_state(QtWidgets.QApplication.keyboardModifiers())
             self._zoom_out_mouse_held = bool(
@@ -2190,6 +2203,11 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         if event.type() == QtCore.QEvent.Type.MouseButtonPress:
             mouse_event = event
             self._update_cursor_from_pointer_event(mouse_event)
+            if (mouse_event.button() == QtCore.Qt.MouseButton.LeftButton
+                    and self._interaction_mode in {"selection", "pin"}
+                    and not self._option_modifier_held()
+                    and self._pin_media_layer.press(mouse_event.position())):
+                return True
             if self._quick is not None:
                 self._quick.setFocus()
             elif self._quick_container is not None:
@@ -2247,6 +2265,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             return False
         if event.type() == QtCore.QEvent.Type.MouseMove:
             mouse_event = event
+            if self._pin_media_layer.pressed:
+                self._update_cursor_from_pointer_event(mouse_event)
+                return True
             previous_lasso_hover = self._lasso_hover_state_key()
             self._update_cursor_from_pointer_event(mouse_event)
             next_lasso_hover = self._lasso_hover_state_key()
@@ -2316,6 +2337,13 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             return False
         if event.type() == QtCore.QEvent.Type.MouseButtonRelease:
             mouse_event = event
+            if mouse_event.button() == QtCore.Qt.MouseButton.LeftButton:
+                handled, action = self._pin_media_layer.release(mouse_event.position())
+                if handled:
+                    if action is not None:
+                        self.pin_media_requested.emit(*action)
+                    self._update_cursor_from_pointer_event(mouse_event)
+                    return True
             release_pos = mouse_event.position()
             if (
                 self._interaction_mode in {"selection", "pin"}
@@ -2557,6 +2585,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 setter(viewport_payload)
         self._pin_overlay.update()
         self._interaction_viewport_payload = viewport
+        self._sync_pin_media_geometry()
 
     def _finish_camera_drag(self) -> None:
         self._drag_start_pos = None
@@ -2604,6 +2633,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._update_lod_decision()
         if self._render_backend is None or not self._quick_available:
             self._update_pin_overlay()
+            self._sync_pin_media_geometry()
             self._debug_trace(
                 "refresh_skip_no_backend",
                 quick_available=self._quick_available,
@@ -2993,6 +3023,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             ):
                 continue
             entry = dict(item)
+            if "preview_text" in entry:
+                foreground, background = self._pin_preview_text_colors()
+                entry["preview_text_layout"] = self._pin_preview_text_layout(entry).payload(foreground, background)
             rgba = entry.get("thumbnail_rgba")
             if rgba:
                 entry["thumbnail_rgba"] = QtCore.QByteArray(bytes(rgba))
@@ -3016,6 +3049,50 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             )
             self._debug_trace("refresh_set_pin_data_done")
         self._update_pin_overlay()
+
+        self._sync_pin_media_geometry()
+
+    def configure_pin_media(self, kind: str) -> None:
+        self._pin_media_kind = str(kind)
+        self._sync_pin_media_geometry()
+
+    def visible_pin_media_ids(self) -> frozenset[str]:
+        return self._pin_media_visible_ids
+
+    def update_pin_media(self, annotation_id: str, **state) -> None:
+        """Transient playback updates never touch pin data or scene revisions."""
+        item = self._pin_media_layer.items.get(annotation_id)
+        previous_state = item.visual.state if item is not None else None
+        self._pin_media_layer.update(annotation_id, **state)
+        if item is not None and item.visual.state != previous_state:
+            self._update_cursor()
+
+    def _sync_pin_media_geometry(self) -> None:
+        layouts = {}
+        if (self._pin_media_kind in {"audio_clip", "video_clip", "animated_gif", "text_excerpt"}
+                and self._pins_enabled and self._pins_visible
+                and self._pin_style.get("thumbnail_visible", False)):
+            covered = QtGui.QRegion()
+            viewport = QtGui.QRegion(self.rect())
+            for entry in reversed(self._pinned_annotations):
+                box = self._pin_box_rect_for_entry(entry)
+                if box is None:
+                    continue
+                rect = self._pin_thumbnail_rect_for_entry(entry, box).toAlignedRect()
+                region = (QtGui.QRegion(rect) & viewport) - covered
+                key = str(entry.get("annotation_id") or "")
+                if key and not region.isEmpty():
+                    layouts[key] = (rect, region.translated(-rect.topLeft()))
+                covered |= QtGui.QRegion(box.toAlignedRect())
+        root = self._qml_root_object if self._has_native_pin_overlay() else self._pin_overlay
+        self._pin_media_layer.sync(
+            root, {} if self._pin_media_kind == "text_excerpt" else layouts, audio=self._pin_media_kind == "audio_clip",
+            enabled=self._interaction_mode in {"selection", "pin"},
+        )
+        visible = frozenset(layouts)
+        if visible != self._pin_media_visible_ids:
+            self._pin_media_visible_ids = visible
+            self.pin_media_visibility_changed.emit(visible)
 
     def set_thumbnail_layer_config(
         self,
@@ -3532,6 +3609,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._refresh()
 
     def hideEvent(self, event: QtGui.QHideEvent) -> None:
+        self._pin_media_layer.cancel_press()
+        if self._pin_media_visible_ids:
+            self._pin_media_visible_ids = frozenset()
+            self.pin_media_visibility_changed.emit(self._pin_media_visible_ids)
         self._finish_camera_drag()
         self.end_temporary_pan()
         self._reset_zoom_drag()
@@ -3558,6 +3639,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
     def _shutdown_quick_host(self) -> None:
         if self._quick_shutdown:
             return
+        self._pin_media_layer.clear()
         self._quick_shutdown = True
         self._render_backend = None
         self._native_lasso_fill_item = None
@@ -3584,6 +3666,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         super().showEvent(event)
+        self._sync_pin_media_geometry()
         QtCore.QTimer.singleShot(0, self._refresh_after_show)
 
     def _refresh_after_show(self) -> None:
@@ -4124,6 +4207,13 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return True
 
     def _grab_canvas_pixmap(self) -> QtGui.QPixmap:
+        self._pin_media_layer.set_visible(False)
+        try:
+            return self._grab_canvas_poster_pixmap()
+        finally:
+            self._pin_media_layer.set_visible(True)
+
+    def _grab_canvas_poster_pixmap(self) -> QtGui.QPixmap:
         pixmap = QtGui.QPixmap()
         captured_quick_window = False
         # A QQuickView hosted through createWindowContainer is a native child
@@ -5293,6 +5383,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return QtGui.QImage(data, width, height, width * 4, QtGui.QImage.Format.Format_RGBA8888).copy()
 
     def _draw_pin_thumbnail(self, painter: QtGui.QPainter, entry: dict, rect: QtCore.QRectF) -> None:
+        if "preview_text" in entry:
+            paint_pin_text(painter, rect, self._pin_preview_text_layout(entry), *self._pin_preview_text_colors())
+            return
         image = self._pin_thumbnail_image(entry)
         if image is None or image.isNull():
             painter.setPen(QtCore.Qt.PenStyle.NoPen)
@@ -5438,8 +5531,22 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         value.setUnderline(bool(self._pin_style.get("text_value_underline", False)))
         return label, value
 
-    @staticmethod
-    def _pin_thumbnail_display_size(entry: dict, max_size: int) -> tuple[float, float]:
+    def _pin_preview_text_layout(self, entry: dict):
+        return layout_pin_text(
+            str(entry["preview_text"]), int(self._pin_style.get("thumbnail_size", 96)),
+            str(entry.get("preview_text_font") or QtWidgets.QApplication.font().family()),
+            int(entry.get("preview_text_size", 12)),
+        )
+
+    def _pin_preview_text_colors(self):
+        palette = QtWidgets.QApplication.palette()
+        return (palette.color(QtGui.QPalette.ColorRole.WindowText).name(),
+                palette.color(QtGui.QPalette.ColorRole.Window).name())
+
+    def _pin_thumbnail_display_size(self, entry: dict, max_size: int) -> tuple[float, float]:
+        if "preview_text" in entry:
+            layout = self._pin_preview_text_layout(entry)
+            return float(layout.width), float(layout.height)
         fallback = float(max(1, int(max_size)))
         try:
             source_width = float(entry.get("thumbnail_width", 0))

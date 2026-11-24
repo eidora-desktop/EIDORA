@@ -4,13 +4,33 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Keep tooltip feedback clear of its settings panel and separate text box width from font size, retaining the preview-size controls for text assets.
+
+- Show saved text excerpts directly in Pins with compact font and font-size controls, theme colors, background text loading for visible cards, and support for canvas exports. Resizing reflows text without scaling it or generating preview images.
+
+- Show immediate preview feedback for changes in Tooltip Settings, use the curated Figures font choices for text, and keep settings open when selecting dropdown entries outside the panel.
+
+- Use saved text excerpts in Discovery tooltips. Tooltip Settings shows only font and font size for text assets, using the application theme for colors; text loads in the background and remains available without the original source.
+
 - Create plain-text excerpt Preview Assets from linked text sources in Media. Choose beginning, middle, end, or reproducible random excerpts, with a character limit and optional word-boundary trimming. Inspect saved excerpts without the original source and reuse the existing pause, cancel, retry, and set-management workflow.
 
+- Play generated video, audio, and GIF previews directly in Pins with click-to-play, pause, seeking, and an audio playhead. Use one active pin player, preserve final frames, and keep canvas exports on static posters.
+
 - Prepare text files consistently as whole documents, including JSONL, while preserving explicit indexed-record inputs. Support BOM-marked Unicode, identify failing files/records, bound text reads, and reuse tokenizers and record offsets without adding model dependencies.
+
+- Show a red playback-position line over tooltip audio waveforms, with lightweight updates during playback and cleanup when the tooltip closes or changes.
+
+- Keep the last video frame visible when a tooltip preview finishes with Loop disabled; release it when the tooltip closes or changes.
 
 - Simplify the Project Chooser’s More Options menu: Settings opens directly on Storage, followed by a separator; remove the separate Storage action.
 
 - Open project actions from the project-name dropdown in the main navigation bar and use the full EIDORA wordmark for Settings.
+
+- Use bold header checkboxes with grouped controls in Tooltip and Pins settings. Rename Info Field to Metadata. Disabling sections preserves their saved selections.
+
+- Make the edited tooltip, Preview Asset, and Settings forms safer to edit in Designer: use unique widget names and initialize conditional visibility in controllers.
+
+- Add tooltip clip selection, a preview-position combobox, and a saved Loop toggle enabled only for audio/video clips. Remove the tooltip mute control. Hover previews autoplay generated audio/video clips after 200 ms and animate GIFs with their saved repeat settings; loading and GIF decoding run in a bounded background worker, and leaving the tooltip stops playback.
 
 - Add confirmed bulk deletion for projects in the Settings Project Location, closing the active project and waiting for saves first. Move preset selection and deletion controls into the Presets tab.
 

@@ -192,7 +192,7 @@ project reopening.
 
 Cancellation is cooperative until publication begins. Once publication commits,
 the result is complete. A forced process exit may leave unlisted staging/orphan
-files, but must not expose a partially generated variant. New variants contain
+files, but must not expose a partially generated variant. New image/still-frame variants contain
 individual WebP thumbnails only; Discovery builds its own runtime atlases. Older
 atlas and tile storage remains readable for project compatibility.
 
@@ -310,7 +310,23 @@ and detached settings windows need the shared rules to repaint live.
 ## Simplified Media and metadata workflows
 
 The Media workspace contains Media Sources and Preview Assets in one horizontal
-splitter. Create and manage Preview Assets from linked images and still frames from video. Media source matching reads resolved Item fields and
+splitter. Create and manage Preview Assets from linked images, video stills,
+audio/video clips, animated GIFs, and text excerpts. Text generation uses cancellable
+bounded source reads and saves literal excerpts plus per-Item provenance in the
+existing preview database. Its plain-text inspector reads one saved Item at a time
+in a background worker. Discovery tooltips load saved excerpts through the existing
+latest-only preview worker. Designer-owned font and size controls persist as
+tooltip settings; bounded plain-text layout and theme colors remain separate
+from asset creation. Clip generation uses isolated workers and
+the existing preview repository, with an explicit output kind and per-Item clip
+metadata. Media can inspect generated clips; Discovery tooltips can autoplay
+clips and GIFs through a separate, lazily created playback controller and a
+bounded preview worker. Pins also offer explicit playback of generated assets,
+owned by `pin_playback_controller.py`. One active player feeds a small transient
+surface over its pin; frame updates never rewrite annotations or the point scene.
+Poster loading and GIF/video frame preparation use bounded background workers.
+Canvas thumbnail atlases and exported pins remain static.
+Media source matching reads resolved Item fields and
 previews explicit path/identifier rules, with separate Match Items and
 source-scoped Relink actions. Registration is usable
 without matching. Scanning and matching never create rows. Source relocation
