@@ -154,7 +154,7 @@ class StorageService:
         return destination
 
     def relocate(self, kind: str, destination: Path, *, cancelled=lambda: False,
-                 progress=lambda text: None) -> None:
+                 progress=lambda text: None, remove_source=False) -> str:
         if kind not in ("workspace", "models"):
             raise ValueError("Unknown storage location.")
         source = self.workspace if kind == "workspace" else self.models
@@ -191,6 +191,17 @@ class StorageService:
             self.workspace = destination
         else:
             self.models = destination
+        if remove_source:
+            # Commit the verified destination before removing anything. From here
+            # cancellation cannot roll back the active location or its contents.
+            try:
+                progress("Removing the verified original files…")
+                if source.exists():
+                    shutil.rmtree(source)
+                self.preferences.update(**{f"previous_{kind}_root": None})
+            except OSError as exc:
+                return f"Location updated. Check the previous folder {source}: {exc}"
+        return ""
 
     def clean(self, *, models: bool, cache: bool, cancelled=lambda: False,
               progress=lambda text: None) -> int:

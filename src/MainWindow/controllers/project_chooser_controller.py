@@ -155,7 +155,7 @@ class ProjectChooserController:
         remove_project_callback: Callable[[Project], bool] | None = None,
         storage_read_only: bool = False,
         prepare_project: Callable[[Project], Iterator[None] | None] | None = None,
-        open_settings: Callable[[], None] | None = None,
+        open_settings: Callable[[str], None] | None = None,
     ) -> None:
         self.dialog = load_ui("MainWindow", "ui/project_chooser.ui", None)
         self._settings_callback = open_settings
@@ -190,8 +190,8 @@ class ProjectChooserController:
         button_more_options = self._find_required(QtWidgets.QPushButton, "button_more_options")
         self._more_options_menu = QtWidgets.QMenu(button_more_options)
         self._action_settings = self._more_options_menu.addAction("Settings...")
+        self._more_options_menu.addSeparator()
         self._action_starter = self._more_options_menu.addAction("Create MET Example…")
-        self._action_storage = self._more_options_menu.addAction("Storage…")
         self._action_report = self._more_options_menu.addAction("Diagnostics…")
         button_more_options.setMenu(self._more_options_menu)
         self._diagnostics_notice = self._find_required(QtWidgets.QLabel, "label_diagnostics_notice")
@@ -321,7 +321,6 @@ class ProjectChooserController:
             (self._button_open_project.clicked, self._open_selected_project),
             (self._list_projects.itemSelectionChanged, self._update_open_button),
             (self._list_projects.itemDoubleClicked, lambda _item: self._open_selected_project()),
-            (self._action_storage.triggered, self._open_storage),
             (self._action_settings.triggered, self._open_settings),
             (self._action_report.triggered, self._show_report),
             (self._action_starter.triggered, self._create_starter),
@@ -346,20 +345,15 @@ class ProjectChooserController:
         show_diagnostics()
         self._diagnostics_notice.setVisible(report_repository().has_unreviewed_problem())
 
-    def _open_storage(self) -> None:
-        from MainWindow.controllers.storage_dialog_controller import StorageDialogController
-
-        controller = StorageDialogController(self._project_service, read_only=self._storage_read_only)
-        controller.exec()
-        self.refresh()
-
     def _open_settings(self) -> None:
         from MainWindow.controllers.settings_dialog_controller import SettingsDialogController
 
         if self._settings_callback is not None:
-            self._settings_callback()
+            self._settings_callback("storage")
         else:
-            SettingsDialogController(self._project_service, project_open=self._storage_read_only).exec()
+            controller = SettingsDialogController(self._project_service, project_open=self._storage_read_only)
+            controller.select_tab("storage")
+            controller.exec()
         self.refresh()
 
     def _create_starter(self) -> None:

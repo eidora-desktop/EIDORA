@@ -1,11 +1,8 @@
 """Bind General settings; changes persist immediately through their owners."""
-from pathlib import Path
-
 from PySide6 import QtCore, QtWidgets
 
 from application_settings.service import SettingsService
-from shared.env import get_env
-from shared.paths import WORKSPACE_ROOT_ENV_VAR
+from MainWindow.controllers.settings_storage_panel_controller import SettingsStoragePanelController
 from shared.qt.message_dialogs import show_error
 from shared.qt.theme import install_theme
 from shared.qt.ui_loader import load_ui
@@ -14,9 +11,15 @@ from shared.qt.widgets import require_child
 
 class SettingsDialogController:
     def __init__(self, projects, *, service=None, project_open=False, current_project=None,
-                 storage_busy=lambda: False, models_changed=lambda: None,
+                 storage_busy=lambda: False, models_changed=lambda: None, before_project_storage_change=lambda: None,
                  presets_changed=lambda project: None, required_preset_paths=lambda project: ()):
         self.service = service or SettingsService(projects)
+        self._before_project_storage_change = before_project_storage_change
+        self.project_closed_for_storage_change = False
+        self._storage_status = ""
+        self._general_status = ""
+        self._storage_panel = None
+        self._storage_mutating = self._presets_mutating = False
         self._storage_busy = storage_busy
         self._models_changed = models_changed
         self._project_open = project_open
@@ -43,13 +46,6 @@ class SettingsDialogController:
         for key, choices in self._radios.items():
             for value, button in choices.items():
                 self._connect(button.clicked, lambda checked, key=key, value=value: self._save(key, value))
-        for kind, suffix in (("workspace", "projects"), ("models", "models")):
-            button = require_child(self.dialog, QtWidgets.QPushButton, f"button_browse_{suffix}")
-            self._connect(button.clicked, lambda checked=False, kind=kind: self._browse(kind))
-        projects_button = require_child(self.dialog, QtWidgets.QPushButton, "button_browse_projects")
-        if get_env(WORKSPACE_ROOT_ENV_VAR).strip():
-            projects_button.setEnabled(False)
-            projects_button.setToolTip("The project location is controlled by EIDORA_WORKSPACE_ROOT.")
         buttons = require_child(self.dialog, QtWidgets.QDialogButtonBox, "buttons_dialog")
         reset = buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Reset)
         reset.setText("Restore Defaults…")
@@ -58,17 +54,28 @@ class SettingsDialogController:
         reset.setToolTip("Restore System appearance and Project Chooser startup. Storage locations are preserved.")
         self._connect(reset.clicked, self._reset)
         self._tabs = require_child(self.dialog, QtWidgets.QTabWidget, "tabs_settings")
+        # Designer's selected editing tab must not start hidden storage work.
+        # Callers can choose a different initial tab through select_tab().
+        self._tabs.setCurrentIndex(0)
+        self._storage_panel = SettingsStoragePanelController(
+            self.dialog, self.service, busy=lambda: self._storage_busy(),
+            before_project_storage_change=self._prepare_project_storage_change, changed=self._storage_changed,
+            status=self._show_storage_status, busy_changed=self._storage_operation_busy,
+        )
         self._connect(self._tabs.currentChanged, self._tab_changed)
         self._tab_changed(self._tabs.currentIndex())
 
     def _tab_changed(self, index):
-        presets = self._tabs.widget(index).objectName() == "tab_presets"
+        name = self._tabs.widget(index).objectName()
+        presets = name == "tab_presets"
         buttons = require_child(self.dialog, QtWidgets.QDialogButtonBox, "buttons_dialog")
-        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Reset).setVisible(not presets)
+        buttons.button(QtWidgets.QDialogButtonBox.StandardButton.Reset).setVisible(name == "tab_general")
+        self._status.setText(self._storage_status if name == "tab_storage" else self._general_status)
         self._status.setVisible(not presets and bool(self._status.text()))
-        require_child(self.dialog, QtWidgets.QWidget, "panel_preset_actions").setVisible(presets)
         preset_status = require_child(self.dialog, QtWidgets.QLabel, "label_presets_status")
         preset_status.setVisible(presets and bool(preset_status.text()))
+        if name == "tab_storage" and self._storage_panel is not None:
+            self._storage_panel.activate()
         if presets:
             if self._presets_panel is None:
                 from MainWindow.controllers.presets_panel_controller import PresetsPanelController
@@ -81,12 +88,43 @@ class SettingsDialogController:
             self._presets_panel.activate()
 
     def _preset_deletion_busy(self, busy):
+        self._presets_mutating = busy
+        self._update_busy()
+
+    def _storage_operation_busy(self, busy):
+        self._storage_mutating = busy
+        self._update_busy()
+
+    def _update_busy(self):
+        busy = self._presets_mutating or self._storage_mutating
         self._tabs.setEnabled(not busy)
         require_child(self.dialog, QtWidgets.QDialogButtonBox, "buttons_dialog").setEnabled(not busy)
 
     def _show_status(self, text):
-        self._status.setText(text)
-        self._status.setVisible(bool(text) and self._tabs.currentWidget().objectName() == "tab_general")
+        self._general_status = text
+        if self._tabs.currentWidget().objectName() == "tab_general":
+            self._status.setText(text)
+            self._status.setVisible(bool(text))
+
+    def _show_storage_status(self, text):
+        self._storage_status = text
+        if self._tabs.currentWidget().objectName() == "tab_storage":
+            self._status.setText(text)
+            self._status.setVisible(bool(text))
+
+    def _storage_changed(self, kind):
+        if kind == "models":
+            self._models_changed()
+
+    def _prepare_project_storage_change(self):
+        if self._presets_panel is not None:
+            self._presets_panel.dispose()
+            self._presets_panel = None
+        wait_for_saves = self._before_project_storage_change()
+        self.project_closed_for_storage_change = True
+        self._project_open = False
+        self._current_project = None
+        return wait_for_saves
 
     def _connect(self, signal, slot):
         signal.connect(slot)
@@ -104,6 +142,9 @@ class SettingsDialogController:
             self.dispose()
 
     def dispose(self):
+        if self._storage_panel is not None:
+            self._storage_panel.dispose()
+            self._storage_panel = None
         if self._presets_panel is not None:
             self._presets_panel.dispose()
             self._presets_panel = None
@@ -149,60 +190,7 @@ class SettingsDialogController:
             self._theme.set_preference(value)
 
     def _browse(self, kind):
-        if self._storage_busy():
-            self._show_status("Finish or cancel background processes before changing storage locations.")
-            return
-        current = self.service.projects.workspace_root if kind == "workspace" else self.service.storage.models
-        title = "Choose Default Project Location" if kind == "workspace" else "Choose Local Models Location"
-        selected = QtWidgets.QFileDialog.getExistingDirectory(self.dialog, title, str(current))
-        if not selected:
-            return
-        if Path(selected).resolve() == current.resolve():
-            return
-        # Jobs may have started while the native folder dialog was open.
-        if self._storage_busy():
-            self._show_status("Finish or cancel background processes before changing storage locations.")
-            return
-        try:
-            if kind == "workspace" and self.service.has_workspace_projects():
-                choice = self._choose_project_action()
-                if choice == "cancel":
-                    return
-                if choice == "relocate":
-                    from MainWindow.controllers.storage_dialog_controller import StorageDialogController
-
-                    controller = StorageDialogController(self.service.projects)
-                    controller.exec(relocate_projects_to=Path(selected))
-                    self.service.storage.workspace = self.service.projects.workspace_root
-                    self._refresh()
-                    return
-            self.service.change_destination(kind, Path(selected))
-        except (OSError, ValueError) as exc:
-            show_error(self.dialog, "Storage Location Could Not Be Changed", str(exc))
-            return
-        self._refresh()
-        self._show_status("Location saved. Existing files remain in their original folders.")
-        if kind == "models":
-            self._models_changed()
-
-    def _choose_project_action(self):
-        message = QtWidgets.QMessageBox(self.dialog)
-        message.setWindowTitle("Change Project Location")
-        message.setText("Existing projects were found in the current default folder.")
-        message.setInformativeText(
-            "Change the destination for new projects, or copy and verify existing projects into the new folder. "
-            "Original files are preserved."
-            + ("\n\nTo relocate, restart EIDORA and open Settings from the startup project chooser before opening a project."
-               if self._project_open else "")
-        )
-        change = message.addButton("Change destination only", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
-        relocate = message.addButton("Relocate existing projects…", QtWidgets.QMessageBox.ButtonRole.ActionRole)
-        relocate.setEnabled(not self._project_open)
-        message.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
-        message.setDefaultButton(change)
-        message.exec()
-        clicked = message.clickedButton()
-        return "change" if clicked is change else "relocate" if clicked is relocate else "cancel"
+        self._storage_panel.browse(kind)
 
     def _reset(self):
         answer = QtWidgets.QMessageBox.question(

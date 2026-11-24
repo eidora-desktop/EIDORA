@@ -87,11 +87,10 @@ temporary mount; source runs have a separate identity. Manual tours and
 cancellation count as having seen onboarding; the Settings menu always allows replay.
 Pending launches stop on project changes and shutdown.
 
-The chooser also offers explicit MET example creation, a New Project dialog with
-a visible destination, and Storage inspection/maintenance. Storage controllers
-submit filesystem work through a background manager and poll results on the GUI
-thread. Maintenance is disabled while a project is open. See
-[storage behavior](../../docs/storage.md).
+The chooser also offers explicit MET example creation and a New Project dialog
+with a visible destination. More Options starts with Settings, which opens the
+Storage tab, followed by a separator, MET example creation, and Diagnostics.
+See [storage behavior](../../docs/storage.md).
 
 About EIDORA is first in the EIDORA-icon Settings menu, followed by Settings.
 Settings is also available in the startup chooser.
@@ -101,11 +100,16 @@ startup chooses the project chooser or attempts to reopen the last project.
 Missing/unreadable projects fall back to the chooser. Initial packaged example
 setup is preserved. Reset restores appearance/startup only.
 
-Destination changes preserve files and recent-project history. The installed
-models list refreshes after a destination change. Background processes must
-finish before changing locations. If the current workspace contains projects,
-Settings also offers verified relocation; this is available only before opening
-a project and uses the existing Storage dialog.
+`settings_storage_panel_controller.py` binds the Storage tab to background size
+measurement, confirmed project/downloaded-model removal, and folder changes. Cache
+controls display its location and size only. Nonempty folders
+can only be relocated or kept. Relocation closes the Main Window and detaches its
+project, waits for retired Figure writers, verifies the copied contents, saves
+the new location, then removes the originals. Settings stays open until the user
+closes it; the shell then opens the Project Chooser, or refreshes the chooser
+already open. Empty folders can change destination directly. The installed model
+list refreshes after cleanup or folder changes. Background processes must finish
+before storage changes. General reset is hidden on the Storage and Presets tabs.
 
 The Presets tab lists reusable settings grouped by type, with collapsible headers
 and group/individual checkboxes. It defaults to the open project; the selector
@@ -123,11 +127,9 @@ and projection records are excluded. Legacy snapshot and saved/open animation
 dependencies block deletion of required presets. Settings cannot close during
 deletion; late browsing results are ignored after project changes or disposal.
 
-Settings uses the same panel/content and area/footer surfaces as Run Embedding
-Model, with 22 px content margins. General has compact appearance/startup rows
-and one Storage locations section. The Presets tree uses 32 px minimum rows,
-palette-aware category backgrounds, and a separate muted count column. Both tabs
-share a stable resizable 600×500 starting size; General scrolls at smaller sizes.
-The footer switches between Restore Defaults and preset selection/deletion,
-keeping Close on the right. Routine preference saves show no status banner;
-location changes, resets, deletion results, loading and errors remain visible.
+Settings has separate General, Storage, and Presets tabs in a resizable Designer
+form. The shared footer shows Restore Defaults on General, with Close on the right.
+Preset selection counts and deletion actions live below the tree inside the
+Presets tab. Routine preference saves show no
+status banner; storage progress, resets, deletion results, and errors remain
+visible on their relevant tab.

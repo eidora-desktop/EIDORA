@@ -1,6 +1,9 @@
 # EIDORA semantic icon manifest
 # Material Symbols are used as replaceable starter assets.
 icons:
+  trash:
+    source: Trash icon for resource removal
+    size: 40
   eidora:
     source: EIDORA simplified E mark
     size: 40

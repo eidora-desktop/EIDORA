@@ -4,6 +4,12 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Simplify the Project Chooser’s More Options menu: Settings opens directly on Storage, followed by a separator; remove the separate Storage action.
+
+- Add confirmed bulk deletion for projects in the Settings Project Location, closing the active project and waiting for saves first. Move preset selection and deletion controls into the Presets tab.
+
+- Connect the Settings Storage tab to background size measurement and confirmed model cleanup through its trash icon. Nonempty folder changes offer relocation or keeping the current folder; relocation closes the project, verifies and moves its contents, and returns to the Project Chooser after Settings closes.
+
 - Rename the project-menu action to “Switch Projects…”.
 
 - Hide the Project Chooser immediately when opening a project and use only the square loading indicator until the main window is ready. Remove the chooser's redundant progress bar and loading text; restore the chooser on errors for retry or cancellation.

@@ -119,6 +119,14 @@ class FiguresAreaController:
         if label is not None:
             label.setText(project.name if project is not None else "No project loaded")
 
+    def storage_completion_waiter(self):
+        """Capture retired writers for a storage worker after closing the project."""
+        services = tuple(self._retired_services.values())
+        def wait():
+            for service in services:
+                service.shutdown(wait=True)
+        return wait
+
     def shutdown(self) -> None:
         if self._disposed:
             return

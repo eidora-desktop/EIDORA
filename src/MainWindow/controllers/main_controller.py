@@ -125,7 +125,10 @@ class MainWindowController:
         finally:
             self._chooser_open = False
             try:
-                self.show()
+                if self._project is not None:
+                    self.show()
+                else:
+                    app.quit()
             finally:
                 app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
 
@@ -141,9 +144,33 @@ class MainWindowController:
             models_changed=self._refresh_model_locations,
             presets_changed=self._refresh_preset_menus,
             required_preset_paths=self._required_preset_paths,
+            before_project_storage_change=self._close_for_project_storage_change,
         )
         controller.select_tab(tab)
-        controller.exec()
+        app = QtWidgets.QApplication.instance()
+        quit_on_close = app.quitOnLastWindowClosed()
+        app.setQuitOnLastWindowClosed(False)
+        try:
+            controller.exec()
+            if controller.project_closed_for_storage_change and not self._chooser_open:
+                self.show_project_chooser()
+        finally:
+            app.setQuitOnLastWindowClosed(quit_on_close)
+
+    def _close_for_project_storage_change(self):
+        """Detach all project consumers before storage moves; drain saves in the worker."""
+        from FiguresArea.controllers import FiguresAreaController
+
+        self.window.close()
+        self.set_project(None)
+        self._welcome_tour_timer.stop()
+        self._deferred_load_timer.stop()
+        waits = [area.storage_completion_waiter() for area in self._areas
+                 if isinstance(area, FiguresAreaController)]
+        def wait_for_saves():
+            for wait in waits:
+                wait()
+        return wait_for_saves
 
     def _refresh_preset_menus(self, project) -> None:
         if self._project is None or project.root != self._project.root:
@@ -175,7 +202,7 @@ class MainWindowController:
         return ProjectChooserController(
             self._project_service,
             prepare_project=self._prepare_project_switch,
-            open_settings=self.show_settings,
+            open_settings=lambda tab: self.show_settings(tab=tab),
             storage_read_only=self._project is not None,
             remove_project_callback=lambda project: self._delete_project(
                 project,
