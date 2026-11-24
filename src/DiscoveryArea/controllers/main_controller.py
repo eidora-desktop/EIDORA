@@ -2500,7 +2500,10 @@ class DiscoveryAreaController:
                     or revision != self._selection_session_revision):
                 return
             if chosen == create_pin:
-                self._set_selection_pin_scope(metadata_id, ApplicationPreferences().read()["pin_scope"])
+                if self._set_selection_pin_scope(metadata_id, ApplicationPreferences().read()["pin_scope"]):
+                    tools_panel = self._panel(CanvasToolsPanelController)
+                    if tools_panel is not None and tools_panel.active_mode == "pan":
+                        tools_panel.set_active_mode("selection")
             elif chosen == show_item:
                 self._handle_canvas_point_selection_requested(metadata_id, position)
         finally:

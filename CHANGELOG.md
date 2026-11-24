@@ -6,7 +6,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Keep tooltip feedback clear of its settings panel and separate text box width from font size, retaining the preview-size controls for text assets.
 
-- Right-click an Item in Pan or Selection mode to create a Pin using the saved scope or open Show Item.
+- Right-click an Item in Pan or Selection mode to create a Pin using the saved scope or open Show Item. Creating a Pin in Pan mode switches to Selection so the Pin can be moved immediately.
 
 - Create Pins directly from the selected item dialog. Hold the Pin button to choose Collection-wide or Projection only, with the choice remembered across EIDORA sessions and Collection-wide as the default.
 
