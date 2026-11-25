@@ -8,6 +8,18 @@ figure collection, including animations. The × button asks for confirmation bef
 permanently deleting a figure; Cancel leaves it intact. Remaining figures reopen
 with the project. Source snapshots and exported files are not deleted.
 
+On first activation, the workspace reads the saved collection and immediately creates
+lightweight tabs with loading placeholders. Large manifests load on the data-loading
+thread without starting the rendering process. Only the selected tab prepares its
+saved composition (including legacy layout/data conversion) and builds its static
+or animation UI. Other tabs retain their saved records until selected, including
+when the collection is saved, renamed, or a figure is deleted. Failed preparation
+keeps the original record and offers Retry. Closing a tab or switching projects
+rejects late results. Switching tabs cancels preparation that has not started;
+running or completed loads remain reusable on return. Legacy animation settings
+normalize in the repository, so cleanup protects their private sources even when
+their tabs remain unopened. The selected preview then uses the normal rendering pipeline.
+
 Dropping a snapshot imports its complete captured view, including its current
 slice. Plot Settings identify the source snapshot separately from reusable
 component presets. **From snapshot** restores the figure's imported copy;
@@ -70,16 +82,25 @@ older documents and partial presets do not inherit the new starting profile.
 
 Width and height specify the final exported pixel dimensions, including margins and figure
 elements. `page_layout.py` measures decorations before fitting each plot into
-the reserved rows and columns. Empty cells retain their space. Each plot keeps
-its initial design dimensions and aspect ratio; points, borders, grid labels,
-pins, local titles, captions and legends scale with it. Figure-level text and
-shared legends retain their chosen pixel sizes. Excess space stays blank;
-plots are never stretched or cropped to fill a cell. A page too small for its
+the reserved rows and columns. Empty cells retain their space. The **stretch plots** checkbox
+under **Main Figure**, after width and height, applies to every plot, including a
+single-plot figure. Unchecked (the default), it centers each plot using
+its captured camera's width-to-height ratio, leaving excess space blank. Imported
+snapshot baselines retain that ratio through camera preset changes. Older figures
+without this setting also keep the snapshot ratio. Missing or
+invalid camera bounds fall back to the initial plot design ratio. Checked,
+it stretches each plot into its cell after reserving annotation space, without
+changing the camera bounds or cropping additional content. Points, borders, grid
+labels, pins, local titles, captions and legends keep uniform style scaling;
+figure-level text and shared legends retain their chosen pixel sizes. Both modes
+use the same layout for preview, animation frames and exports, and persist in saved
+figures and figure settings presets. A page too small for its
 fixed margins or shared decorations reports a layout error rather than growing.
 
 State version 7 converts older per-plot dimensions to their measured final page
 size without loading point datasets. The conversion retains the original plot
-dimensions and measured decoration bands, preserving saved appearance. Editing
+dimensions and measured decoration bands. The selected aspect mode determines
+how plots use that space. Editing
 those decorations replaces their inherited spacing constraints. Preview and
 vector/raster export use the same page geometry; rendering never writes scaled
 font or marker sizes back into the document.
@@ -93,9 +114,10 @@ annotations until populated.
 The settings panel displays actual output pixels for every dimension, margin,
 font and line width, with no resolution control or unit selector. Page dimensions
 are whole pixels; other measurements allow fractional pixels. Values adapt when
-the page or reserved grid changes. Select All plots or one plot in the Measurements
-selector; differing output sizes display as Mixed. Entering a value sets that
-pixel size in the current layout, and later layout edits scale it proportionally.
+the page or reserved grid changes. Differing output sizes display as Mixed.
+Entering a value sets that pixel size for all plots in the current layout, and
+later layout edits scale it proportionally. Older presets' pending size edits
+also apply to all plots; existing saved per-cell sizes remain intact until edited.
 Figure-level sizes remain fixed. Display rounding never rewrites saved values.
 SVG files declare the same pixel width and height as raster exports.
 
@@ -342,8 +364,10 @@ Unavailable fonts are omitted from new choices. A saved unavailable family stays
 selected as “unavailable”, with a tooltip explaining the DejaVu Sans fallback;
 applying unrelated settings preserves the original family name.
 
-Each snapshot row has a **cite** button opening the shared methods report, with
-copyable caption text and Markdown/BibTeX export. Plot cells retain the source
+Each snapshot row has a **Methods…** button opening the shared methods report,
+with selectable brief methods, caption summaries and references, expandable
+details, Copy BibTeX and Markdown/BibTeX export. The project menu provides the same reports
+without using Figures. Plot cells retain the source
 snapshot report in their saved render state. Caption editors offer **Insert
 Snapshot Methods**, so reports remain usable after the original snapshot is
 removed. Inserted text describes source snapshots and asks users to review later

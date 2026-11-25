@@ -115,6 +115,7 @@ class VectorDataCardController(QtCore.QObject):
         self.info.header().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.cluster_tree.header().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
         self.cluster_tree.header().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        self.toggle.setChecked(False)
         self.toggle.toggled.connect(self._toggle_details)
         self.tabs.currentChanged.connect(self._tab_changed)
         self.pause.clicked.connect(self._pause_run)
@@ -131,6 +132,10 @@ class VectorDataCardController(QtCore.QObject):
         self._body.hide()
         self.name.installEventFilter(self)
         self.widget.installEventFilter(self)
+
+    @property
+    def dataset(self):
+        return self._dataset
 
     def update(self, run, dataset, records, model_label: str, info_loader) -> None:
         self._execution_note = dataset.execution_note if dataset else ""
@@ -394,7 +399,6 @@ class VectorDataCardController(QtCore.QObject):
                 EmbeddingRunState.INTERRUPTED,
                 EmbeddingRunState.PAUSED,
             }:
-                self.toggle.setChecked(True)
                 self.tabs.setCurrentWidget(self.progress_tab)
 
     def _set_active_header(self, active: bool) -> None:
@@ -414,7 +418,6 @@ class VectorDataCardController(QtCore.QObject):
         if self._presented_execution_state != "active":
             self._presented_execution_state = "active"
             self.tabs.setCurrentWidget(self.progress_tab)
-            self.toggle.setChecked(True)
 
     def eventFilter(self, watched, event):
         if watched is self.name and event.type() in {QtCore.QEvent.Type.Resize, QtCore.QEvent.Type.FontChange}:

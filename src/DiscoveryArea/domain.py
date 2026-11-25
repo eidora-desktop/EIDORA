@@ -104,8 +104,6 @@ class PolygonArea:
     metadata_ids: tuple[int, ...]
     discovery_scope: str
     arrangement_ref: str = "original"
-    area_visible: bool = True
-    points_visible: bool = True
 
 
 @dataclass(frozen=True)

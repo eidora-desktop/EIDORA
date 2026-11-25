@@ -144,7 +144,7 @@ class SnapshotSourcesPanelController(UiPanelController):
 
         layout.addWidget(icon_label)
         layout.addWidget(text_label)
-        button = QtWidgets.QPushButton("cite", row)
+        button = QtWidgets.QPushButton("Methods…", row)
         button.setObjectName("button_cite_snapshot")
         button.setToolTip("Methods, parameters, citations and caption text")
         button.clicked.connect(lambda: self._cite_snapshot(entry.path))
@@ -163,7 +163,7 @@ class SnapshotSourcesPanelController(UiPanelController):
 
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._options_button)
-        cite = menu.addAction("Citations…")
+        cite = menu.addAction("Methods && Citations…")
         cite.triggered.connect(self._cite_selected_snapshot)
         menu.aboutToShow.connect(lambda: cite.setEnabled(self._list.currentItem() is not None))
         action_refresh = menu.addAction("Refresh")

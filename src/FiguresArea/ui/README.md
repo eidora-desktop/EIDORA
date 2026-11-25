@@ -1,7 +1,8 @@
 # Figure forms
 
 `figures_area.ui` hosts tabs; `plot_base_layout.ui` and `animation_panel.ui` define
-their surfaces. `plot_preset_panel.ui` owns the per-plot source and preset controls.
+their surfaces. `saved_figure_placeholder.ui` supplies loading and retry feedback
+before a saved tab builds its figure UI. `plot_preset_panel.ui` owns the per-plot source and preset controls.
 Settings, text/caption editing, and export use separate forms.
 
 Keep timeline items layout-managed and reserve equal note-row heights in preview

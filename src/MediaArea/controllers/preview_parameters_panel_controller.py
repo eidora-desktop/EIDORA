@@ -6,6 +6,7 @@ from MediaArea.clip_options import LOOP_MODES, POSITIONS, clip_parameters, compr
 from MediaArea.thumbnail_options import image_parameters
 from MediaArea.text_options import text_parameters, text_description
 from shared.qt.widgets import require_child
+from shared.qt.item_views import configure_parameter_checkbox, fit_parameter_table_rows
 
 # key, label, object name, default, choices or numeric range, explanation
 BASIC = (
@@ -60,6 +61,7 @@ class PreviewParametersPanelController(QtCore.QObject):
                 table.setItem(row, 0, item)
                 if choices is None:
                     editor = QtWidgets.QCheckBox()
+                    configure_parameter_checkbox(editor)
                     signal = editor.toggled
                 elif isinstance(choices[0], int):
                     editor = QtWidgets.QSpinBox()
@@ -177,12 +179,5 @@ class PreviewParametersPanelController(QtCore.QObject):
         self._advanced.setVisible(expanded)
         self._toggle.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
         for table in (self._basic, self._advanced):
-            height = table.horizontalHeader().sizeHint().height() + 2 * table.frameWidth()
-            for row in range(table.rowCount()):
-                if not table.isRowHidden(row):
-                    editor = table.cellWidget(row, 1)
-                    row_height = max(32, editor.sizeHint().height()+4)
-                    table.setRowHeight(row, row_height)
-                    height += row_height
-            table.setFixedHeight(height)
+            fit_parameter_table_rows(table)
         self.geometry_changed.emit()

@@ -36,8 +36,10 @@ def main(argv: list[str] | None = None) -> int:
     from shared.qt.theme import install_theme
     from shared.qt.icons import install_icon_palette_refresh
     from shared.qt.keyboard_focus import install_keyboard_focus
+    from shared.qt.logging import configure_multimedia_logging
 
     configure_logging()
+    configure_multimedia_logging()
 
     app = QtWidgets.QApplication.instance()
     owns_app = app is None

@@ -11,6 +11,22 @@ Source checkouts retain their `workspace_projects` default. An
 Existing installations continue using a nonempty legacy workspace until the user
 explicitly relocates it. Existing projects are never moved on startup.
 
+## Save failures
+
+Projects are edited directly in their selected folder. Keep project files available
+locally; simultaneous editing through cloud synchronization is unsupported.
+
+If Discovery settings, Appearance, Pins, or Figures cannot be saved, a persistent
+warning offers **Retry Save**. Restore access to the folder, then retry. Pending
+changes stay in memory. Closing, quitting, switching projects, or relocating the
+open project waits for pending saves and offers Retry, Cancel, or explicit discard
+if saving fails. Cancel keeps the project and its changes open. These pending
+changes do not survive a crash or forced quit.
+
+An unreadable settings file or collection must be loaded successfully before its
+autosave can replace existing contents. A successful local save does not confirm
+that a cloud provider has synchronized the project.
+
 ## Storage controls
 
 **Settings... → Storage** in the application menu or project chooser shows the

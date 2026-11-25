@@ -177,6 +177,7 @@ class LocalModelsPanelController(_BaseModelsPanelController):
             row.run.setEnabled(executable)
             if not executable:
                 row.status.setText("Requires repackaging")
+                row.status.show()
                 row.run.setToolTip("This legacy model package must be repackaged with the EIDORA schema v3 contract.")
             row.run.clicked.connect(lambda _checked=False, model=installed: self._on_run_installed_model(model))
             row.options.clicked.connect(lambda _checked=False, model=installed, button=row.options:

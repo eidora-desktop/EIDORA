@@ -16,6 +16,13 @@ from shared.persistence.atomic_write import write_text_atomic
 
 PROVENANCE_SCHEMA_VERSION = 1
 
+PCA_CITATION: dict[str, object] = {
+    "id": "pearson1901pca", "role": "intermediate_method",
+    "title": "On lines and planes of closest fit to systems of points in space",
+    "authors": ["Pearson, Karl"], "year": 1901, "journal": "Philosophical Magazine",
+    "volume": "2", "issue": "11", "pages": "559-572", "doi": "10.1080/14786440109462720",
+}
+
 
 @dataclass(frozen=True)
 class CitationRecord:
@@ -32,6 +39,8 @@ class CitationRecord:
     url: str = ""
     bibtex: str = ""
     required: bool = True
+    note: str = ""
+    entry_type: str = ""
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, object], *, default_role: str = "method") -> "CitationRecord":
@@ -55,6 +64,8 @@ class CitationRecord:
             url=str(payload.get("url") or "").strip(),
             bibtex=supplied_bibtex,
             required=bool(payload.get("required", True)),
+            note=str(payload.get("note") or payload.get("notes") or "").strip(),
+            entry_type=str(payload.get("entry_type") or payload.get("type") or "").strip(),
         )
 
     @property
@@ -84,6 +95,8 @@ class CitationRecord:
             text += f" https://doi.org/{self.doi}"
         elif self.url:
             text += f" {self.url}"
+        if self.note:
+            text += f" {self.note}"
         return text
 
     def to_bibtex(self) -> str:
@@ -100,8 +113,10 @@ class CitationRecord:
             "pages": self.pages,
             "doi": self.doi,
             "url": self.url,
+            "note": self.note,
         }
-        kind = "article" if self.container_title else "misc"
+        kind = self.entry_type if self.entry_type in {"unpublished", "article", "misc"} else (
+            "article" if self.container_title else "misc")
         lines = [f"@{kind}{{{key},"]
         for name, value in fields.items():
             if value:
@@ -118,6 +133,8 @@ class MethodsReport:
     references: tuple[CitationRecord, ...]
     reproducibility_rows: tuple[tuple[str, str], ...]
     warnings: tuple[str, ...] = ()
+    scope: str = ""
+    caption_summary: str | None = None
 
     def to_payload(self) -> dict[str, object]:
         return {"schema_version": 1, **asdict(self)}
@@ -133,49 +150,95 @@ class MethodsReport:
                 references=tuple(CitationRecord.from_payload(row) for row in payload.get("references", [])),
                 reproducibility_rows=tuple(tuple(row) for row in payload.get("reproducibility_rows", [])),
                 warnings=tuple(payload.get("warnings", [])),
+                scope=str(payload.get("scope") or ""),
+                caption_summary=payload.get("caption_summary"),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("The saved methods report is incomplete or unreadable.") from exc
 
-    def caption_text(self) -> str:
-        text = self.methods_text
-        if self.parameter_rows:
-            text += "\n\nSettings: " + "; ".join(f"{key}: {value}" for key, value in self.parameter_rows) + "."
-        if self.references:
-            text += "\n\nReferences: " + " ".join(c.reference_text() for c in self.references)
+    def _with_notes(self, text: str) -> str:
         if self.warnings:
             text += "\n\nProvenance notes: " + " ".join(self.warnings)
         return text
 
-    def markdown(self) -> str:
-        lines = [f"# {self.title}", "", "## Methods", "", self.methods_text]
+    def brief_text(self) -> str:
+        return self._with_notes(self.methods_text)
+
+    def caption_text(self) -> str:
+        # Legacy frozen reports have no separate caption; retain their saved prose.
+        return self._with_notes(self.caption_summary or self.methods_text)
+
+    def references_text(self) -> str:
+        return "\n\n".join(f"{index}. {citation.reference_text()}"
+                           for index, citation in enumerate(self.publication_references(), 1))
+
+    def publication_references(self) -> tuple[CitationRecord, ...]:
+        """Use EIDORA's preferred citation without rewriting frozen analysis records."""
+        return deduplicate_citations(
+            CitationRecord.from_payload(eidora_citation_payload()) if citation.citation_id == "eidora" else citation
+            for citation in self.references
+        )
+
+    @property
+    def has_details(self) -> bool:
+        return bool(self.parameter_rows or self.reproducibility_rows)
+
+    @property
+    def is_reference_only(self) -> bool:
+        return not (self.methods_text or self.has_details or self.caption_summary)
+
+    def single_reference(self, index: int) -> "MethodsReport":
+        citation = self.publication_references()[index]
+        return MethodsReport(title=f"{citation.title} — Citation", methods_text="", parameter_rows=(),
+                             references=(citation,), reproducibility_rows=(),
+                             scope=f"{citation.role.replace('_', ' ').capitalize()} reference")
+
+    def brief_markdown(self, *, reference_links: bool = False) -> str:
+        lines = ["## Brief methods", "", self.methods_text] if self.methods_text else []
+        if self.caption_summary:
+            lines.extend(["", "## Caption summary", "", self.caption_summary])
         if self.warnings:
             lines.extend(["", *[f"> **Provenance warning:** {warning}" for warning in self.warnings]])
-        lines.extend(["", "## Parameters", "", "| Setting | Value |", "|---|---|"])
-        lines.extend(f"| {_markdown_cell(label)} | {_markdown_cell(value)} |" for label, value in self.parameter_rows)
         lines.extend(["", "## References", ""])
-        if self.references:
-            lines.extend(f"{index}. {citation.reference_text()}" for index, citation in enumerate(self.references, 1))
-        else:
+        citations = self.publication_references()
+        for index, citation in enumerate(citations):
+            link = f" [Open citation](eidora-reference:{index})" if reference_links and not self.is_reference_only else ""
+            lines.extend([f"{index + 1}. {citation.reference_text()}{link}", ""])
+        if not citations:
             lines.append("No references were recorded.")
-        lines.extend(["", "## Reproducibility details", "", "| Field | Value |", "|---|---|"])
-        lines.extend(f"| {_markdown_cell(label)} | {_markdown_cell(value)} |" for label, value in self.reproducibility_rows)
         return "\n".join(lines).rstrip() + "\n"
+
+    def details_markdown(self) -> str:
+        lines = ["## Detailed methods", "", "| Setting | Value |", "|---|---|"]
+        lines.extend(f"| {_markdown_cell(label)} | {_markdown_cell(_report_value(value))} |" for label, value in self.parameter_rows)
+        lines.extend(["", "## Reproducibility details", "", "| Field | Value |", "|---|---|"])
+        lines.extend(f"| {_markdown_cell(label)} | {_markdown_cell(_report_value(value))} |" for label, value in self.reproducibility_rows)
+        return "\n".join(lines).rstrip() + "\n"
+
+    def markdown(self, *, brief: bool = False) -> str:
+        text = f"# {self.title}\n\n"
+        if self.scope:
+            text += f"Scope: {self.scope}\n\n"
+        text += self.brief_markdown()
+        if not brief and self.has_details:
+            text += "\n" + self.details_markdown()
+        return text
 
     def bibliography(self) -> str:
         if not self.references:
             return ""
-        return "\n\n".join(citation.to_bibtex() for citation in self.references).rstrip() + "\n"
+        return "\n\n".join(citation.to_bibtex() for citation in self.publication_references()).rstrip() + "\n"
 
 
 class MethodsReportExporter:
     @staticmethod
-    def save_pair(destination: Path, report: MethodsReport) -> tuple[Path, Path]:
+    def save_pair(destination: Path, report: MethodsReport, *, brief: bool = False) -> tuple[Path, Path]:
         markdown_path = Path(destination).with_suffix(".md")
         stem = markdown_path.name.removesuffix(".md")
-        if not stem.endswith("-methods"):
-            markdown_path = markdown_path.with_name(f"{stem}-methods.md")
-        bib_path = markdown_path.with_name(markdown_path.name.removesuffix("-methods.md") + "-references.bib")
+        suffix = "-citation" if report.is_reference_only else "-methods"
+        if not stem.endswith(suffix):
+            markdown_path = markdown_path.with_name(f"{stem}{suffix}.md")
+        bib_path = markdown_path.with_name(markdown_path.name.removesuffix(f"{suffix}.md") + "-references.bib")
         markdown_path.parent.mkdir(parents=True, exist_ok=True)
         previous_markdown = markdown_path.read_text(encoding="utf-8") if markdown_path.exists() else None
         previous_bib = bib_path.read_text(encoding="utf-8") if bib_path.exists() else None
@@ -184,7 +247,7 @@ class MethodsReportExporter:
                 stage = Path(raw_stage)
                 staged_markdown = stage / markdown_path.name
                 staged_bib = stage / bib_path.name
-                write_text_atomic(staged_markdown, report.markdown())
+                write_text_atomic(staged_markdown, report.markdown(brief=brief))
                 write_text_atomic(staged_bib, report.bibliography())
                 os.replace(staged_markdown, markdown_path)
                 os.replace(staged_bib, bib_path)
@@ -248,6 +311,9 @@ def eidora_citation_payload() -> dict[str, object]:
     except Exception:
         raw = {}
     payload = dict(raw) if isinstance(raw, dict) else {}
+    preferred = _mapping(payload.get("preferred-citation"))
+    if preferred:
+        return {**preferred, "id": "eidora", "role": "software", "required": True}
     return {
         "id": "eidora",
         "role": "software",
@@ -271,7 +337,7 @@ def _authors(value: object) -> tuple[str, ...]:
         if isinstance(author, dict):
             family = str(author.get("family-names") or author.get("family") or "").strip()
             given = str(author.get("given-names") or author.get("given") or "").strip()
-            name = ", ".join(value for value in (family, given) if value)
+            name = str(author.get("name") or "").strip() or ", ".join(value for value in (family, given) if value)
         else:
             name = str(author).strip()
         if name:
@@ -319,16 +385,31 @@ def combine_reports(title: str, reports: Iterable[MethodsReport], *, warnings: I
     parts = list(reports)
     return MethodsReport(
         title=f"{title} — Methods and Citations",
-        methods_text="\n\n".join(part.methods_text for part in parts if part.methods_text),
+        methods_text="\n\n".join(dict.fromkeys(part.methods_text for part in parts if part.methods_text)),
         parameter_rows=tuple(row for part in parts for row in part.parameter_rows),
         references=deduplicate_citations(c for part in parts for c in part.references),
         reproducibility_rows=tuple(row for part in parts for row in part.reproducibility_rows),
         warnings=tuple(dict.fromkeys([*warnings, *(w for part in parts for w in part.warnings)])),
+        caption_summary=("\n\n".join(dict.fromkeys(part.caption_summary or part.methods_text for part in parts
+                                                if part.caption_summary or part.methods_text))
+                         if any(part.caption_summary for part in parts) else None),
     )
+
+
+def _report_value(value: object) -> str:
+    text = str(value)
+    if len(text) <= 600:
+        return text
+    return text[:600] + " … [abbreviated; complete value retained in the saved record]"
 
 
 def setting_rows(prefix: str, value: object) -> list[tuple[str, str]]:
     """Keep nested settings readable without losing inactive or false values."""
+    if isinstance(value, (list, tuple)) and len(value) > 12:
+        rows = setting_rows(prefix, value[:12])
+        rows.append((f"{prefix} / List summary",
+                     f"{len(value)} entries; first 12 shown. Complete list retained in the saved record."))
+        return rows
     if isinstance(value, Mapping) and value:
         return [row for key, child in value.items()
                 for row in setting_rows(f"{prefix} / {_humanize(key)}", child)]

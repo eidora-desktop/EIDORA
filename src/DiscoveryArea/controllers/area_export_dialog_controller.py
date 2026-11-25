@@ -5,6 +5,8 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
+from shared.qt import file_dialogs
+
 from DiscoveryArea.domain import PolygonArea
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
@@ -30,7 +32,7 @@ class AreaExportDialogController:
         button_box = require_child(dialog, QtWidgets.QDialogButtonBox, "button_box_area_export")
         for label, value, _file_filter in self._FORMATS:
             combo_format.addItem(label, value)
-        edit_file.setText(str(Path.home() / f"{self._safe_stem(area.label)}.csv"))
+        edit_file.setText(file_dialogs.suggested_path("export", str(Path.home() / f"{self._safe_stem(area.label)}.csv")))
 
         def selected_format() -> tuple[str, str]:
             value = str(combo_format.currentData() or "csv")
@@ -49,11 +51,12 @@ class AreaExportDialogController:
 
         def browse() -> None:
             export_format, file_filter = selected_format()
-            path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+            path, _selected_filter = file_dialogs.get_save_file_name(
                 dialog,
                 "Export Area Members",
                 edit_file.text().strip() or str(Path.home() / f"area.{export_format}"),
                 f"{file_filter};;All Files (*)",
+                use_saved_directory=False,
             )
             if path:
                 edit_file.setText(path)
@@ -74,6 +77,7 @@ class AreaExportDialogController:
                     "include_metadata": checkbox_metadata.isChecked(),
                 }
             )
+            file_dialogs.remember_path("export", edit_file.text().strip())
             dialog.accept()
 
         combo_format.currentIndexChanged.connect(lambda _index: apply_extension())

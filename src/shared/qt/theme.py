@@ -104,7 +104,11 @@ QPushButton[appearance="settingsArrow"]:pressed:enabled {{
 QPushButton[appearance="settingsArrow"][keyboardFocus="true"]:focus:enabled {{
     border-color: {text};
 }}
-QAbstractItemView::item:selected:enabled, QAbstractItemView::item:hover:enabled {{
+QAbstractItemView::item:selected:enabled,
+QAbstractItemView[selectionMode="SingleSelection"]::item:hover:enabled,
+QAbstractItemView[selectionMode="MultiSelection"]::item:hover:enabled,
+QAbstractItemView[selectionMode="ExtendedSelection"]::item:hover:enabled,
+QAbstractItemView[selectionMode="ContiguousSelection"]::item:hover:enabled {{
     background-color: {selection_background};
     color: {text};
 }}

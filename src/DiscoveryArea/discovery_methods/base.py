@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
+from shared.methods_report import PCA_CITATION
 
 
 ProgressCallback = Callable[[int], None]
@@ -61,20 +62,6 @@ class ProjectionExecutionResult:
 
     def __getitem__(self, item):
         return self.coordinates[item]
-
-
-PCA_CITATION: dict[str, object] = {
-    "id": "pearson1901pca",
-    "role": "intermediate_method",
-    "title": "On lines and planes of closest fit to systems of points in space",
-    "authors": ["Pearson, Karl"],
-    "year": 1901,
-    "journal": "Philosophical Magazine",
-    "volume": "2",
-    "issue": "11",
-    "pages": "559-572",
-    "doi": "10.1080/14786440109462720",
-}
 
 
 class DiscoveryMethod(Protocol):

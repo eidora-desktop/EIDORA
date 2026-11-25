@@ -93,6 +93,21 @@ class FigureTabsRepository:
             return self.load()
         return records, index
 
+    def prepare_tab(self, record):
+        """Prepare one selected document without rewriting the saved collection."""
+        record = copy.deepcopy(record)
+        if record["kind"] == "animation":
+            return record
+        settings = self.settings_from_payload(record.get("settings"), figure_kind=record["kind"])
+        composition = self.composition_from_payload(record.get("composition"), settings=settings)
+        if composition is not None:
+            from FiguresArea.page_layout import migrate_page_dimensions
+
+            composition = migrate_page_dimensions(composition)
+            record["settings"] = self.settings_payload(composition.settings)
+            record["composition"] = self.composition_payload(composition, data=self.data)
+        return record
+
     def remove_unused_data(self) -> None:
         """Remove unreferenced owned data only after all readers/writers stop."""
         if not self._path.exists():
@@ -146,8 +161,12 @@ class FigureTabsRepository:
                 path.unlink(missing_ok=True)
 
     def _composition_paths(self, tab: dict[str, Any], *, encode: bool) -> dict[str, Any]:
-        """Keep static figure preset references portable, like animation references."""
+        """Normalize legacy animation settings and project-local references."""
         tab = copy.deepcopy(tab)
+        settings = tab.get("settings")
+        if isinstance(settings, dict) and "snapshot_animation" in settings:
+            legacy_animation = settings.pop("snapshot_animation")
+            settings.setdefault("animation", legacy_animation)
         convert = self._paths.encode if encode else self._paths.decode
         composition = tab.get('composition')
         cells = composition.get('plot_cells', []) if isinstance(composition, dict) else []
@@ -308,6 +327,7 @@ class FigureTabsRepository:
             if name in allowed and cls._matches_setting_type(value, float(default_values[name]) if name in FONT_SIZES else default_values[name])
         }
         for name, choices in {
+            "aspect_ratio": {"snapshot", "fit"},
             "grid_mode": {"off", "lines", "map"},
             "main_title_location": {"top", "left", "right", "bottom"},
             "main_title_alignment": {"left", "center", "right"},

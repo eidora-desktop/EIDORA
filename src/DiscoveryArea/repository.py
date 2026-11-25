@@ -407,7 +407,11 @@ def _metadata_checksum(metadata_ids: np.ndarray) -> str:
 
 
 class PolygonAreaRepository:
-    """Persistence boundary for discovery polygon areas."""
+    """Persistence boundary for saved lasso polygons.
+
+    Legacy visibility columns remain in SQLite for compatibility, but tool mode
+    now owns visibility and these columns are neither read nor updated.
+    """
 
     def __init__(self, state_db_path: Path) -> None:
         self._state_db_path = Path(state_db_path)
@@ -422,7 +426,7 @@ class PolygonAreaRepository:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
                 """
-                SELECT id, label, color_hex, polygon_json, arrangement_ref, area_visible, points_visible
+                SELECT id, label, color_hex, polygon_json, arrangement_ref
                 FROM polygon_areas
                 WHERE discovery_scope = ?
                 ORDER BY lower(label), id
@@ -447,8 +451,6 @@ class PolygonAreaRepository:
                         metadata_ids=metadata_ids,
                         discovery_scope=scope,
                         arrangement_ref=str(row["arrangement_ref"] or "original"),
-                        area_visible=bool(int(row["area_visible"])),
-                        points_visible=bool(int(row["points_visible"])),
                     )
                 )
             return output
@@ -461,8 +463,6 @@ class PolygonAreaRepository:
         polygon_points: list[list[float]],
         metadata_ids: list[int],
         color_hex: str = "#3b82f6",
-        area_visible: bool = True,
-        points_visible: bool = True,
         arrangement_ref: str = "original",
     ) -> PolygonArea:
         scope = str(discovery_scope or "").strip()
@@ -487,8 +487,8 @@ class PolygonAreaRepository:
                 connection.execute(
                     """
                     INSERT INTO polygon_areas (
-                        id, discovery_scope, label, color_hex, polygon_json, arrangement_ref, area_visible, points_visible
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        id, discovery_scope, label, color_hex, polygon_json, arrangement_ref
+                    ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
                         area_id,
@@ -497,23 +497,19 @@ class PolygonAreaRepository:
                         str(color_hex or "#3b82f6"),
                         payload,
                         str(arrangement_ref or "original"),
-                        1 if area_visible else 0,
-                        1 if points_visible else 0,
                     ),
                 )
             else:
                 connection.execute(
                     """
                     UPDATE polygon_areas
-                    SET color_hex = ?, polygon_json = ?, arrangement_ref = ?, area_visible = ?, points_visible = ?
+                    SET color_hex = ?, polygon_json = ?, arrangement_ref = ?
                     WHERE id = ?
                     """,
                     (
                         str(color_hex or "#3b82f6"),
                         payload,
                         str(arrangement_ref or "original"),
-                        1 if area_visible else 0,
-                        1 if points_visible else 0,
                         area_id,
                     ),
                 )
@@ -532,8 +528,6 @@ class PolygonAreaRepository:
             metadata_ids=tuple(members),
             discovery_scope=scope,
             arrangement_ref=str(arrangement_ref or "original"),
-            area_visible=bool(area_visible),
-            points_visible=bool(points_visible),
         )
 
     def update_polygon(self, *, area_id: str, polygon_points: list[list[float]], metadata_ids: list[int]) -> None:
@@ -554,52 +548,6 @@ class PolygonAreaRepository:
                 connection.executemany(
                     "INSERT INTO polygon_area_members (area_id, metadata_id) VALUES (?, ?)",
                     [(area_key, int(metadata_id)) for metadata_id in members],
-                )
-            connection.commit()
-
-    def set_area_visibility(self, *, area_id: str, area_visible: bool | None = None, points_visible: bool | None = None) -> None:
-        area_key = str(area_id or "").strip()
-        if not area_key:
-            return
-        with closing(sqlite3.connect(self._state_db_path)) as connection, connection:
-            if area_visible is not None:
-                connection.execute(
-                    "UPDATE polygon_areas SET area_visible = ? WHERE id = ?",
-                    (1 if area_visible else 0, area_key),
-                )
-            if points_visible is not None:
-                connection.execute(
-                    "UPDATE polygon_areas SET points_visible = ? WHERE id = ?",
-                    (1 if points_visible else 0, area_key),
-                )
-            connection.commit()
-
-    def set_areas_visibility(
-        self,
-        *,
-        area_ids: list[str],
-        area_visible: bool | None = None,
-        points_visible: bool | None = None,
-    ) -> None:
-        area_keys = sorted(
-            {
-                str(area_id or "").strip()
-                for area_id in area_ids
-                if str(area_id or "").strip()
-            }
-        )
-        if not area_keys:
-            return
-        with closing(sqlite3.connect(self._state_db_path)) as connection, connection:
-            if area_visible is not None:
-                connection.executemany(
-                    "UPDATE polygon_areas SET area_visible = ? WHERE id = ?",
-                    [(1 if area_visible else 0, area_key) for area_key in area_keys],
-                )
-            if points_visible is not None:
-                connection.executemany(
-                    "UPDATE polygon_areas SET points_visible = ? WHERE id = ?",
-                    [(1 if points_visible else 0, area_key) for area_key in area_keys],
                 )
             connection.commit()
 
@@ -653,7 +601,7 @@ class PolygonAreaRepository:
             return False
         with closing(sqlite3.connect(self._state_db_path)) as connection, connection:
             row = connection.execute(
-                "SELECT id FROM polygon_areas WHERE discovery_scope = ? AND label = ?",
+                "SELECT id FROM polygon_areas WHERE discovery_scope = ? AND label = ? COLLATE NOCASE",
                 (scope, area_label),
             ).fetchone()
         if row is None:
@@ -669,14 +617,6 @@ class PolygonAreaRepository:
             return
         with closing(sqlite3.connect(self._state_db_path)) as connection, connection:
             connection.execute("UPDATE polygon_areas SET label = ? WHERE id = ?", (area_label, area_key))
-            connection.commit()
-
-    def set_area_color(self, *, area_id: str, color_hex: str) -> None:
-        area_key = str(area_id or "").strip()
-        if not area_key:
-            return
-        with closing(sqlite3.connect(self._state_db_path)) as connection, connection:
-            connection.execute("UPDATE polygon_areas SET color_hex = ? WHERE id = ?", (str(color_hex or "#3b82f6"), area_key))
             connection.commit()
 
     def _ensure_schema(self) -> None:
@@ -762,13 +702,8 @@ class DiscoveryPinFileRepository:
             return []
         positions = self._load_scope_positions(scope)
         output: list[dict[str, object]] = []
-        for path in sorted(self._pins_root.glob("*.json")):
-            try:
-                payload = json_store.read_json(path)
-            except (OSError, json.JSONDecodeError):
-                continue
-            if not isinstance(payload, dict):
-                continue
+        for path in self._json_files(self._pins_root):
+            payload = self._read_pin_json(path)
             annotation_id = str(payload.get("annotation_id") or "").strip()
             scope_mode = self._scope_mode(payload.get("scope_mode"))
             projection_scope = str(payload.get("projection_scope") or "").strip()
@@ -793,8 +728,9 @@ class DiscoveryPinFileRepository:
                     str(position.get("updated_at") or ""),
                 )
             normalized = self._normalize_pin_payload(merged, discovery_scope=scope)
-            if normalized is not None:
-                output.append(normalized)
+            if normalized is None:
+                raise ValueError(f"Invalid saved Pin: {path.name}")
+            output.append(normalized)
         output.sort(key=lambda item: (str(item.get("created_at") or ""), str(item.get("annotation_id") or "")))
         return output
 
@@ -849,6 +785,8 @@ class DiscoveryPinFileRepository:
         scope = str(discovery_scope or "").strip()
         if not scope:
             return
+        # Validate the existing collection before writing or removing any files.
+        self.list_pin_payloads(scope)
         seen: set[str] = set()
         for payload in payloads:
             normalized = self._normalize_pin_payload(payload, discovery_scope=scope)
@@ -954,27 +892,38 @@ class DiscoveryPinFileRepository:
 
     @staticmethod
     def _read_definition_path(path: Path) -> dict[str, object] | None:
-        if not path.exists():
+        payload = json_store.read_json(path)
+        if payload is None:
             return None
-        try:
-            payload = json_store.read_json(path)
-        except (OSError, json.JSONDecodeError):
-            return None
-        return dict(payload) if isinstance(payload, dict) else None
+        if not isinstance(payload, dict):
+            raise ValueError(f"Invalid saved Pin: {path.name}")
+        return dict(payload)
 
     def _load_scope_positions(self, discovery_scope: str) -> dict[str, dict[str, object]]:
         output: dict[str, dict[str, object]] = {}
-        for path in sorted(self._position_scope_dir(discovery_scope).glob("*.json")):
-            try:
-                payload = json_store.read_json(path)
-            except (OSError, json.JSONDecodeError):
-                continue
-            if not isinstance(payload, dict):
-                continue
+        for path in self._json_files(self._position_scope_dir(discovery_scope)):
+            payload = self._read_pin_json(path)
             annotation_id = str(payload.get("annotation_id") or "").strip()
             if annotation_id:
                 output[annotation_id] = dict(payload)
         return output
+
+    @staticmethod
+    def _json_files(directory: Path) -> list[Path]:
+        try:
+            return sorted(path for path in directory.iterdir() if path.suffix == ".json")
+        except FileNotFoundError:
+            return []
+
+    @staticmethod
+    def _read_pin_json(path: Path) -> dict:
+        # Files found in a collection must remain readable; a partial read must
+        # never become an empty collection that a later autosave can replace.
+        with path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if not isinstance(payload, dict):
+            raise ValueError(f"Invalid saved Pin: {path.name}")
+        return payload
 
     def _definition_path(self, annotation_id: str) -> Path:
         return self._pins_root / f"{self._safe_file_stem(annotation_id)}.json"

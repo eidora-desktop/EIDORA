@@ -111,30 +111,45 @@ class SlicerPanelController(UiPanelController):
     def set_project(self, project) -> None:
         self._metadata_options.reset()
         self._pending_state = None
-        super().set_project(project)
-        previous_column = str(self._column_combo.currentData() or self._column_combo.currentText() or "")
-        self._column_combo.blockSignals(True)
-        self._column_combo.clear()
-        self._add_field_indicator()
         self._distinct_values_by_column = {}
-        if project is not None:
-            access = self._metadata_access or DiscoveryMetadataAccess(project)
-            self._metadata_access = access
-            try:
-                columns = access.columns()
-            except Exception:
-                columns = []
-            for column in columns:
-                if column.name != "id":
-                    self._column_combo.addItem(
-                        getattr(column, "display_name", None) or column.name,
-                        column.name,
-                    )
-        self._column_combo.setEnabled(project is not None)
-        index = self._column_combo.findData(previous_column) if previous_column else 0
-        self._column_combo.setCurrentIndex(index if index >= 0 else 0)
-        self._column_combo.blockSignals(False)
+        super().set_project(project)
+        self._populate_columns(project)
         self._on_column_changed(self._column_combo.currentIndex())
+
+    def _populate_columns(self, project) -> None:
+        previous_column = self._current_column()
+        with QtCore.QSignalBlocker(self._column_combo):
+            self._column_combo.clear()
+            self._add_field_indicator()
+            if project is not None:
+                access = self._metadata_access or DiscoveryMetadataAccess(project)
+                self._metadata_access = access
+                try:
+                    columns = access.columns()
+                except Exception:
+                    columns = []
+                for column in columns:
+                    if column.name != "id":
+                        self._column_combo.addItem(
+                            getattr(column, "display_name", None) or column.name, column.name,
+                        )
+            self._column_combo.setEnabled(project is not None)
+            index = self._column_combo.findData(previous_column) if previous_column else 0
+            self._column_combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def refresh_metadata_groups(self, metadata_access: DiscoveryMetadataAccess) -> None:
+        """Update group choices without reloading an unchanged physical slice."""
+        state = self.slicer_state_payload()
+        pending = self._values_loading
+        self.set_metadata_access(metadata_access)
+        self._distinct_values_by_column = {
+            name: values for name, values in self._distinct_values_by_column.items()
+            if not name.startswith(("group:", "group-set:"))
+        }
+        self._populate_columns(self._project)
+        column = str(state.get("column") or "")
+        if pending or column.startswith(("group:", "group-set:")) or column != self._current_column():
+            self.apply_slicer_state_payload(state)
 
     def set_metadata_access(
         self,

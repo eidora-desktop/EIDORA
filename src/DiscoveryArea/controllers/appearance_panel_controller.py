@@ -137,6 +137,7 @@ class AppearancePanelController(UiPanelController):
         self._conditional_names = {"point": "Conditional", "border": "Conditional"}
         self._conditional_value_columns: dict[str, str] = {}
         self._property_button_groups: list[QtWidgets.QButtonGroup] = []
+        self._projection_color_counts: dict[str, tuple[str, dict[str, int]]] = {}
         self._distribution_scope = self._DISTRIBUTION_TOTAL
         self._distribution_menu: QtWidgets.QMenu | None = None
         self._wire_dynamic_combo_tooltips()
@@ -176,28 +177,6 @@ class AppearancePanelController(UiPanelController):
         self._set_uniform_swatch("point", "#000000")
         self._set_uniform_swatch("border", "#111111")
         apply_icon_color(self._widget)
-        self._lock_horizontal_content_minimum()
-
-    def _lock_horizontal_content_minimum(self) -> None:
-        """Protect the content minimum without reserving its preferred width."""
-        scroll = require_child(
-            self._widget,
-            QtWidgets.QScrollArea,
-            "scroll_appearance_controls",
-        )
-        stack = require_child(
-            self._widget,
-            QtWidgets.QStackedWidget,
-            "stack_appearance_pages",
-        )
-        self._widget.ensurePolished()
-        # Hidden nested layouts can retain the larger Designer SVG fallback
-        # sizes after semantic icons are applied. Refresh from the inside out
-        # before turning their measured width into a persistent minimum.
-        for layout in reversed(stack.findChildren(QtWidgets.QLayout)):
-            layout.invalidate()
-            layout.activate()
-        scroll.setMinimumWidth(stack.minimumSizeHint().width())
 
     def _wire_dynamic_combo_tooltips(self) -> None:
         for name in self._DYNAMIC_COMBO_NAMES:
@@ -438,6 +417,7 @@ class AppearancePanelController(UiPanelController):
         metadata_access: DiscoveryMetadataAccess | None,
     ) -> None:
         self._metadata_access = metadata_access
+        self._projection_color_counts.clear()
         self._metadata_options.reset()
         for target in ("point", "border"):
             self._queue_conflict_warnings(target)
@@ -1171,8 +1151,14 @@ class AppearancePanelController(UiPanelController):
         column: str,
         visible_counts: dict[str, int],
         visible_total: int,
+        *,
+        total_counts: dict[str, int],
+        total: int,
     ) -> None:
-        self.set_mapped_color_view_counts("point", column, visible_counts, visible_total)
+        self.set_mapped_color_view_counts(
+            "point", column, visible_counts, visible_total,
+            total_counts=total_counts, total=total,
+        )
 
     def set_mapped_color_view_counts(
         self,
@@ -1180,18 +1166,21 @@ class AppearancePanelController(UiPanelController):
         column: str,
         visible_counts: dict[str, int],
         visible_total: int,
+        *,
+        total_counts: dict[str, int],
+        total: int,
     ) -> None:
         combo_name = "combo_point_color_column" if target == "point" else "combo_border_color_column"
         table_name = "table_point_colors" if target == "point" else "table_border_colors"
         if self._current_combo_text(combo_name) != str(column):
             return
-        table = self._widget.findChild(QtWidgets.QTableWidget, table_name)
-        counts = self._metadata_value_counts(str(column), owner=table,
-            ready=lambda: self._metadata_table_ready(target))
-        if counts is None:
-            return
-        total_counts = dict(counts)
-        total = max(1, sum(total_counts.values()))
+        projection_counts = (str(column), dict(total_counts))
+        if self._projection_color_counts.get(target) != projection_counts:
+            self._projection_color_counts[target] = projection_counts
+            if target == "point":
+                self._refresh_point_color_table_from_selection()
+            else:
+                self._refresh_border_color_table_from_selection()
         self._set_table_percentages(
             table_name,
             total_counts,
@@ -1492,7 +1481,7 @@ class AppearancePanelController(UiPanelController):
             table.setProperty("conditional_connected", True)
         distribution_header = table.horizontalHeaderItem(1)
         if distribution_header is not None:
-            distribution_header.setToolTip("Choose whether percentages use the entire dataset or visible filtered items")
+            distribution_header.setToolTip("Choose whether percentages use the selected Discovery projection or its visible filtered items")
         logical_row_count = len(rows)
         # Qt's macOS accessibility adapter can retain cell indexes after a
         # model resize. Never shrink this backing model; spare rows stay
@@ -1813,8 +1802,12 @@ class AppearancePanelController(UiPanelController):
             self._setup_color_table("table_point_colors", [])
             return
         table = self._widget.findChild(QtWidgets.QTableWidget, "table_point_colors")
-        counts = self._metadata_value_counts(column, owner=table,
-            ready=lambda: self._metadata_table_ready("point"))
+        projection_counts = self._projection_color_counts.get("point")
+        if projection_counts is not None and projection_counts[0] == column:
+            counts = sorted(projection_counts[1].items(), key=lambda item: (-item[1], item[0]))
+        else:
+            counts = self._metadata_value_counts(column, owner=table,
+                ready=lambda: self._metadata_table_ready("point"))
         table.setEnabled(counts is not None)
         if counts is None:
             self._setup_color_table("table_point_colors", [])
@@ -1846,8 +1839,12 @@ class AppearancePanelController(UiPanelController):
             self._setup_color_table("table_border_colors", [])
             return
         table = self._widget.findChild(QtWidgets.QTableWidget, "table_border_colors")
-        counts = self._metadata_value_counts(column, owner=table,
-            ready=lambda: self._metadata_table_ready("border"))
+        projection_counts = self._projection_color_counts.get("border")
+        if projection_counts is not None and projection_counts[0] == column:
+            counts = sorted(projection_counts[1].items(), key=lambda item: (-item[1], item[0]))
+        else:
+            counts = self._metadata_value_counts(column, owner=table,
+                ready=lambda: self._metadata_table_ready("border"))
         table.setEnabled(counts is not None)
         if counts is None:
             self._setup_color_table("table_border_colors", [])

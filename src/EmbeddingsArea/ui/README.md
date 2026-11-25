@@ -37,10 +37,12 @@ on the next visit. Unchanged values preserve the tree and expanded sections.
 `model_execution_dialog.ui` configures one run for the model
 selected in the Models panel; it does not provide a second model selector.
 It offers registered file-based Media Sources and a single Run Model action.
-The focused form owns the model heading, stacked source/output/device fields,
-Preview Assets creation option, and footer in Designer. The Designer-owned batch selector and
-model preparation options live in the collapsed Advanced settings & parameters
-panel. Its choices are Auto, High, Low, 4, 8, 16, 32 and 64. The first three tune
+The focused form owns the model heading, horizontal source/output/device rows
+with colon-suffixed labels beside their controls,
+Preview Assets creation option, and footer in Designer. The Designer-owned parameter table uses alternating rows, hidden headers,
+and label/editor columns for Batch performance and model preparation options in
+the collapsed Advanced settings & parameters panel. Controllers populate the
+editors from model descriptors; the preparation summary wraps above the table. Batch choices are Auto, High, Low, 4, 8, 16, 32 and 64. The first three tune
 adaptively; numbers request fixed sizes. Auto is the default. Existing saved
 sizes outside this list remain available when reopening that run.
 The selector tooltip explains speed/headroom tradeoffs and model/resource limits.
@@ -50,8 +52,15 @@ provider, resource limits and limited monitoring; saved safety pauses show their
 reason in the activity log and status tooltip.
 Run Model closes after saving configuration; input preparation and its errors
 appear in the embedding card. Optional Preview Assets creation runs separately in Media.
+`new_clusters_dialog.ui` follows the Preview Assets dialog: a heading and secondary
+description, aligned Method and Output name rows, basic parameters, and an
+Advanced parameters disclosure beside Reset defaults. Advanced parameters and
+the remembered CPU usage selector start collapsed. The scrollable content uses
+22-pixel margins and 18-pixel section spacing; errors and right-aligned Cancel/Run
+actions sit in a separate footer. Controllers initialize conditional visibility
+so all controls remain editable in Designer.
 `model_zoo_dialog.ui` browses the EIDORA Hugging Face collections. Import/export
-and clustering dialogs have dedicated forms.
+dialogs have dedicated forms.
 
 Controllers populate data and connect actions. Preserve bounded combo sizing so
 long model/source names cannot force splitter widths. Keep semantic `iconName`

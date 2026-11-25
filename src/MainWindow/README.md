@@ -6,9 +6,19 @@ and connects project changes between them. Project operations use `ProjectServic
 owns About, and `update_panel_controller.py` binds explicit website update checks
 on macOS/Linux and opens Microsoft Store's updates page on Windows.
 `project_panel_controller.py` binds the shell project name and actions menu, with
-Switch Projects first. Project changes update both the label and action availability;
+Switch Projects first, followed by **Methods & Citations…** for saved analyses.
+The report selector works independently of Figures and includes source analysis
+steps where available. Project changes update both the label and action availability.
 The Media workspace opens with Media Sources and Preview Assets side by side.
 `navigation.py` is Qt-facing navigation data.
+
+`controllers/window_layout_controller.py` restores main-window geometry, maximized
+state and workspace splitter positions from installation-local `session.json`.
+Qt adjusts geometry for the available screens. Register splitters after workspace
+setup, including deferred workspaces, and save on window close or shutdown.
+`application_settings/session_repository.py` owns this storage and separate last
+import/export folders used by `shared.qt.file_dialogs`. Cancelled dialogs retain
+the old folder; missing folders fall back to each dialog's normal suggestion.
 
 Normal startup constructs all workspaces before showing the main window.
 `loading_panel_controller.py` shows the Designer-owned `ui/loading_panel.ui`
@@ -53,6 +63,17 @@ the last snapshot is removed while Figures is open.
 
 The `ui/` forms own the shell, project chooser, and About dialog. Match widget
 contracts when editing them.
+
+The Project Chooser lists valid projects directly inside the configured Project
+path together with recent projects stored elsewhere, without duplicate paths.
+Most recently opened projects come first; projects without opening timestamps
+follow alphabetically. Refreshing the list does not change recent-project history.
+Open Project offers Folder and ZIP options: Folder opens and saves in place;
+ZIP extracts a separate project into the configured project storage. Write-access
+failures when opening a folder or listed project offer Copy to My Projects and
+Open. Copying and ZIP extraction use the existing background loading panel.
+Open Project and More Options open at the mouse click position; keyboard
+activation retains native menu placement. Their indicator sizes live in the form.
 
 The Settings menu offers a workspace tour once all area controllers are loaded,
 including for empty collections. `tour_steps.py` defines its

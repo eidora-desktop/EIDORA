@@ -331,7 +331,7 @@ class SnapshotsPanelController(UiPanelController):
     def _configure_options_menu(self) -> None:
         self._menu = QtWidgets.QMenu(self._options_button)
         self._load_recent_menu = self._menu.addMenu("Load Recent")
-        self._action_cite = self._menu.addAction("Citations…")
+        self._action_cite = self._menu.addAction("Methods && Citations…")
         self._action_cite.triggered.connect(lambda: self._cite_snapshot(self.selected_snapshot_path()))
         self._action_save_current = self._menu.addAction("Save Snapshot…")
         self._action_save_current.triggered.connect(self._open_snapshot_save_dialog)
@@ -413,7 +413,7 @@ class SnapshotsPanelController(UiPanelController):
         if path is None or not label:
             return None
         menu = QtWidgets.QMenu(self._list)
-        menu.addAction("Citations…").triggered.connect(lambda: self._cite_snapshot(path))
+        menu.addAction("Methods && Citations…").triggered.connect(lambda: self._cite_snapshot(path))
         menu.addSeparator()
         action = menu.addAction(f"Delete {label}")
         action.triggered.connect(lambda _checked=False, path=path, label=label: self._delete_snapshot(path, label))

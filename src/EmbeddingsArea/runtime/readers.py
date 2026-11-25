@@ -4,11 +4,64 @@ from pathlib import Path
 from typing import Any
 import json
 import zipfile
+from contextlib import ExitStack
+import shutil
+import tempfile
 
 import numpy as np
 
 from EmbeddingsArea.runtime.artifacts import ArtifactStore
 from EmbeddingsArea.runtime.checkpoints import CheckpointStore
+
+
+def iter_embedding_batches(path: Path, directory: Path, *, batch_size=4096):
+    """Read vectors/ordinals in bounded slices; decompress NPZ to temporary disk.
+
+    Yielded arrays borrow mappings owned by this iterator. Consume each batch
+    before advancing, and close the iterator on early exit.
+    """
+    def batches(values, ids):
+        if values.ndim != 2 or not values.shape[1] or values.dtype.kind not in "fiu":
+            raise ValueError("Embeddings must be a numeric two-dimensional matrix.")
+        if ids is not None and (ids.ndim != 1 or len(ids) != len(values) or ids.dtype.kind not in "iu"):
+            raise ValueError("Embedding object IDs must be integer ordinals matching the vector count.")
+        # Keep source slices near 8 MiB, leaving room for normalization scratch.
+        step = max(1, min(batch_size, (8 * 1024**2) // (values.shape[1] * max(4, values.dtype.itemsize))))
+        for start in range(0, len(values), step):
+            end = min(len(values), start + step)
+            batch_ids = np.arange(start, end, dtype=np.int64) if ids is None else _validated_ids(ids[start:end])
+            yield values[start:end], batch_ids
+
+    path = Path(path)
+    if path.is_file():
+        with ExitStack() as mappings:
+            location = _valid_cache(path)
+            if location is None:
+                location = Path(mappings.enter_context(tempfile.TemporaryDirectory(dir=directory, prefix="source-")))
+                with zipfile.ZipFile(path) as archive:
+                    for name in ("embeddings.npy", "object_ids.npy"):
+                        if name not in archive.namelist():
+                            if name == "embeddings.npy":
+                                raise ValueError("Embeddings file is missing the 'embeddings' array.")
+                            continue
+                        with archive.open(name) as source, (location / name).open("wb") as target:
+                            shutil.copyfileobj(source, target, length=1024 * 1024)
+            values = np.load(location / "embeddings.npy", mmap_mode="r", allow_pickle=False)
+            mappings.callback(values._mmap.close)
+            ids = None
+            if (location / "object_ids.npy").exists():
+                ids = np.load(location / "object_ids.npy", mmap_mode="r", allow_pickle=False)
+                mappings.callback(ids._mmap.close)
+            yield from batches(values, ids)
+    else:
+        store = ArtifactStore(resolve_run_dir(path))
+        count = store.chunk_count()
+        if not count:
+            raise ValueError("No chunk embeddings found.")
+        for index in range(count):
+            with ExitStack() as mappings:
+                ids, values, _ = store._load_committed_chunk(index, mappings=mappings)
+                yield from batches(values, ids)
 
 
 def resolve_run_dir(path: Path) -> Path:

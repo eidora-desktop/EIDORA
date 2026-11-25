@@ -90,6 +90,7 @@ class AnimationTabController(QtCore.QObject):
         work_service=None,
         preview_memory=None,
         cache_budgets=None,
+        defer_render: bool = False,
     ) -> None:
         super().__init__(parent)
         self._project = project
@@ -177,6 +178,7 @@ class AnimationTabController(QtCore.QObject):
             work_service=work_service,
             preview_memory=preview_memory,
             cache_budgets=self._cache_budgets,
+            defer_render=defer_render,
         )
         add_widget_to_container(plot_host, self._plot.widget)
         self._preview_stack.setCurrentWidget(self._plot_preview_page)
@@ -314,9 +316,9 @@ class AnimationTabController(QtCore.QObject):
     def restore_size_overrides(self, payload):
         self._plot.restore_size_overrides(payload)
 
-    def prepare_measurement_edit(self, values, selected_cell=None):
+    def prepare_measurement_edit(self, values):
         self._pause()
-        return self._plot.prepare_measurement_edit(values, selected_cell)
+        return self._plot.prepare_measurement_edit(values)
 
     def apply_measurement_overrides(self, overrides):
         self._plot.apply_measurement_overrides(overrides)

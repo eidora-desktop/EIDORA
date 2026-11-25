@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from shared.qt import file_dialogs
+
 from MetadataArea.controllers.metadata_groups_panel_controller import MetadataGroupsPanelController
 from MetadataArea.controllers.metadata_import_dialog_controller import MetadataImportDialogController
 from MetadataArea.domain import MetadataColumn, MetadataSearchMatch
@@ -68,11 +70,6 @@ class MetadataAreaController:
         splitter.setStretchFactor(1, 0)
         splitter.setCollapsible(0, False)
         splitter.setCollapsible(1, False)
-        groups_host.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Maximum,
-            QtWidgets.QSizePolicy.Policy.Expanding,
-        )
-        groups_host.setMaximumWidth(groups_host.sizeHint().width())
         from MetadataArea.controllers.tables_panel_controller import MetadataTablesPanelController
         self._tables_panel = MetadataTablesPanelController(self)
         self._table_model = MetadataTableModel(self._widget)
@@ -245,7 +242,7 @@ class MetadataAreaController:
     def _on_import_metadata(self) -> None:
         if self._project is None or self._media_publication_active:
             return
-        sources, _ = QtWidgets.QFileDialog.getOpenFileNames(self._widget, "Add metadata files", "", IMPORT_FILE_FILTER)
+        sources, _ = file_dialogs.get_open_file_names(self._widget, "Add metadata files", "", IMPORT_FILE_FILTER)
         if not sources:
             self._show_status("Metadata import cancelled")
             return
@@ -292,7 +289,7 @@ class MetadataAreaController:
     def _on_export_metadata(self) -> None:
         if self._project is None or not self._has_metadata_rows():
             return
-        path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        path, selected_filter = file_dialogs.get_save_file_name(
             self._widget,
             "Export Metadata",
             str(Path.home() / "metadata.csv"),

@@ -18,6 +18,23 @@ Keep metadata IDs canonical and arrays aligned. A snapshot restores its complete
 saved state, including disabled controls; absent state must reset previous values.
 Camera bounds and snapshot crop framing are separate concepts.
 
+Tooltip, Pin and Preview rendering choices are scoped to the active projection's
+Item IDs. A generated set is available if it contains a usable preview for at
+least one of those Items, including previews generated through linked source
+records. Embedding modality does not restrict the choices. Membership checks run
+in a cancellable background task; projection changes discard stale results.
+Tooltip and Pin menus include images, clips and text, while Preview rendering
+retains its image-only contract. Filters and viewport changes do not narrow the
+projection's preview choices.
+
+`settings_repository.py` stores current canvas, filter, slicer, pin display and
+tooltip settings per project. Changes are debounced and flushed on project
+switch/shutdown. Slicer settings retain the selected field, enabled state, range,
+step, position and navigation speed; playback does not restart. Pin styling and
+tooltip settings survive without any pins. Embedded pin display data is a legacy
+fallback only when independent settings are absent. Restore metadata fields before
+validating saved selections, and reset missing settings when switching projects.
+
 Grid and No Overlap transforms are available for every projection method,
 including PCA, MDS, and imported coordinates. Arrangements preserve the original
 projection coordinates and can be reset to the original view.
@@ -46,6 +63,22 @@ settings, even for a hidden layer. Enter on the checkbox and its right-click
 menu also open settings. Clicking outside the popover closes it.
 Escape in the settings window closes it and returns focus to the arrow.
 
+Saved lasso areas appear only in lasso mode. Automatic colors match member points
+and preview colors inherited from points; polygons use a lighter, translucent fill.
+The active area wins overlapping point colors, while filtering opacity is preserved.
+Leaving lasso restores Appearance colors without deleting saved areas or their
+metadata groups. The Save Area dialog displays the number of items to save within
+the polygon. Membership defaults to items included by filters and the slicer;
+Include filtered appears when excluded items exist inside the outline and adds them
+to the count and saved membership when checked. Counts and membership
+stay fixed while naming the area; later slice changes do not add new members.
+Duplicate names within a projection receive `_2`, `_3`, and so on, preserving
+existing areas and their groups.
+Right-click a polygon to rename, export, remove, or save areas as
+groups; right-click empty canvas in lasso mode to save groups. Overlapping polygons
+can be chosen through Select Area in their context menu. Areas have no layer
+settings, per-area visibility switches, or manual palette/opacity controls.
+
 Mapped appearance always exposes saved group fields, including clustering results
 with more categories than the ordinary metadata limit. Point and border mappings
 include every present group value and generate extra palette colors as needed.
@@ -61,13 +94,20 @@ snapshots, pins, marked areas, and explicit projections remain real dependencies
 Discovery resolves asset-only analysis IDs through the project registry and can
 load saved coordinates without metadata rows. Missing metadata has empty values.
 
-Snapshots expose **Citations…** from their context and panel menus.
+Projections and snapshots expose **Methods & Citations…** from their menus and
+the project menu. Brief methods and references appear first, with complete
+parameters and reproducibility details in an expandable section. Transform and
+filter panels have no separate methods action; their settings remain in snapshot reports.
 New snapshot captures freeze a methods report alongside their inline filter,
 slicer, and transform settings. Reports include projection/model provenance and
 clustering records referenced by group-set fields. Legacy snapshots show the
 available settings and explicit provenance gaps. `snapshot_provenance.py` owns
 assembly; `settings_provenance.py` reports applied transforms and filter settings
 without evaluating data or loading coordinates.
+New snapshot reports include a short caption summary of the coordinate method
+and applied display settings. It appears as selectable text beside the brief
+methods and references, with provenance warnings visible in the same report.
+Existing frozen reports keep their saved prose.
 
 Hover tooltips show up to 300 characters per metadata value, with an ellipsis
 for longer values. Text wraps within a maximum 360 px section, including URLs

@@ -4,6 +4,86 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Let the Discovery Appearance panel expand while retaining a compact content-based minimum that keeps controls visible, without changing margins or layout.
+
+- Reduce the Custom fill/border color field and value dropdown minimums while allowing them to expand with the Appearance sidebar.
+
+- Show the point count in the Save Area dialog, with an optional Include filtered checkbox that updates the count and polygon membership.
+
+- Automatically suffix duplicate saved lasso area names with `_2`, `_3`, and so on, preserving existing polygons and group memberships.
+
+- Keep new lasso polygons visible while saving, reuse unchanged metadata caches when publishing groups, and preserve the active slicer without reloading it.
+
+- Allow the Metadata Table and Groups panels to resize freely with their splitter while preserving their natural minimum widths.
+
+- Make saved areas a lasso-only tool with automatic matching polygon/member colors; remove Areas layer settings and move export and group-saving actions into the lasso context menu.
+
+- Support the relocated Retry Save button without the removed failure panel; show it only for failed project saves and expose failure details in its tooltip.
+
+- Keep long project names from widening the main window; shorten only their displayed text with an ellipsis while preserving the full accessible name, tooltip and project-menu behavior.
+
+- Use Tillmann Ohm's forthcoming “EIDORA: The Embedding Space Explorer for Collection Data” paper as the preferred citation, explicitly marked as a planned arXiv submission with its identifier pending.
+
+- Recover missing embedding references from the matching installed model package, checking recorded versions and labeling the source. Abbreviate large settings lists and oversized technical values in methods reports.
+
+- Limit embedding-run reports to model and data provenance without an automatic EIDORA citation, and hide the Export button menu arrow.
+
+- Open Methods & Citations with selectable brief methods, caption summaries and references, keeping complete parameters and technical records expandable. Provide project-menu access to saved analyses, one Copy BibTeX action, and brief, full-report and BibTeX exports. Individual references open and export independently without adding EIDORA; transform and filter settings remain in snapshot reports without separate panel actions.
+
+- Label import and linking table samples with “Preview: shown/total” and show a display-only continuation row when more records exist; standardize projection and combined media-link previews to 25 rows.
+
+- Restore standard alternating rows and content-aware row sizing in processing parameter tables, matching New Projection without custom background overrides or extra row padding.
+
+- Add one non-blocking large-dataset note to the clustering dialog, updating with the selected algorithm and PCA settings while reusing existing dataset metadata.
+
+- Keep processing parameter tables free of row selection and hover highlights; use one checkbox style for aligned outlines, ticks, and click targets in both themes.
+
+- Use the shared parameter-table appearance for Model Run batch and model preparation settings, preserving saved values and conditional controls.
+
+- Keep failed Discovery and Figures autosaves visible and retryable, protect unsaved changes when closing or switching projects, and prevent failed settings or Pin reads from becoming destructive empty saves.
+
+- Reduce MiniBatch K-Means memory use by streaming vector preparation into temporary file-backed input while preserving clustering settings and item alignment.
+
+- Align model execution and clustering dialogs with Preview Assets: horizontal labeled fields, consistent spacing and footers, and collapsible clustering advanced parameters.
+
+- Add a shared stretch plots checkbox to Figures: keep each snapshot's proportions when unchecked, or fit every plot to its available space when checked, including single-plot figures.
+
+- Add globally remembered clustering CPU usage presets (25%, 50%, 75%, or 100%; default 75%) for fitting and optional PCA, with protection against nested numerical thread pools.
+
+- Keep Vector Data run cards collapsed by default; expand a newly starting embedding run and collapse previous cards, leaving the final run open until the user closes it.
+
+- Offer Folder and ZIP options under one Open Project button, and offer a writable local copy when opening a project folder fails because of write permissions. Open Project and More Options menus appear at the click position with larger dropdown indicators.
+
+- Remove the Measurements selector from Figures plot settings; size edits now apply to all plots.
+
+- Silence routine multimedia playback and media-metadata messages in the terminal while retaining warnings and errors.
+
+- Limit Tooltip, Pin and Preview rendering asset choices to sets serving Items in the active projection, including previews generated from linked metadata sources.
+
+- Support the main-window project push button with its dropdown indicator and open its actions menu at the mouse click position.
+
+- Read the selected Tooltip Preview Asset directly from its control and show the settings preview on opening, without requiring an off/on toggle.
+
+- Limit mapped Appearance color categories to items in the selected Discovery projection, excluding unused labels from other vector sets.
+
+- Prevent repeated deleted-window event-filter errors during application shutdown.
+
+- Calculate Appearance’s Entire Distribution percentages from the selected Discovery projection, excluding metadata records outside that projection.
+
+- Avoid deleted-main-window errors when opening dialogs after their application window is destroyed.
+
+- Load size-specific app icons with their display densities during macOS and Linux development launches; preserve the layered icon in packaged macOS apps.
+
+- Remove the redundant Installed label from Embeddings model rows, retaining installation progress and package warnings.
+
+- Show all valid projects in the Project path alongside recent projects stored elsewhere in the Project Chooser, without duplicate paths. Order by most recently opened, with projects lacking opening history at the end.
+
+- Remember separate import/export folders and the main window's geometry, maximized state and workspace splitter positions across relaunches. Restore current Slicer, Pin styling and Tooltip settings per project, including projects without Pins.
+
+- Restore saved Figures as lightweight tabs with loading placeholders, prepare the selected figure independently of renderer startup, and build each figure’s UI only when selected. Preserve unopened figures through edits, rename, deletion, and project changes. Protect legacy animation sources during cleanup and cancel skipped tabs’ queued loads.
+
+- Use the existing simplified app icon through 64 px on Windows and Linux, vertically centered within its teal surface, including Linux 2x variants and Windows Store assets, and through 32 logical px in macOS ICNS at both densities.
+
 - Keep tooltip feedback clear of its settings panel and separate text box width from font size, retaining the preview-size controls for text assets.
 
 - Right-click an Item in Pan or Selection mode to create a Pin using the saved scope or open Show Item. Creating a Pin in Pan mode switches to Selection so the Pin can be moved immediately.

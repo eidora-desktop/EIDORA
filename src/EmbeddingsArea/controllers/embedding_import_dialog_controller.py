@@ -10,6 +10,8 @@ import threading
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from shared.qt import file_dialogs
+
 from EmbeddingsArea.exchange.domain import (
     EmbeddingImportCompanionProbe,
     EmbeddingImportInspection,
@@ -23,6 +25,7 @@ from EmbeddingsArea.exchange.importer import (
     SIDECAR_FILE_FILTER,
 )
 from shared.qt.ui_loader import load_ui
+from shared.qt.table_preview import set_preview_continuation
 from shared.qt.widgets import require_child
 
 
@@ -371,9 +374,6 @@ class EmbeddingImportDialogController(QtCore.QObject):
                 self.linking_label.setText(result.message)
                 self.linking_label.show()
                 self.preview_status.hide()
-                self.preview_count.setText(
-                    f"Showing {len(result.inspection.samples):,} of {result.inspection.row_count:,} vectors"
-                )
                 if not result.can_import:
                     self._show_import_error(result.message)
                     self.options_button.setChecked(True)
@@ -449,7 +449,8 @@ class EmbeddingImportDialogController(QtCore.QObject):
             if plan is not None and plan.match_index_path is not None
             else None
         )
-        for sample in self.inspection.samples:
+        samples = self.inspection.samples[:25]
+        for sample in samples:
             item_id = int(matches[sample.row_index]) if matches is not None else -1
             status = str(item_id) if item_id >= 0 else "New Item"
             vector = json.dumps(list(sample.vector))
@@ -463,6 +464,8 @@ class EmbeddingImportDialogController(QtCore.QObject):
                     QtGui.QStandardItem(status),
                 ]
             )
+        set_preview_continuation(self.preview_model, len(samples), self.inspection.row_count, 1)
+        self.preview_count.setText(f"Preview: {len(samples):,}/{self.inspection.row_count:,} vectors")
         self.preview_table.resizeColumnsToContents()
 
     def _schema_changed(self, *_args) -> None:
@@ -488,7 +491,7 @@ class EmbeddingImportDialogController(QtCore.QObject):
             self._remove_identifier_file()
 
     def _choose_identifier_file(self) -> None:
-        path, _selected = QtWidgets.QFileDialog.getOpenFileName(
+        path, _selected = file_dialogs.get_open_file_name(
             self.dialog,
             "Choose Identifiers or Index",
             str(self.source_path.parent),
@@ -544,7 +547,7 @@ class EmbeddingImportDialogController(QtCore.QObject):
             self._remove_sidecar_file()
 
     def _choose_sidecar_file(self) -> None:
-        path, _selected = QtWidgets.QFileDialog.getOpenFileName(
+        path, _selected = file_dialogs.get_open_file_name(
             self.dialog,
             "Choose Schema Sidecar",
             str(self.source_path.parent),

@@ -279,9 +279,9 @@
            </widget>
           </item>
           <item>
-           <widget class="QToolButton" name="project_label">
+           <widget class="QPushButton" name="project_label">
             <property name="sizePolicy">
-             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+             <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
               <horstretch>0</horstretch>
               <verstretch>0</verstretch>
              </sizepolicy>
@@ -289,30 +289,34 @@
             <property name="minimumSize">
              <size>
               <width>120</width>
-              <height>28</height>
+              <height>0</height>
              </size>
             </property>
             <property name="focusPolicy">
              <enum>Qt::FocusPolicy::StrongFocus</enum>
             </property>
             <property name="styleSheet">
-             <string notr="true">QToolButton#project_label { padding-right: 14px; }
-QToolButton#project_label::menu-indicator { width: 6px; height: 4px; subcontrol-position: right center; right: 5px; }</string>
+             <string notr="true">QPushButton#project_label { padding-right: 22px; }
+QPushButton#project_label::menu-indicator { width: 6px; height: 4px; subcontrol-position: right center; right: 5px; }</string>
             </property>
             <property name="text">
              <string>no project selected</string>
             </property>
-            <property name="popupMode">
-             <enum>QToolButton::ToolButtonPopupMode::InstantPopup</enum>
+            <property name="iconSize">
+             <size>
+              <width>22</width>
+              <height>22</height>
+             </size>
             </property>
-            <property name="toolButtonStyle">
-             <enum>Qt::ToolButtonStyle::ToolButtonIconOnly</enum>
-            </property>
-            <property name="autoRaise">
+            <property name="flat">
              <bool>true</bool>
             </property>
-            <property name="arrowType">
-             <enum>Qt::ArrowType::NoArrow</enum>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="button_retry_project_save">
+            <property name="text">
+             <string>Retry Save</string>
             </property>
            </widget>
           </item>
@@ -362,7 +366,7 @@ QToolButton#project_label::menu-indicator { width: 6px; height: 4px; subcontrol-
        <item>
         <widget class="QPushButton" name="button_settings">
          <property name="sizePolicy">
-          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+          <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
            <horstretch>0</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
@@ -376,7 +380,7 @@ QToolButton#project_label::menu-indicator { width: 6px; height: 4px; subcontrol-
          <property name="maximumSize">
           <size>
            <width>16777215</width>
-           <height>28</height>
+           <height>16777215</height>
           </size>
          </property>
          <property name="toolTip">

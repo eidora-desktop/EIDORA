@@ -8,6 +8,7 @@ from MetadataArea.service import MetadataService
 from MediaArea.media_service import preview_links, suggest_links
 from shared.qt.item_views import clear_list_items
 from shared.qt.ui_loader import load_ui
+from shared.qt.table_preview import set_preview_continuation
 from shared.qt.widgets import require_child
 
 
@@ -281,7 +282,8 @@ class MediaLinkDialogController:
         kind = self.examples.currentData()
         rows = (tuple(row for group in plan.examples.values() for row in group)
                 if kind == "all" else plan.examples.get(kind, ()))
-        self.preview_count.setText(f"Showing {len(rows):,} of {counts[kind]:,} rows (up to 25 per result)")
+        rows = rows[:25]
+        self.preview_count.setText(f"Preview: {len(rows):,}/{counts[kind]:,} rows")
         self.table.setHorizontalHeaderLabels([
             f"{self.source_field.currentText()} ({self._source.label})", "Item ID",
             "Matched item value", "Result",
@@ -297,3 +299,4 @@ class MediaLinkDialogController:
                 item = QtWidgets.QTableWidgetItem(text)
                 item.setToolTip(f"Item {row_id}: {detail}" if row_id is not None else detail)
                 self.table.setItem(index, column, item)
+        set_preview_continuation(self.table, len(rows), counts[kind])

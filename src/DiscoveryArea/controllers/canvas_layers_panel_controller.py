@@ -62,12 +62,10 @@ class CanvasLayersPanelController(UiPanelController):
     _LAYER_SETTINGS = {
         "tooltip": ("checkbox_show_tooltips", "ui/tooltip_settings.ui"),
         "pins": ("checkbox_show_pins", "ui/pins_settings.ui"),
-        "areas": ("checkbox_show_marked_areas", "ui/areas_settings.ui"),
         "previews": ("checkbox_show_thumbnails", "ui/previews_settings.ui"),
     }
 
     def _wire(self) -> None:
-        self._areas_visibility_callback = None
         self._pins_visibility_callback = None
         self._tooltips_visibility_callback = None
         self._layer_settings_view_provider: Callable[[str], QtWidgets.QWidget | None] | None = None
@@ -81,7 +79,6 @@ class CanvasLayersPanelController(UiPanelController):
         self._checkboxes = [
             require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_tooltips"),
             require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_pins"),
-            require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_marked_areas"),
         ]
         for checkbox in self._checkboxes:
             checkbox.toggled.connect(
@@ -89,9 +86,6 @@ class CanvasLayersPanelController(UiPanelController):
                     f"{label} layer {'shown' if checked else 'hidden'}."
                 )
             )
-        require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_marked_areas").toggled.connect(
-            self._on_areas_toggled
-        )
         require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_pins").toggled.connect(
             self._on_pins_toggled
         )
@@ -213,13 +207,6 @@ class CanvasLayersPanelController(UiPanelController):
         if index >= 0:
             with QtCore.QSignalBlocker(self._crop_combo):
                 self._crop_combo.setCurrentIndex(index)
-
-    def _on_areas_toggled(self, checked: bool) -> None:
-        if callable(self._areas_visibility_callback):
-            self._areas_visibility_callback(bool(checked))
-
-    def set_areas_visibility_changed_callback(self, callback) -> None:
-        self._areas_visibility_callback = callback
 
     def _on_pins_toggled(self, checked: bool) -> None:
         if callable(self._pins_visibility_callback):

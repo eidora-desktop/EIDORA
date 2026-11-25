@@ -18,6 +18,7 @@ from MetadataArea.importing import (
     MetadataImportService,
 )
 from shared.qt.ui_loader import load_ui
+from shared.qt.table_preview import set_preview_continuation
 from shared.qt.widgets import require_child
 from MetadataArea.values import display_value
 
@@ -341,11 +342,16 @@ class MetadataImportDialogController(QtCore.QObject):
                     row, column,
                     QtWidgets.QTableWidgetItem(display_value(record.get(mapping.source_name, ""))),
                 )
+        identifier = str(self.source_identifier.currentData() or "")
+        identifier_column = next(
+            (index for index, mapping in enumerate(mappings) if mapping.source_name == identifier), 0
+        )
+        set_preview_continuation(self.data_preview, len(samples), self.inspection.row_count, identifier_column)
         self.data_preview.resizeColumnsToContents()
         for column in range(len(mappings)):
             self.data_preview.setColumnWidth(column, min(260, max(120, self.data_preview.columnWidth(column))))
         self.preview_count.setText(
-            f"Source sample: {len(samples):,} of {self.inspection.row_count:,} rows · "
+            f"Preview: {len(samples):,}/{self.inspection.row_count:,} rows · "
             f"{len(mappings):,} of {len(self.inspection.columns):,} columns selected"
         )
 
@@ -653,7 +659,7 @@ class MetadataImportDialogController(QtCore.QObject):
                 for row, record in enumerate(rows):
                     for column, name in enumerate(columns):
                         self.data_preview.setItem(row, column, QtWidgets.QTableWidgetItem(display_value(record.get(name, ""))))
-                self.preview_count.setText(f"Provisional sample: {len(rows):,} rows · checking all records…")
+                self.preview_count.setText(f"Preview: {len(rows):,}/? rows · checking all records…")
         while True:
             try:
                 value, message = self.events.get_nowait()

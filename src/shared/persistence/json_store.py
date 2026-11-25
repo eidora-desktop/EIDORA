@@ -8,10 +8,11 @@ from shared.persistence.atomic_write import write_text_atomic
 
 
 def read_json(path: Path, default: Any = None) -> Any:
-    if not path.exists():
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
         return default
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
 
 
 def write_json(path: Path, payload: Any) -> None:

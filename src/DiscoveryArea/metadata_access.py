@@ -56,6 +56,37 @@ class DiscoveryMetadataAccess:
         self._group_field_aliases: dict[str, str] = {}
         self._related_field_aliases: dict[str, str] = {}
 
+    def with_updated_groups(self, project: "Project") -> "DiscoveryMetadataAccess":
+        """Refresh virtual group fields without rereading unchanged physical columns.
+
+        Use a new access object so in-flight group reads can only populate the old
+        cache. Immutable physical-column data is safe to share between workers.
+        """
+        updated = DiscoveryMetadataAccess(project)
+        revision = self._check_revision()
+        with self._lock:
+            if (
+                updated._revision != revision
+                or updated._repository.database_path != self._repository.database_path
+            ):
+                return updated
+            def physical(name: str) -> bool:
+                return not name.startswith(("group:", "group-set:"))
+            updated._metadata_ids = self._metadata_ids
+            updated._column_data = OrderedDict(
+                (name, data) for name, data in self._column_data.items() if physical(name)
+            )
+            updated._distinct_values = {
+                name: values for name, values in self._distinct_values.items() if physical(name)
+            }
+            updated._value_counts = {
+                name: counts for name, counts in self._value_counts.items() if physical(name)
+            }
+            updated._summary_sizes = {
+                key: size for key, size in self._summary_sizes.items() if physical(key[0])
+            }
+        return updated
+
     def _check_revision(self):
         revision = self._repository.revision()
         with self._lock:

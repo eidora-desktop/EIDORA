@@ -11,8 +11,8 @@ patterns = ["src/shared/icons/manifest.yaml", "src/shared/icons/material/*.svg"]
 [[groups]]
 name = "application-branding"
 patterns = [
-  "src/shared/branding/eidora_icon_linux.png",
-  "src/shared/branding/eidora_icon_macos.png",
+  "src/shared/branding/linux/*.png",
+  "src/shared/branding/macos/*.png",
   "src/shared/branding/eidora_icon_windows.ico",
   "src/shared/branding/eidora_logo_ui.png",
   "src/shared/branding/eidora_wordmark.svg",

@@ -1,8 +1,15 @@
 cff-version: 1.2.0
-message: "EIDORA is a free software application for research. Please cite if you use it."
+message: "Please cite the EIDORA paper in preferred-citation. It is currently a placeholder for a planned arXiv submission; update the citation when the preprint is available."
 title: "EIDORA Desktop"
 type: software
 authors:
   - name: "EIDORA"
 url: "https://eidora.org"
 license: MIT
+preferred-citation:
+  type: unpublished
+  title: "EIDORA: The Embedding Space Explorer for Collection Data"
+  authors:
+    - family-names: "Ohm"
+      given-names: "Tillmann"
+  notes: "Manuscript in preparation; planned arXiv submission. arXiv identifier pending."

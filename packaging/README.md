@@ -8,8 +8,19 @@ Actions dropdown options, installed-package testing, and submission.
 
 `icons/` contains the approved, size-specific platform exports from the EIDORA
 design workspace. `automation/generate_app_icons.py` stages those exact files;
-it must not resample a single master because the 24 px-and-smaller artwork uses
-the dedicated simplified mark.
+it must not resample a single master because small sizes use the dedicated
+simplified mark. Windows ICO and Store assets use it through 64 physical px;
+Linux uses it through 64 logical px at both 1x and 2x density. macOS ICNS uses
+it through 32 logical px at both densities. The macOS Tahoe layered catalog
+is separate from these size-specific exports.
+The Windows simplified vector is `icons/windows/eidora_icon-small.svg`; Linux
+and Store artwork use `icons/linux/hicolor/scalable/apps/eidora_icon-small.svg`.
+Both center the simplified mark vertically within the teal surface, retaining
+its existing horizontal optical alignment.
+After changing packaging icons, run `python automation/sync_runtime_icons.py`
+to refresh `src/shared/branding`. Runtime PNG filenames preserve logical size
+and `@2x` density so development launches select the same small/large artwork.
+Windows retains its multi-size ICO. Frozen macOS apps retain the native catalog.
 See [build automation](../automation/README.md) for the build sequence.
 
 macOS additionally ships `icons/macos/Assets.car`, compiled from the editable

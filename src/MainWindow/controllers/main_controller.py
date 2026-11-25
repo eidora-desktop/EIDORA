@@ -6,10 +6,14 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtWidgets
 
+from shared.qt import file_dialogs
+
 from MainWindow.controllers.help_panel_controller import HelpPanelController
 from MainWindow.controllers.project_panel_controller import ProjectPanelController
+from MainWindow.controllers.project_save_panel_controller import ProjectSavePanelController
 from MainWindow.controllers.project_chooser_controller import ProjectChooserController
 from MainWindow.controllers.workspace_tour_controller import WorkspaceTourController
+from MainWindow.controllers.window_layout_controller import WindowLayoutController
 from MainWindow.navigation import NavigationItem
 from MainWindow.tour_repository import TourPreferences
 from project.service import ProjectService
@@ -36,6 +40,7 @@ class MainWindowController:
         tour_preferences: TourPreferences | None = None,
     ) -> None:
         self.window = load_ui("MainWindow", "ui/main_window.ui")
+        self._window_layout = WindowLayoutController(self.window)
         self._base_window_title = self.window.windowTitle() or "EIDORA"
         self._project = project
         self._project_service = project_service or ProjectService()
@@ -46,6 +51,7 @@ class MainWindowController:
         self._status_bar = self._find_required(QtWidgets.QStatusBar, "status_bar")
         self._activity = ActivityManager(self._status_bar)
         self._areas: list[object] = []
+        self._project_saves = ProjectSavePanelController(self.window)
         self._pending_media_refresh = {}
         self._media_jobs_busy = False
         self._discovery_has_items = False
@@ -73,6 +79,7 @@ class MainWindowController:
         self._project_panel = ProjectPanelController(
             self.window, switch=self.show_project_chooser, rename=self._rename_project,
             export=self._export_project, delete=self._delete_project,
+            methods=self._show_project_methods,
         )
         if prepare_workspaces:
             for _ in self.initialize_workspaces():
@@ -110,7 +117,8 @@ class MainWindowController:
         quit_on_last_window_closed = app.quitOnLastWindowClosed()
         app.setQuitOnLastWindowClosed(False)
         try:
-            self.window.close()
+            if not self.window.close():
+                return False
             chooser = self._create_project_chooser()
             try:
                 accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
@@ -124,6 +132,7 @@ class MainWindowController:
             return True
         finally:
             self._chooser_open = False
+            self._project_saves.cancel_leave()
             try:
                 if self._project is not None:
                     self.show()
@@ -161,8 +170,11 @@ class MainWindowController:
         """Detach all project consumers before storage moves; drain saves in the worker."""
         from FiguresArea.controllers import FiguresAreaController
 
-        self.window.close()
-        self.set_project(None)
+        if not self.window.close():
+            raise ValueError("Project storage changes cancelled; the project remains open.")
+        if not self.set_project(None):
+            self.show()
+            raise ValueError("Project storage changes cancelled; the project remains open.")
         self._welcome_tour_timer.stop()
         self._deferred_load_timer.stop()
         waits = [area.storage_completion_waiter() for area in self._areas
@@ -210,11 +222,15 @@ class MainWindowController:
             ),
         )
 
-    def set_project(self, project: Project | None) -> None:
+    def set_project(self, project: Project | None) -> bool:
+        if self._project is not None and not self._project_saves.confirm_leave():
+            return False
         for _ in self._set_project_steps(project):
             pass
+        return True
 
     def _set_project_steps(self, project: Project | None) -> Iterator[None]:
+        self._project_saves.discard_if_confirmed()
         self._welcome_tour_timer.stop()
         self._tour_controller.close()
         self._is_example_collection = ProjectService.is_example_collection(project)
@@ -231,6 +247,7 @@ class MainWindowController:
             self._set_project_navigation_enabled(project is not None)
             for area in self._areas:
                 area.set_project(project)
+                self._window_layout.register_area(area.widget)
                 yield
             self._refresh_discovery_availability()
             self._refresh_figures_availability()
@@ -270,6 +287,9 @@ class MainWindowController:
         if self._shutdown:
             return
         self._shutdown = True
+        self._project_saves.discard_if_confirmed()
+        self._project_saves.shutdown()
+        self._window_layout.save()
         self._deferred_load_timer.stop()
         self._welcome_tour_timer.stop()
         self._tour_controller.shutdown()
@@ -306,6 +326,7 @@ class MainWindowController:
                 activity_manager=self._activity,
             )
             self._areas.append(controller)
+            self._project_saves.register_area(controller)
             self._stack.addWidget(controller.widget)
             self._button_group.addButton(button, index)
             self._navigation_items.append(NavigationItem(title, button, controller.widget))
@@ -371,7 +392,9 @@ class MainWindowController:
         )
         placeholder.deleteLater()
         self._areas.append(controller)
+        self._project_saves.register_area(controller)
         controller.set_project(self._project)
+        self._window_layout.register_area(controller.widget)
         metadata_callback = getattr(controller, "set_metadata_changed_callback", None)
         if callable(metadata_callback):
             metadata_callback(self._refresh_discovery_availability)
@@ -592,8 +615,15 @@ class MainWindowController:
         )
         if discovery is None or figures is None:
             return
-        width = max(discovery.width(), discovery.minimumSizeHint().width())
-        figures.widget(1).setMinimumWidth(discovery.minimumSizeHint().width())
+        if self._window_layout.has_saved_splitter(figures):
+            return
+        sidebar = figures.widget(1)
+        minimum_width = max(
+            discovery.minimumSizeHint().width(),
+            sidebar.minimumWidth(), sidebar.minimumSizeHint().width(),
+        )
+        width = max(discovery.width(), minimum_width)
+        sidebar.setMinimumWidth(minimum_width)
         available = sum(figures.sizes())
         figures.setStretchFactor(0, 1)
         figures.setStretchFactor(1, 0)
@@ -655,9 +685,21 @@ class MainWindowController:
         if not self._discovery_has_items and self._stack.currentIndex() == 3 and not self._tour_controller.is_active:
             self._show_area(0)
 
+    def _show_project_methods(self, project: Project) -> None:
+        from project.methods_service import ProjectMethodsService
+        from shared.qt.methods_citations_dialog import MethodsCitationsDialogController
+
+        service = ProjectMethodsService(project)
+        try:
+            sources = service.sources()
+        except Exception as exc:  # Keep an unavailable saved store visible as a reporting error.
+            self._show_status(f"Methods reports unavailable: {exc}")
+            return
+        MethodsCitationsDialogController().exec(sources=sources, load_report=service.load)
+
     def _export_project(self, project: Project) -> None:
         default_path = str(Path.home() / f"{project.name}.zip")
-        bundle_path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        bundle_path, _selected_filter = file_dialogs.get_save_file_name(
             self.window,
             "Export Project Bundle",
             default_path,
@@ -685,7 +727,8 @@ class MainWindowController:
             return False
         is_active = self._project is not None and self._same_project_root(self._project.root, project.root)
         if is_active:
-            self.set_project(None)
+            if not self.set_project(None):
+                return False
         try:
             deleted_project = self._project_service.delete_project(project)
         except Exception as exc:
@@ -710,9 +753,12 @@ class MainWindowController:
         if not accepted:
             self._show_status("Rename project cancelled")
             return
+        if self._project is not None and not self._project_saves.confirm_leave():
+            return
         try:
             renamed_project = self._project_service.rename_project(project, project_name)
         except Exception as exc:
+            self._project_saves.cancel_leave()
             show_error(self.window, "Rename Project Failed", str(exc))
             self._show_status("Rename project failed")
             return
@@ -722,6 +768,8 @@ class MainWindowController:
 
     def _prepare_project_switch(self, project: Project) -> Iterator[None]:
         """Keep the chooser's loader visible through workspace binding and show."""
+        if not self._project_saves.confirm_leave():
+            raise ValueError("Project switch cancelled; unsaved changes remain in the open project.")
         previous_project = self._project
         previous_area = self._stack.currentIndex()
         try:

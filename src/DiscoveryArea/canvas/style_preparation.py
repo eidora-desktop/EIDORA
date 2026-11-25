@@ -93,12 +93,7 @@ def build_canvas_style(
 
     opacity = float(np.clip(float(request.point_style.get("opacity", 1.0)), 0.0, 1.0))
     colors = _mapped_colors(count, request.color_style, text_values, numeric_values, opacity, "#1f1f1f")
-    for overlay in request.area_overlays:
-        member_ids = np.asarray(overlay.metadata_ids, dtype=np.int64).reshape(-1)
-        if member_ids.size == 0:
-            continue
-        mask = np.isin(metadata_ids, member_ids, assume_unique=False)
-        colors[mask, :3] = _hex_to_rgb01(overlay.color_hex)
+    colors = apply_area_colors(metadata_ids, colors, request.area_overlays)
     checkpoint()
 
     border_width = max(0.0, float(request.border_style.get("width", 0.0)))
@@ -419,3 +414,19 @@ def _hex_to_rgb01(value: str) -> np.ndarray:
         return np.asarray([int(text[index : index + 2], 16) / 255.0 for index in (0, 2, 4)], dtype=np.float32)
     except ValueError:
         return np.asarray([0.12, 0.12, 0.12], dtype=np.float32)
+
+
+def apply_area_colors(
+    metadata_ids: np.ndarray,
+    colors: np.ndarray,
+    overlays: tuple[AreaColorOverlay, ...],
+) -> np.ndarray:
+    """Use the same lasso member RGB for points and previews, preserving alpha."""
+    if not overlays:
+        return colors
+    output = np.asarray(colors, dtype=np.float32).copy()
+    for overlay in overlays:
+        if overlay.metadata_ids.size:
+            mask = np.isin(metadata_ids, overlay.metadata_ids, assume_unique=False)
+            output[mask, :3] = _hex_to_rgb01(overlay.color_hex)
+    return output

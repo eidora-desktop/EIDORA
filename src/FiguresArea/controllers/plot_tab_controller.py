@@ -446,8 +446,8 @@ class PlotTabController(QtCore.QObject):
         restore_size_overrides(self._composition, payload)
         self._redraw_figure()
 
-    def prepare_measurement_edit(self, values, selected_cell=None):
-        return self._work_service.prepare_measurements(self._composition, values, selected_cell)
+    def prepare_measurement_edit(self, values):
+        return self._work_service.prepare_measurements(self._composition, values)
 
     def apply_measurement_overrides(self, overrides):
         for key, values in overrides.items():

@@ -6,6 +6,8 @@ from functools import partial
 from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
+from shared.qt import file_dialogs
+
 from EmbeddingsArea.controllers.clustering_dialog_controller import ClusteringDialogController
 from EmbeddingsArea.controllers.vector_data_card_controller import VectorDataCardController
 from EmbeddingsArea.domain import EmbeddingRunState
@@ -38,6 +40,7 @@ class VectorDataPanelController(UiPanelController):
         self._groups_changed = self._show_groups = self._metadata_changed = None
         self._run_again_callback = None
         self._cards, self._items, self._dialogs = {}, {}, set()
+        self._running_embedding_ids = set()
         super().__init__(*args, **kwargs)
 
     def _wire(self):
@@ -107,6 +110,7 @@ class VectorDataPanelController(UiPanelController):
         current = {run.id for run in runs}
         for identity in tuple(self._cards):
             if identity not in current: self._remove_card(identity)
+        running_ids = set()
         for position, run in enumerate(runs):
             card = self._cards.get(run.id) or self._create_card(run.id)
             self._items[run.id].order = position
@@ -114,7 +118,19 @@ class VectorDataPanelController(UiPanelController):
             dataset = datasets.get(run.id)
             records, model_label = details[run.id]
             card.update(run, dataset, records, model_label, self._info_loader(run, dataset, model_label))
+            live = self._coordinator.state("embedding", run.id)
+            if live is not None and live.state == "running":
+                running_ids.add(run.id)
             self._resize_card(run.id)
+        # Follow starts, not refreshes or queue admission, so user toggles persist.
+        started_ids = running_ids - self._running_embedding_ids
+        for run in runs:
+            if run.id in started_ids:
+                for identity, card in self._cards.items():
+                    if identity == run.id:
+                        card.tabs.setCurrentWidget(card.progress_tab)
+                    card.toggle.setChecked(identity == run.id)
+        self._running_embedding_ids = running_ids
         self._tree.sortItems(0, QtCore.Qt.SortOrder.AscendingOrder)
         self._tree.verticalScrollBar().setValue(scroll_value)
 
@@ -139,13 +155,16 @@ class VectorDataPanelController(UiPanelController):
 
     def open_clustering(self, run_id=None, result_id=None, duplicate=False):
         if self._session is None: return
+        card = self._cards.get(run_id)
+        dataset = card.dataset if card is not None else None
         if run_id is None:
             datasets = self._session.datasets.list_datasets()
             if not datasets: self._show_status("Create or import vector data before running clustering."); return
             labels = [value.name for value in datasets]
             label, accepted = QtWidgets.QInputDialog.getItem(self._widget, "Add Clustering", "Vector data", labels, 0, False)
             if not accepted: return
-            run_id = datasets[labels.index(label)].run_id
+            dataset = datasets[labels.index(label)]
+            run_id = dataset.run_id
         created = result_id is None or duplicate
         try:
             if result_id is None: record = self._session.clusters.create_draft(run_id)
@@ -154,7 +173,7 @@ class VectorDataPanelController(UiPanelController):
                 record = self._session.clusters.create_draft(run_id, source=source) if duplicate else source
         except Exception as exc:  # noqa: BLE001
             self._show_status(str(exc)); return
-        controller = ClusteringDialogController(self._coordinator, record)
+        controller = ClusteringDialogController(self._coordinator, record, dataset=dataset)
         try:
             accepted = controller.widget.exec() == QtWidgets.QDialog.DialogCode.Accepted
         finally:
@@ -227,7 +246,7 @@ class VectorDataPanelController(UiPanelController):
                 again.setToolTip("Run Again is available only for successful model runs.")
         if dataset: menu.addSeparator()
         rename = menu.addAction("Rename…"); export = menu.addAction("Export Data…") if dataset else None
-        cite = menu.addAction("Citations…") if dataset else None
+        cite = menu.addAction("Methods && Citations…") if dataset else None
         menu.addSeparator()
         if dataset:
             remove_label = "Remove…"
@@ -260,7 +279,7 @@ class VectorDataPanelController(UiPanelController):
         show = menu.addAction("Show Groups") if state == "completed" else None
         retry = menu.addAction("Run Again…" if state == "completed" else "Retry…") if not active and state != "draft" else None
         configure = menu.addAction("Configure…") if not active and state == "draft" else None
-        cite = menu.addAction("Citations…") if state == "completed" else None
+        cite = menu.addAction("Methods && Citations…") if state == "completed" else None
         rename = menu.addAction("Rename…"); menu.addSeparator()
         remove_label = "Dismiss" if state in {"failed", "aborted", "interrupted"} else "Remove"
         if record.get("group_set_id"):
@@ -282,15 +301,11 @@ class VectorDataPanelController(UiPanelController):
         elif selected == remove_groups: self._remove_cluster(record, True)
 
     def _cite_run(self, run_id, cluster=None):
-        from EmbeddingsArea.provenance import embedding_report, clustering_report
-        from shared.methods_report import combine_reports
+        from project.methods_service import ProjectMethodsService
         from shared.qt.methods_citations_dialog import MethodsCitationsDialogController
         try:
-            run = self._session.runs.require_run(run_id)
-            reports = [embedding_report(run.label, self._session.datasets.get_dataset_summary(run_id))]
-            if cluster is not None:
-                reports.append(clustering_report(cluster))
-            report = combine_reports(str(cluster["label"]) if cluster else run.label, reports)
+            key = f"clustering:{cluster['id']}" if cluster is not None else f"embedding:{run_id}"
+            report = ProjectMethodsService(self._project).load(key)
         except (OSError, ValueError) as exc:
             self._show_status(f"Methods report unavailable: {exc}")
             return
@@ -386,7 +401,7 @@ class VectorDataPanelController(UiPanelController):
         if self._session is None: return
         from EmbeddingsArea.controllers.embedding_import_dialog_controller import EmbeddingImportDialogController
         from EmbeddingsArea.exchange.importer import IMPORT_FILE_FILTER
-        sources, _selected = QtWidgets.QFileDialog.getOpenFileNames(self._widget, "Import Embeddings", "", IMPORT_FILE_FILTER)
+        sources, _selected = file_dialogs.get_open_file_names(self._widget, "Import Embeddings", "", IMPORT_FILE_FILTER)
         if not sources:
             return
         groups = [sources]
@@ -457,4 +472,5 @@ class VectorDataPanelController(UiPanelController):
 
     def _clear_cards(self):
         for identity in tuple(self._cards): self._remove_card(identity)
+        self._running_embedding_ids.clear()
         self._remove_empty()

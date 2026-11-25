@@ -678,6 +678,39 @@ class ThumbnailVariantRepository:
             ).fetchone()
         return int(row[0] or 0) if row is not None else 0
 
+    def list_variants_for_items(self, metadata_ids, *, should_cancel=lambda: False) -> list[ThumbnailVariant]:
+        """List sets with a published preview for at least one requested Item.
+
+        Preview generation resolves source-record links to canonical Item IDs.
+        Match those IDs, independently of the projection's embedding modality.
+        """
+        if len(metadata_ids) == 0:
+            return []
+        variants = self.list_variants()
+        available = []
+        with closing(sqlite3.connect(self._db_path)) as connection:
+            for variant in variants:
+                if variant.preview_kind == "text_excerpt":
+                    table, status = "preview_texts", ""
+                elif variant.preview_kind in {"audio_clip", "video_clip", "animated_gif"}:
+                    table, status = "preview_clips", ""
+                else:
+                    table, status = "thumbnail_variant_items", " AND status = 'ok'"
+                for offset in range(0, len(metadata_ids), 900):
+                    if should_cancel():
+                        return []
+                    chunk = [int(value) for value in metadata_ids[offset:offset + 900]]
+                    placeholders = ",".join("?" for _ in chunk)
+                    found = connection.execute(
+                        f"SELECT 1 FROM {table} WHERE variant_id = ? "
+                        f"AND metadata_id IN ({placeholders}){status} LIMIT 1",
+                        [variant.variant_id, *chunk],
+                    ).fetchone()
+                    if found is not None:
+                        available.append(variant)
+                        break
+        return available
+
     def resolve_items_for_ids(
         self,
         variant_id: str,

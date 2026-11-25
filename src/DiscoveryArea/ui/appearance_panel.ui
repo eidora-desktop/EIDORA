@@ -6,12 +6,12 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>311</width>
-    <height>594</height>
+    <width>350</width>
+    <height>347</height>
    </rect>
   </property>
   <property name="sizePolicy">
-   <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+   <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
     <horstretch>0</horstretch>
     <verstretch>1</verstretch>
    </sizepolicy>
@@ -202,6 +202,9 @@
      <property name="horizontalScrollBarPolicy">
       <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
      </property>
+     <property name="sizeAdjustPolicy">
+      <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
+     </property>
      <property name="widgetResizable">
       <bool>true</bool>
      </property>
@@ -210,8 +213,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>305</width>
-        <height>499</height>
+        <width>344</width>
+        <height>253</height>
        </rect>
       </property>
       <property name="sizePolicy">
@@ -245,7 +248,7 @@
           <number>1</number>
          </property>
          <property name="currentIndex">
-          <number>0</number>
+          <number>1</number>
          </property>
          <widget class="QWidget" name="page_appearance_points">
           <property name="surfaceRole" stdset="0">
@@ -700,7 +703,7 @@
                      <number>0</number>
                     </property>
                     <property name="rightMargin">
-                     <number>6</number>
+                     <number>0</number>
                     </property>
                     <property name="bottomMargin">
                      <number>0</number>
@@ -1257,7 +1260,7 @@
                     <property name="minimumSize">
                      <size>
                       <width>0</width>
-                      <height>148</height>
+                      <height>0</height>
                      </size>
                     </property>
                     <property name="toolTip">
@@ -1334,7 +1337,7 @@
                         <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
                        </property>
                        <property name="minimumContentsLength">
-                        <number>6</number>
+                        <number>4</number>
                        </property>
                       </widget>
                      </item>
@@ -1350,7 +1353,7 @@
                         <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
                        </property>
                        <property name="minimumContentsLength">
-                        <number>6</number>
+                        <number>4</number>
                        </property>
                       </widget>
                      </item>
@@ -2423,7 +2426,7 @@
                     <property name="minimumSize">
                      <size>
                       <width>0</width>
-                      <height>148</height>
+                      <height>0</height>
                      </size>
                     </property>
                     <property name="toolTip">
@@ -2487,7 +2490,7 @@
                        <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
                       </property>
                       <property name="minimumContentsLength">
-                       <number>6</number>
+                       <number>4</number>
                       </property>
                      </widget>
                     </item>
@@ -2503,7 +2506,7 @@
                        <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
                       </property>
                       <property name="minimumContentsLength">
-                       <number>6</number>
+                       <number>4</number>
                       </property>
                      </widget>
                     </item>

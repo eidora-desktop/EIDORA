@@ -58,7 +58,7 @@ def check_starter_view(controller, project):
             spans.append(np.isclose(camera[hi] - camera[lo], saved_camera[hi] - saved_camera[lo]))
         if not any(spans):
             raise RuntimeError('Starter camera scale did not restore.')
-        for key in ('thumbnail_variant_id','thumbnail_size_px','pins_visible','areas_visible','tooltips_visible'):
+        for key in ('thumbnail_variant_id','thumbnail_size_px','pins_visible','tooltips_visible'):
             if key in snapshot.layer_state and actual.layer_state.get(key) != snapshot.layer_state[key]:
                 raise RuntimeError(f'Starter layer setting did not restore: {key}')
         restored.append(snapshot.name)

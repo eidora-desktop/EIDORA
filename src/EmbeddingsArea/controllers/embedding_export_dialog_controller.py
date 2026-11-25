@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from shared.qt import file_dialogs
+
 from EmbeddingsArea.exchange import formats
 from EmbeddingsArea.exchange.formats import (
     COMMON_EXPORT_FORMATS,
@@ -302,7 +304,7 @@ class EmbeddingExportDialogController:
             return
         suffix = self._format_suffix()
         label = FORMATS[suffix]
-        path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        path, _selected_filter = file_dialogs.get_save_file_name(
             self.dialog,
             "Export Embeddings",
             str(Path.home() / f"embeddings{suffix}"),

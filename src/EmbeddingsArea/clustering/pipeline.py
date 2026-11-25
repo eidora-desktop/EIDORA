@@ -5,8 +5,10 @@ import json
 from pathlib import Path
 import time
 import warnings
+from contextlib import ExitStack
 import numpy as np
 from EmbeddingsArea.clustering.base import normalize_parameters
+from EmbeddingsArea.clustering.cpu import clustering_cpu_budget
 from EmbeddingsArea.clustering.parameters import PREPROCESSING
 from EmbeddingsArea.clustering.registry import ClusteringRegistry
 
@@ -36,7 +38,7 @@ def source_snapshot(project, run_id):
     return path, mapping, signature
 
 
-def prepare(matrix, object_ids, mapping, preprocessing, metric):
+def _filter_rows(matrix, object_ids, mapping):
     values = np.asarray(matrix, dtype=np.float32)
     ids = np.asarray(object_ids)
     if values.ndim != 2 or not values.shape[1]:
@@ -51,9 +53,10 @@ def prepare(matrix, object_ids, mapping, preprocessing, metric):
     values, canonical = values[keep], canonical[keep]
     if len(np.unique(canonical)) != len(canonical):
         raise ValueError("Duplicate canonical metadata IDs in embedding inputs.")
-    if not len(values):
-        raise ValueError("No embeddings matched prepared metadata rows.")
-    p = normalize_parameters(PREPROCESSING, preprocessing)
+    return values, canonical, reasons
+
+
+def _normalize_rows(values, canonical, reasons, p, metric):
     if p["normalize"] or metric == "cosine":
         norms = np.linalg.norm(values.astype(np.float64), axis=1)
         keep = norms > 0
@@ -61,14 +64,19 @@ def prepare(matrix, object_ids, mapping, preprocessing, metric):
         values, canonical, norms = values[keep], canonical[keep], norms[keep]
         if p["normalize"]:
             values = (values / norms[:, None]).astype(np.float32)
-    if len(values) < 2:
-        raise ValueError("At least two eligible embeddings are required for clustering.")
+    return values, canonical
+
+
+def _apply_pca(values, canonical, reasons, p, metric, cpu_budget):
     if p["pca"]:
         from sklearn.decomposition import PCA
+        from threadpoolctl import threadpool_limits
         if p["components"] > min(values.shape):
             raise ValueError(f"PCA components cannot exceed {min(values.shape)} for these eligible embeddings.")
         estimator = PCA(n_components=p["components"], whiten=p["whiten"], random_state=p["seed"], svd_solver="auto")
-        values = estimator.fit_transform(values)
+        budget = clustering_cpu_budget() if cpu_budget is None else cpu_budget
+        with threadpool_limits(limits={"blas": budget, "openmp": 1}):
+            values = estimator.fit_transform(values)
         p["resolved_solver"] = estimator._fit_svd_solver
         if not np.isfinite(values).all():
             raise ValueError("PCA produced non-finite values; disable whitening or reduce components.")
@@ -76,6 +84,18 @@ def prepare(matrix, object_ids, mapping, preprocessing, metric):
             keep = np.linalg.norm(values, axis=1) > 0
             reasons["zero_vectors"] += int((~keep).sum())
             values, canonical = values[keep], canonical[keep]
+    return values, canonical
+
+
+def prepare(matrix, object_ids, mapping, preprocessing, metric, *, cpu_budget=None):
+    values, canonical, reasons = _filter_rows(matrix, object_ids, mapping)
+    if not len(values):
+        raise ValueError("No embeddings matched prepared metadata rows.")
+    p = normalize_parameters(PREPROCESSING, preprocessing)
+    values, canonical = _normalize_rows(values, canonical, reasons, p, metric)
+    if len(values) < 2:
+        raise ValueError("At least two eligible embeddings are required for clustering.")
+    values, canonical = _apply_pca(values, canonical, reasons, p, metric, cpu_budget)
     return values, canonical, reasons, p
 
 
@@ -93,20 +113,28 @@ def validate_output(labels, ids, strengths=None):
 
 def compute(project, record, directory, status=lambda value: None):
     from EmbeddingsArea.runtime.readers import load_embedding_matrix_with_ids
-    from threadpoolctl import threadpool_limits
     import sklearn
     started = time.monotonic()
     status("Loading embeddings")
     path, mapping, signature = source_snapshot(project, record["run_id"])
-    matrix, ids, _ = load_embedding_matrix_with_ids(path)
     method = ClusteringRegistry().require_method(record["method_id"])
     parameters = record["method_settings"].get(method.id, {})
+    cpu_budget = record.get("cpu_budget", clustering_cpu_budget())
     status("Preparing embeddings")
-    with warnings.catch_warnings(record=True) as captured, threadpool_limits(limits=1):
+    with warnings.catch_warnings(record=True) as captured, ExitStack() as inputs:
         warnings.simplefilter("always")
-        values, metadata_ids, reasons, preprocessing = prepare(matrix, ids, mapping, record["preprocessing"], parameters.get("metric", "euclidean"))
+        if method.id == "minibatch_kmeans":
+            from EmbeddingsArea.clustering.streaming import prepared_minibatch_input
+            values, metadata_ids, reasons, preprocessing, item_count = inputs.enter_context(
+                prepared_minibatch_input(path, directory, mapping, record["preprocessing"], cpu_budget=cpu_budget)
+            )
+        else:
+            matrix, ids, _ = load_embedding_matrix_with_ids(path)
+            item_count = len(matrix)
+            values, metadata_ids, reasons, preprocessing = prepare(matrix, ids, mapping, record["preprocessing"], parameters.get("metric", "euclidean"), cpu_budget=cpu_budget)
+        eligible_count = len(values)
         status("Fitting " + method.name)
-        output = method.fit(values, parameters)
+        output = method.fit(values, parameters, cpu_budget=cpu_budget)
     status("Finalizing results")
     validate_output(output.labels, metadata_ids, output.strengths)
     if source_snapshot(project, record["run_id"])[2] != signature:
@@ -116,10 +144,10 @@ def compute(project, record, directory, status=lambda value: None):
     np.save(directory / "metadata_ids.npy", metadata_ids)
     if output.strengths is not None:
         np.save(directory / "strengths.npy", output.strengths)
-    return dict(method_name=method.name, parameters=method.validate(parameters, len(values)),
+    return dict(method_name=method.name, parameters=method.validate(parameters, eligible_count),
                 preprocessing=preprocessing, source_signature=signature, source_artifact=str(path),
                 backend="scikit-learn", backend_version=sklearn.__version__, algorithm_version=1,
-                item_count=len(matrix), matched_item_count=len(metadata_ids),
+                item_count=item_count, matched_item_count=len(metadata_ids),
                 assigned_item_count=int((output.labels >= 0).sum()), noise_count=int((output.labels == -1).sum()),
                 cluster_count=len(np.unique(output.labels[output.labels >= 0])),
                 skipped_item_count=sum(reasons.values()), skipped_reasons=reasons,

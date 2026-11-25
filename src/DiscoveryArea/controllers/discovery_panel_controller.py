@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
+
+from shared.qt import file_dialogs
 import numpy as np
 
 from DiscoveryArea.domain import DiscoveryOption
@@ -19,6 +21,7 @@ from DiscoveryArea.provenance import MethodsReport, PROVENANCE_SCHEMA_VERSION
 from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, clear_list_items, configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
+from shared.qt.table_preview import set_preview_continuation
 from shared.qt.widgets import require_child
 
 RUN_ID_ROLE = QtCore.Qt.ItemDataRole.UserRole + 1
@@ -111,7 +114,7 @@ class DiscoveryPanelController(UiPanelController):
         menu.addSeparator()
         self._action_export = menu.addAction("Export Data…")
         self._action_export.triggered.connect(self._export_current_discovery)
-        self._action_methods = menu.addAction("Citations…")
+        self._action_methods = menu.addAction("Methods && Citations…")
         self._action_methods.triggered.connect(self._show_methods_and_citations)
         self._action_rename = menu.addAction("Rename…")
         self._action_rename.triggered.connect(self._rename_current_discovery)
@@ -339,7 +342,7 @@ class DiscoveryPanelController(UiPanelController):
             return None
         menu = QtWidgets.QMenu(self._list)
         menu.setToolTipsVisible(True)
-        action_methods = menu.addAction("Citations…")
+        action_methods = menu.addAction("Methods && Citations…")
         option = self._options_by_key.get(str(key))
         has_provenance = self._has_report_provenance(option)
         action_methods.setEnabled(has_provenance)
@@ -518,7 +521,7 @@ class DiscoveryPanelController(UiPanelController):
             payload["filter_preset_key"] = str(combo_filter.currentData())
             payload["filter_preset_label"] = str(combo_filter.currentText() or "")
         if method == "custom_coordinates":
-            path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            path, _selected_filter = file_dialogs.get_open_file_name(
                 self._dialog,
                 "Select Coordinates",
                 "",
@@ -866,7 +869,7 @@ class DiscoveryPanelController(UiPanelController):
         }
         current_item = self._list.currentItem()
         current_label = current_item.text() if current_item is not None else "projection"
-        destination, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        destination, selected_filter = file_dialogs.get_save_file_name(
             self._widget,
             "Export Projection Coordinates",
             str(Path.home() / f"{self._safe_export_stem(current_label)}.csv"),
@@ -904,6 +907,7 @@ class DiscoveryPanelController(UiPanelController):
         combo_x = require_child(dialog, QtWidgets.QComboBox, "combo_import_x_column")
         combo_y = require_child(dialog, QtWidgets.QComboBox, "combo_import_y_column")
         table_preview = require_child(dialog, QtWidgets.QTableWidget, "table_import_preview")
+        preview_count = require_child(dialog, QtWidgets.QLabel, "label_preview_count")
         validation = require_child(dialog, QtWidgets.QTextBrowser, "text_import_validation")
         button_box = require_child(dialog, QtWidgets.QDialogButtonBox, "button_box_import_discovery")
         current_preview: dict[str, DiscoveryImportPreview | None] = {"preview": None}
@@ -929,6 +933,7 @@ class DiscoveryPanelController(UiPanelController):
                 combo_x=combo_x,
                 combo_y=combo_y,
                 table_preview=table_preview,
+                preview_count=preview_count,
                 validation=validation,
             )
             current_preview["preview"] = preview
@@ -938,7 +943,7 @@ class DiscoveryPanelController(UiPanelController):
             return preview
 
         def browse() -> None:
-            path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            path, _selected_filter = file_dialogs.get_open_file_name(
                 dialog,
                 "Import Projection Data",
                 "",
@@ -951,7 +956,12 @@ class DiscoveryPanelController(UiPanelController):
 
         def refresh_validation(_index: int | None = None) -> None:
             preview = current_preview["preview"]
-            if preview is None or self._discovery_metadata_ids_provider is None:
+            if preview is None:
+                return
+            set_preview_continuation(
+                table_preview, len(preview.preview_rows), len(preview.rows), max(0, combo_id.currentIndex())
+            )
+            if self._discovery_metadata_ids_provider is None:
                 return
             try:
                 result = import_discovery_coordinates(
@@ -990,6 +1000,7 @@ class DiscoveryPanelController(UiPanelController):
                 "y_column": str(combo_y.currentText() or ""),
             }
             if self._import_discovery_callback(payload):
+                file_dialogs.remember_path("import", payload["coordinate_file"])
                 dialog.accept()
             else:
                 validation.setPlainText("Projection import failed. Check the selected file and columns.")
@@ -1012,6 +1023,7 @@ class DiscoveryPanelController(UiPanelController):
         combo_x: QtWidgets.QComboBox,
         combo_y: QtWidgets.QComboBox,
         table_preview: QtWidgets.QTableWidget,
+        preview_count: QtWidgets.QLabel,
         validation: QtWidgets.QTextBrowser,
     ) -> None:
         numeric_columns = self._numeric_import_columns(preview)
@@ -1057,6 +1069,10 @@ class DiscoveryPanelController(UiPanelController):
         for row_index, row in enumerate(preview.preview_rows):
             for column_index, column in enumerate(preview.columns):
                 table_preview.setItem(row_index, column_index, QtWidgets.QTableWidgetItem(str(row.get(column, ""))))
+        set_preview_continuation(
+            table_preview, len(preview.preview_rows), len(preview.rows), max(0, combo_id.currentIndex())
+        )
+        preview_count.setText(f"Preview: {len(preview.preview_rows):,}/{len(preview.rows):,} rows")
         table_preview.resizeColumnsToContents()
         validation.setPlainText(
             f"Loaded {len(preview.rows)} rows from {preview.path.name}.\n"

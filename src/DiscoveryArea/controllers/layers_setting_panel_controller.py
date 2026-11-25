@@ -2,15 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import threading
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.domain import DiscoveryPinDisplaySettings
 from DiscoveryArea.controllers.text_preview_settings_controller import TextPreviewSettingsController
-from DiscoveryArea.palettes import palette_options
+from DiscoveryArea.service import DiscoveryService
 from DiscoveryArea.thumbnails.repository import ThumbnailVariant
 from DiscoveryArea.thumbnails.repository import ThumbnailVariantRepository
 from shared.qt.item_views import clear_list_items, configure_checkable_item_view
+from shared.qt.background_tasks import BackgroundTasks
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
@@ -35,33 +37,15 @@ class _TooltipSettingsPreviewFilter(QtCore.QObject):
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         if obj is self._owner._tooltip_settings_panel:
-            if event.type() == QtCore.QEvent.Type.Hide:
+            if event.type() == QtCore.QEvent.Type.Show:
+                QtCore.QTimer.singleShot(0, obj, self._owner._preview_tooltip_settings)
+            elif event.type() == QtCore.QEvent.Type.Hide:
                 self._owner._handle_tooltip_thumbnail_size_slider_left()
         elif event.type() == QtCore.QEvent.Type.Enter:
             self._owner._handle_tooltip_thumbnail_size_slider_entered()
         elif event.type() == QtCore.QEvent.Type.Leave:
             self._owner._handle_tooltip_thumbnail_size_slider_left()
         return False
-
-
-class _MarkedGroupSwatchDelegate(QtWidgets.QStyledItemDelegate):
-    def paint(
-        self,
-        painter: QtGui.QPainter,
-        option: QtWidgets.QStyleOptionViewItem,
-        index: QtCore.QModelIndex,
-    ) -> None:
-        super().paint(painter, option, index)
-        raw = index.data(QtCore.Qt.ItemDataRole.UserRole)
-        color = QtGui.QColor(str(raw or "").strip())
-        if not color.isValid():
-            return
-        painter.save()
-        rect = option.rect.adjusted(4, 4, -4, -4)
-        painter.setPen(QtGui.QPen(QtGui.QColor("#666666"), 1))
-        painter.setBrush(QtGui.QBrush(color))
-        painter.drawRect(rect)
-        painter.restore()
 
 
 @dataclass(frozen=True)
@@ -77,7 +61,6 @@ class LayersSettingPanelController(UiPanelController):
         "tooltip": "ui/tooltip_settings.ui",
         "pins": "ui/pins_settings.ui",
         "previews": "ui/previews_settings.ui",
-        "areas": "ui/areas_settings.ui",
     }
     _PIN_SECTIONS = (
         ("pin_metadata", "text_visible"),
@@ -92,7 +75,6 @@ class LayersSettingPanelController(UiPanelController):
     _PREVIEW_THUMBNAIL_SLIDER_MAX = 8
     _PREVIEW_THUMBNAIL_LIMITS = (25, 50, 75, 125, 250, 650, 1_250, 2_500, 5_000)
     _THUMBNAIL_DENSITY_WARNING_THRESHOLD = 2_500
-    _ALL_AREAS_ID = "__all_areas__"
 
     def __init__(
         self,
@@ -117,18 +99,6 @@ class LayersSettingPanelController(UiPanelController):
         return self._settings_views.get(str(layer))
 
     def _wire(self) -> None:
-        self._selection_changed_callback = None
-        self._delete_area_callback = None
-        self._area_toggle_callback = None
-        self._points_toggle_callback = None
-        self._all_area_toggle_callback = None
-        self._all_points_toggle_callback = None
-        self._rename_callback = None
-        self._color_changed_callback = None
-        self._export_area_requested_callback = None
-        self._write_areas_to_metadata_requested_callback = None
-        self._marked_area_rows: list[dict[str, object]] = []
-        self._marked_area_style_changed_callback: Callable[[float], None] | None = None
         self._pin_display_changed_callback = None
         self._pin_style_requested_callback: Callable[[], None] | None = None
         self._tooltip_thumbnail_size_changed_callback = None
@@ -185,6 +155,16 @@ class LayersSettingPanelController(UiPanelController):
         self._active_thumbnail_variants: list[tuple[str, str]] = []
         self._thumbnail_preview_kinds: dict[str, str] = {}
         self._thumbnail_defaults_applied = False
+        self._thumbnail_catalog: list[ThumbnailVariant] | None = None
+        self._projection_item_ids = None
+        self._projection_variant_ids: set[str] | None = None
+        self._preview_assets_revision = 0
+        self._preview_assets_cancelled = threading.Event()
+        self._preview_assets_loading = False
+        self._preview_assets_changed_callback = None
+        self._preview_assets_runner = BackgroundTasks(self._widget)
+        self._preview_assets_runner.finished.connect(self._preview_assets_ready)
+        self._preview_assets_runner.failed.connect(self._preview_assets_failed)
         self._suspend_pin_display_changed = False
         self._tooltip_text_settings = TextPreviewSettingsController(self._tooltip_settings_panel)
         self._tooltip_text_settings.changed.connect(self._handle_tooltip_text_style_changed)
@@ -242,17 +222,6 @@ class LayersSettingPanelController(UiPanelController):
         self._button_auto_density.toggled.connect(
             self._on_thumbnail_density_auto_toggled
         )
-        self._marked_area_opacity_spin = require_child(
-            self._widget,
-            QtWidgets.QSpinBox,
-            "spin_marked_area_opacity",
-        )
-        self._marked_areas_tree = require_child(
-            self._widget,
-            QtWidgets.QTreeWidget,
-            "tree_marked_areas",
-        )
-        self._marked_area_opacity_spin.valueChanged.connect(self._on_marked_area_style_changed)
         self._render_selection_changed_callback: Callable[[str], None] | None = None
         self._thumbnail_size_changed_callback: Callable[[int], None] | None = None
         self._thumbnail_density_changed_callback: Callable[[int], None] | None = None
@@ -284,7 +253,6 @@ class LayersSettingPanelController(UiPanelController):
         self._wire_pin_alignment_options()
         self._wire_pin_settings_controls(self._pin_settings_panel)
         self._apply_pin_style_state_to_panel(self._pin_settings_panel)
-        self._populate_marked_areas()
         self.set_thumbnail_size_px(64)
         self.set_thumbnail_limit(650)
         self.set_render_options([], selected="none")
@@ -293,10 +261,17 @@ class LayersSettingPanelController(UiPanelController):
         apply_icon_color(self._widget)
 
     def shutdown(self) -> None:
-        pass
+        self._preview_assets_cancelled.set()
+        self._preview_assets_runner.shutdown()
 
     def set_project(self, project) -> None:
         if project is not self._project:
+            self._preview_assets_cancelled.set()
+            self._preview_assets_revision += 1
+            self._projection_item_ids = None
+            self._projection_variant_ids = None
+            self._preview_assets_loading = False
+            self._thumbnail_catalog = None
             self._thumbnail_defaults_applied = False
             self._active_thumbnail_variants = []
             self._thumbnail_preview_kinds = {}
@@ -304,6 +279,63 @@ class LayersSettingPanelController(UiPanelController):
         self.refresh_thumbnail_variants()
 
     def refresh_thumbnail_variants(self) -> list[ThumbnailVariant]:
+        self._thumbnail_catalog = None
+        variants = self._refresh_thumbnail_selections()
+        if self._projection_item_ids is not None:
+            self.set_projection_item_ids(self._projection_item_ids, force=True)
+        return variants
+
+    def set_preview_assets_changed_callback(self, callback) -> None:
+        self._preview_assets_changed_callback = callback
+
+    def set_projection_item_ids(self, metadata_ids, *, force=False) -> None:
+        if not force and metadata_ids is self._projection_item_ids:
+            return
+        self._projection_item_ids = metadata_ids
+        self._preview_assets_cancelled.set()
+        self._preview_assets_cancelled = cancelled = threading.Event()
+        self._preview_assets_revision += 1
+        revision = self._preview_assets_revision
+        self._projection_variant_ids = None
+        self._preview_assets_loading = True
+        # Keep saved selections resolvable while the new scope is being checked.
+        # All three selectors stay disabled until its eligible sets are known.
+        self._refresh_thumbnail_selections()
+        self._sync_preview_asset_choices()
+        project = self._project
+        if project is None or len(metadata_ids) == 0:
+            self._preview_assets_ready(revision, [])
+            return
+        self._preview_assets_runner.submit(
+            revision,
+            lambda _progress: DiscoveryService.projection_preview_variants(
+                project, metadata_ids, should_cancel=cancelled.is_set,
+            ),
+        )
+
+    def _preview_assets_ready(self, revision, variants) -> None:
+        if revision != self._preview_assets_revision or variants is None:
+            return
+        self._projection_variant_ids = {variant.variant_id for variant in variants}
+        self._preview_assets_loading = False
+        images = self._refresh_thumbnail_selections()
+        self._sync_preview_asset_choices()
+        if callable(self._preview_assets_changed_callback):
+            self._preview_assets_changed_callback(images)
+
+    def _preview_assets_failed(self, revision, message) -> None:
+        if revision == self._preview_assets_revision:
+            self._preview_assets_ready(revision, [])
+            self._show_status(f"Could not check Preview Assets for this projection: {message}")
+
+    def _sync_preview_asset_choices(self) -> None:
+        self._render_combo.setEnabled(self._previews_enabled and not self._preview_assets_loading)
+        for fields, mode in ((self._pin_fields, "pins"), (self._tooltip_fields, "tooltip")):
+            combo = self._thumbnail_combo(fields, mode) if fields is not None else None
+            if combo is not None:
+                combo.setEnabled(not self._preview_assets_loading)
+
+    def _refresh_thumbnail_selections(self) -> list[ThumbnailVariant]:
         render_value = self._preview_settings.render_value
         pin_value = str(self._pin_thumbnail_field or "none")
         tooltip_value = str(self._tooltip_thumbnail_field or "none")
@@ -335,141 +367,6 @@ class LayersSettingPanelController(UiPanelController):
             self._suspend_pin_display_changed = False
         return variants
 
-    def _populate_marked_areas(
-        self,
-        *,
-        selected_area_id: str | None = None,
-        all_areas_share: str = "0.0%",
-    ) -> None:
-        tree = self._tree()
-        if tree is None:
-            return
-        self._configure_marked_areas_tree(tree)
-        tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
-        tree.itemChanged.connect(self._on_tree_item_changed)
-        tree.itemClicked.connect(self._on_tree_item_clicked)
-        tree.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
-        tree.customContextMenuRequested.connect(self._on_tree_context_menu)
-        self.set_marked_areas(
-            self._marked_area_rows,
-            selected_area_id=selected_area_id,
-            all_areas_share=all_areas_share,
-        )
-
-    def _configure_marked_areas_tree(self, tree: QtWidgets.QTreeWidget) -> None:
-        configure_checkable_item_view(tree)
-        tree.setColumnCount(5)
-        tree.setHeaderLabels(["Label", "Share", "Selection", "Polygon", "Color"])
-        header = tree.header()
-        if header is not None:
-            header.setStretchLastSection(False)
-            header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
-            header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Fixed)
-            header.setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.Fixed)
-            header.setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Fixed)
-            header.setSectionResizeMode(4, QtWidgets.QHeaderView.ResizeMode.Fixed)
-            header.setDefaultAlignment(
-                QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
-            )
-        tree.setColumnWidth(1, 58)
-        tree.setColumnWidth(2, 22)
-        tree.setColumnWidth(3, 22)
-        tree.setColumnWidth(4, 22)
-        tree.setItemDelegateForColumn(4, _MarkedGroupSwatchDelegate(tree))
-        self._set_marked_areas_header_icons(tree)
-
-    def _set_marked_areas_header_icons(self, tree: QtWidgets.QTreeWidget) -> None:
-        header_item = tree.headerItem()
-        if header_item is None:
-            return
-        header_item.setText(2, "")
-        header_item.setText(3, "")
-        header_item.setText(4, "")
-        self._install_marked_header_icon_buttons(tree)
-
-    def _install_marked_header_icon_buttons(self, tree: QtWidgets.QTreeWidget) -> None:
-        header = tree.header()
-        if header is None:
-            return
-        viewport = header.viewport()
-        specs = [
-            (2, "filter", "button_marked_header_selection_icon"),
-            (3, "layers", "button_marked_header_polygon_icon"),
-            (4, "color_swatch", "button_marked_header_color_icon"),
-        ]
-        buttons: list[QtWidgets.QToolButton] = []
-        for section, icon_name, object_name in specs:
-            button = viewport.findChild(QtWidgets.QToolButton, object_name)
-            if button is None:
-                button = QtWidgets.QToolButton(viewport)
-                button.setObjectName(object_name)
-                button.setAutoRaise(True)
-                button.setEnabled(True)
-                button.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-                button.setProperty("iconName", icon_name)
-                button.setIconSize(QtCore.QSize(14, 14))
-                button.setFixedSize(18, 18)
-            button.setAttribute(
-                QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents,
-                section != 4,
-            )
-            if section == 4:
-                button.setToolTip("Set area color palette")
-                button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
-                menu = QtWidgets.QMenu(button)
-                for label, palette in palette_options():
-                    action = menu.addAction(label)
-                    action.triggered.connect(
-                        lambda _checked=False, palette=palette: self._apply_palette_to_marked_areas(list(palette))
-                    )
-                button.setMenu(menu)
-                button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
-            buttons.append(button)
-            self._position_marked_header_icon_button(button, header, section=section)
-        for button in buttons:
-            apply_icon_color(button)
-            button.show()
-            button.raise_()
-        if not bool(header.property("_marked_header_icons_wired")):
-            header.sectionResized.connect(lambda *_: self._position_marked_header_icons(tree))
-            header.sectionMoved.connect(lambda *_: self._position_marked_header_icons(tree))
-            header.geometriesChanged.connect(lambda: self._position_marked_header_icons(tree))
-            header.setProperty("_marked_header_icons_wired", True)
-
-    def _position_marked_header_icons(self, tree: QtWidgets.QTreeWidget) -> None:
-        header = tree.header()
-        if header is None:
-            return
-        mapping = {
-            "button_marked_header_selection_icon": 2,
-            "button_marked_header_polygon_icon": 3,
-            "button_marked_header_color_icon": 4,
-        }
-        viewport = header.viewport()
-        for object_name, section in mapping.items():
-            button = viewport.findChild(QtWidgets.QToolButton, object_name)
-            if button is None:
-                continue
-            self._position_marked_header_icon_button(button, header, section=section)
-
-    @staticmethod
-    def _position_marked_header_icon_button(
-        button: QtWidgets.QToolButton,
-        header: QtWidgets.QHeaderView,
-        *,
-        section: int,
-    ) -> None:
-        if header.isSectionHidden(section):
-            button.hide()
-            return
-        section_width = header.sectionSize(section)
-        if section_width <= 0:
-            button.hide()
-            return
-        x = header.sectionViewportPosition(section) + max((section_width - 18) // 2, 0)
-        y = 1
-        button.move(x, y)
-
     def set_render_selection_changed_callback(self, callback: Callable[[str], None] | None) -> None:
         self._render_selection_changed_callback = callback
 
@@ -490,16 +387,6 @@ class LayersSettingPanelController(UiPanelController):
         callback: Callable[[], None] | None,
     ) -> None:
         self._thumbnail_density_auto_requested_callback = callback
-
-    def set_marked_area_style_changed_callback(
-        self,
-        callback: Callable[[float], None] | None,
-    ) -> None:
-        self._marked_area_style_changed_callback = callback
-
-    def _on_marked_area_style_changed(self, _value: int | float) -> None:
-        if callable(self._marked_area_style_changed_callback):
-            self._marked_area_style_changed_callback(float(self._marked_area_opacity_spin.value()) / 100.0)
 
     def selected_thumbnail_size_px(self) -> int:
         return int(self._preview_settings.thumbnail_size_px)
@@ -540,7 +427,12 @@ class LayersSettingPanelController(UiPanelController):
         )
 
     def set_render_options(self, variants: list[ThumbnailVariant], selected: str | None = None) -> None:
-        self._render_variants = list(variants)
+        self._render_variants = [
+            variant for variant in variants
+            if variant.preview_kind == "image" and (
+                self._projection_variant_ids is None or variant.variant_id in self._projection_variant_ids
+            )
+        ]
         self._suspend_render_changed = True
         try:
             self._render_combo.clear()
@@ -652,7 +544,7 @@ class LayersSettingPanelController(UiPanelController):
         return cls._PREVIEW_THUMBNAIL_SIZE_MIN + ((position - 1) * cls._PREVIEW_THUMBNAIL_SIZE_STEP)
 
     def _sync_thumbnail_controls(self) -> None:
-        self._render_combo.setEnabled(self._previews_enabled)
+        self._sync_preview_asset_choices()
         enabled = self._previews_enabled and self._preview_settings.render_value not in {"", "none"}
         self._thumbnail_size_slider.setEnabled(enabled)
         self._thumbnail_density_slider.setEnabled(enabled)
@@ -1473,9 +1365,10 @@ class LayersSettingPanelController(UiPanelController):
         payload["tooltip_fields"] = self.selected_tooltip_fields()
         payload["fields"] = list(payload["pin_fields"])
         payload["thumbnail_variant_id"] = self._normalize_thumbnail_selection(self._pin_thumbnail_field, include_playable=True, include_text=True)
-        payload["tooltip_thumbnail_variant_id"] = self._normalize_thumbnail_selection(
-            self._tooltip_thumbnail_field, include_playable=True, include_text=True
+        self._tooltip_thumbnail_field = self._normalize_thumbnail_selection(
+            self._current_tooltip_thumbnail_field(), include_playable=True, include_text=True
         )
+        payload["tooltip_thumbnail_variant_id"] = self._tooltip_thumbnail_field
         payload["tooltip_thumbnail_size"] = self._current_tooltip_thumbnail_size()
         payload["tooltip_thumbnail_visible"] = self._tooltip_assets_checkbox.isChecked()
         payload["tooltip_info_field_visible"] = self._tooltip_info_checkbox.isChecked()
@@ -1503,6 +1396,8 @@ class LayersSettingPanelController(UiPanelController):
         )
         if tooltip_thumbnail == "none":
             tooltip_thumbnail = self.first_available_thumbnail_variant_id(include_playable=True, include_text=True) or "none"
+        if pin_thumbnail == "none":
+            pin_thumbnail = self.first_available_thumbnail_variant_id(include_playable=True, include_text=True) or "none"
         settings = DiscoveryPinDisplaySettings.from_payload(
             {
                 **settings.to_payload(),
@@ -1674,7 +1569,7 @@ class LayersSettingPanelController(UiPanelController):
 
     def tooltip_preview_kind(self) -> str:
         """Return the cached selection kind without reading project storage."""
-        return self._thumbnail_preview_kinds.get(self._tooltip_thumbnail_field, "image")
+        return self._thumbnail_preview_kinds.get(self._current_tooltip_thumbnail_field(), "image")
 
     def _handle_tooltip_loop_toggled(self, checked: bool) -> None:
         self._emit_pin_display_changed()
@@ -1747,6 +1642,10 @@ class LayersSettingPanelController(UiPanelController):
         self._pin_settings = DiscoveryPinDisplaySettings.from_payload({**self._pin_settings.to_payload(), **values})
         self._emit_pin_display_changed()
 
+    def _preview_tooltip_settings(self) -> None:
+        if self._tooltip_settings_panel.isVisible() and callable(self._tooltip_thumbnail_size_changed_callback):
+            self._tooltip_thumbnail_size_changed_callback(self._current_tooltip_thumbnail_size())
+
     def _handle_tooltip_thumbnail_size_slider_entered(self) -> None:
         self._tooltip_thumbnail_size_slider_hovered = True
 
@@ -1772,14 +1671,17 @@ class LayersSettingPanelController(UiPanelController):
                 for variant_id, label in self._active_thumbnail_variants
             ]
         else:
-            repo = ThumbnailVariantRepository(self._project.paths.root)
-            variants = repo.list_variants()
+            if self._thumbnail_catalog is None:
+                self._thumbnail_catalog = ThumbnailVariantRepository(self._project.paths.root).list_variants()
+            variants = self._thumbnail_catalog
             self._active_thumbnail_variants = [(variant.variant_id, variant.label) for variant in variants]
             self._thumbnail_preview_kinds = {variant.variant_id: variant.preview_kind for variant in variants}
         supported = {"image", "audio_clip", "video_clip", "animated_gif"} if include_playable else {"image"}
         if include_text:
             supported.add("text_excerpt")
-        return [variant for variant in variants if variant.preview_kind in supported]
+        return [variant for variant in variants if variant.preview_kind in supported and (
+            self._projection_variant_ids is None or variant.variant_id in self._projection_variant_ids
+        )]
 
     def _refresh_pin_thumbnail_combo(self, selected: str) -> None:
         if self._pin_fields is None:
@@ -1883,272 +1785,3 @@ class LayersSettingPanelController(UiPanelController):
 
     def set_tooltip_thumbnail_size_preview_hidden_callback(self, callback) -> None:
         self._tooltip_thumbnail_size_preview_hidden_callback = callback
-
-    def set_marked_areas(
-        self,
-        rows: list[dict[str, object]],
-        *,
-        selected_area_id: str | None = None,
-        all_areas_share: str = "0.0%",
-    ) -> None:
-        tree = self._tree()
-        if tree is None:
-            return
-        self._marked_area_rows = [dict(row) for row in rows]
-        tree.blockSignals(True)
-        try:
-            tree.clear()
-            all_item = QtWidgets.QTreeWidgetItem(["all areas", str(all_areas_share), "", "", ""])
-            all_item.setData(0, QtCore.Qt.ItemDataRole.UserRole, self._ALL_AREAS_ID)
-            all_item.setFlags(
-                (all_item.flags() | QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-                & ~QtCore.Qt.ItemFlag.ItemIsEditable
-                & ~QtCore.Qt.ItemFlag.ItemIsSelectable
-            )
-            all_item.setCheckState(2, self._aggregate_marked_area_check_state(rows, "points_visible"))
-            all_item.setCheckState(3, self._aggregate_marked_area_check_state(rows, "area_visible"))
-            all_item.setToolTip(2, "Show or hide point coloring for all areas")
-            all_item.setToolTip(3, "Show or hide all polygons")
-            background = tree.palette().color(QtGui.QPalette.ColorRole.AlternateBase)
-            for column in range(tree.columnCount()):
-                font = all_item.font(column)
-                font.setBold(True)
-                all_item.setFont(column, font)
-                all_item.setBackground(column, background)
-                all_item.setSizeHint(column, QtCore.QSize(0, 26))
-            tree.addTopLevelItem(all_item)
-            selected_item: QtWidgets.QTreeWidgetItem | None = None
-            for row in rows:
-                item = QtWidgets.QTreeWidgetItem(
-                    [
-                        str(row.get("label") or ""),
-                        str(row.get("share") or ""),
-                        "",
-                        "",
-                        "",
-                    ]
-                )
-                item.setData(0, QtCore.Qt.ItemDataRole.UserRole, str(row.get("area_id") or ""))
-                item.setData(4, QtCore.Qt.ItemDataRole.UserRole, str(row.get("color_hex") or "#3b82f6"))
-                item.setToolTip(4, str(row.get("color_hex") or "#3b82f6"))
-                item.setFlags(
-                    item.flags()
-                    | QtCore.Qt.ItemFlag.ItemIsEditable
-                    | QtCore.Qt.ItemFlag.ItemIsUserCheckable
-                    | QtCore.Qt.ItemFlag.ItemIsSelectable
-                    | QtCore.Qt.ItemFlag.ItemIsEnabled
-                )
-                item.setCheckState(2, QtCore.Qt.CheckState.Checked if bool(row.get("points_visible", True)) else QtCore.Qt.CheckState.Unchecked)
-                item.setCheckState(3, QtCore.Qt.CheckState.Checked if bool(row.get("area_visible", True)) else QtCore.Qt.CheckState.Unchecked)
-                item.setTextAlignment(1, int(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter))
-                tree.addTopLevelItem(item)
-                if selected_area_id and str(row.get("area_id") or "") == str(selected_area_id):
-                    selected_item = item
-            if selected_item is not None:
-                tree.setCurrentItem(selected_item)
-            elif tree.topLevelItemCount() > 1:
-                tree.setCurrentItem(tree.topLevelItem(1))
-        finally:
-            tree.blockSignals(False)
-        self._sync_marked_area_opacity_enabled()
-
-    @staticmethod
-    def _aggregate_marked_area_check_state(
-        rows: list[dict[str, object]],
-        key: str,
-    ) -> QtCore.Qt.CheckState:
-        enabled_count = sum(1 for row in rows if bool(row.get(key, True)))
-        if rows and enabled_count == len(rows):
-            return QtCore.Qt.CheckState.Checked
-        if enabled_count:
-            return QtCore.Qt.CheckState.PartiallyChecked
-        return QtCore.Qt.CheckState.Unchecked
-
-    def set_selection_changed_callback(self, callback) -> None:
-        self._selection_changed_callback = callback
-
-    def set_delete_area_callback(self, callback) -> None:
-        self._delete_area_callback = callback
-
-    def set_area_visibility_callback(self, callback) -> None:
-        self._area_toggle_callback = callback
-
-    def set_points_visibility_callback(self, callback) -> None:
-        self._points_toggle_callback = callback
-
-    def set_all_area_visibility_callback(self, callback) -> None:
-        self._all_area_toggle_callback = callback
-
-    def set_all_points_visibility_callback(self, callback) -> None:
-        self._all_points_toggle_callback = callback
-
-    def set_rename_callback(self, callback) -> None:
-        self._rename_callback = callback
-
-    def set_color_changed_callback(self, callback) -> None:
-        self._color_changed_callback = callback
-
-    def set_export_area_requested_callback(self, callback) -> None:
-        self._export_area_requested_callback = callback
-
-    def set_write_areas_to_metadata_requested_callback(self, callback) -> None:
-        self._write_areas_to_metadata_requested_callback = callback
-
-    def _tree(self) -> QtWidgets.QTreeWidget | None:
-        return self._marked_areas_tree
-
-    def _on_tree_selection_changed(self) -> None:
-        tree = self._tree()
-        if tree is None:
-            return
-        item = tree.currentItem()
-        if item is None:
-            return
-        area_id = str(item.data(0, QtCore.Qt.ItemDataRole.UserRole) or "")
-        if not area_id or area_id == self._ALL_AREAS_ID:
-            return
-        if callable(self._selection_changed_callback):
-            self._selection_changed_callback(area_id)
-
-    def _on_tree_item_changed(self, item: QtWidgets.QTreeWidgetItem, column: int) -> None:
-        area_id = str(item.data(0, QtCore.Qt.ItemDataRole.UserRole) or "")
-        if not area_id:
-            return
-        if area_id == self._ALL_AREAS_ID:
-            checked = item.checkState(column) == QtCore.Qt.CheckState.Checked
-            if column == 2:
-                self._set_all_marked_area_child_states(column, checked)
-                if callable(self._all_points_toggle_callback):
-                    self._all_points_toggle_callback(checked)
-            elif column == 3:
-                self._set_all_marked_area_child_states(column, checked)
-                self._sync_marked_area_opacity_enabled()
-                if callable(self._all_area_toggle_callback):
-                    self._all_area_toggle_callback(checked)
-            return
-        if column == 0 and callable(self._rename_callback):
-            self._rename_callback(area_id, item.text(0).strip())
-            return
-        if column == 2 and callable(self._points_toggle_callback):
-            self._sync_all_areas_check_state(column)
-            self._points_toggle_callback(area_id, item.checkState(2) == QtCore.Qt.CheckState.Checked)
-            return
-        if column == 3:
-            self._sync_all_areas_check_state(column)
-            self._sync_marked_area_opacity_enabled()
-            if callable(self._area_toggle_callback):
-                self._area_toggle_callback(area_id, item.checkState(3) == QtCore.Qt.CheckState.Checked)
-
-    def _set_all_marked_area_child_states(self, column: int, checked: bool) -> None:
-        tree = self._tree()
-        if tree is None:
-            return
-        state = QtCore.Qt.CheckState.Checked if checked else QtCore.Qt.CheckState.Unchecked
-        tree.blockSignals(True)
-        try:
-            for row in range(1, tree.topLevelItemCount()):
-                tree.topLevelItem(row).setCheckState(column, state)
-        finally:
-            tree.blockSignals(False)
-
-    def _sync_all_areas_check_state(self, column: int) -> None:
-        tree = self._tree()
-        if tree is None or tree.topLevelItemCount() == 0:
-            return
-        states = [tree.topLevelItem(row).checkState(column) for row in range(1, tree.topLevelItemCount())]
-        if states and all(state == QtCore.Qt.CheckState.Checked for state in states):
-            aggregate = QtCore.Qt.CheckState.Checked
-        elif any(state == QtCore.Qt.CheckState.Checked for state in states):
-            aggregate = QtCore.Qt.CheckState.PartiallyChecked
-        else:
-            aggregate = QtCore.Qt.CheckState.Unchecked
-        tree.blockSignals(True)
-        try:
-            tree.topLevelItem(0).setCheckState(column, aggregate)
-        finally:
-            tree.blockSignals(False)
-
-    def _sync_marked_area_opacity_enabled(self) -> None:
-        tree = self._tree()
-        if tree is None:
-            return
-        has_visible_area = any(
-            tree.topLevelItem(row).checkState(3) != QtCore.Qt.CheckState.Unchecked
-            for row in range(1, tree.topLevelItemCount())
-        )
-        self._marked_area_opacity_spin.setEnabled(has_visible_area)
-
-    def _on_tree_item_clicked(self, item: QtWidgets.QTreeWidgetItem, column: int) -> None:
-        if column != 4:
-            return
-        area_id = str(item.data(0, QtCore.Qt.ItemDataRole.UserRole) or "")
-        if not area_id or area_id == self._ALL_AREAS_ID:
-            return
-        current_hex = str(item.data(4, QtCore.Qt.ItemDataRole.UserRole) or "#3b82f6")
-        current = QtGui.QColor(current_hex)
-        if not current.isValid():
-            current = QtGui.QColor("#3b82f6")
-        tree = self._tree()
-        parent = tree.window() if tree is not None else self._widget.window()
-        color = QtWidgets.QColorDialog.getColor(current, parent, "Select area color")
-        if not color.isValid():
-            return
-        color_hex = color.name(QtGui.QColor.NameFormat.HexRgb).lower()
-        item.setData(4, QtCore.Qt.ItemDataRole.UserRole, color_hex)
-        item.setToolTip(4, color_hex)
-        tree = self._tree()
-        if tree is not None:
-            tree.viewport().update()
-        if callable(self._color_changed_callback):
-            self._color_changed_callback(area_id, color_hex)
-
-    def _apply_palette_to_marked_areas(self, palette: list[str]) -> None:
-        tree = self._tree()
-        if tree is None or not palette:
-            return
-        changes: list[tuple[str, str]] = []
-        for row in range(tree.topLevelItemCount()):
-            item = tree.topLevelItem(row)
-            if item is None:
-                continue
-            area_id = str(item.data(0, QtCore.Qt.ItemDataRole.UserRole) or "")
-            if not area_id or area_id == self._ALL_AREAS_ID:
-                continue
-            color_hex = str(palette[len(changes) % len(palette)]).lower()
-            item.setData(4, QtCore.Qt.ItemDataRole.UserRole, color_hex)
-            item.setToolTip(4, color_hex)
-            changes.append((area_id, color_hex))
-        tree.viewport().update()
-        if callable(self._color_changed_callback):
-            for area_id, color_hex in changes:
-                self._color_changed_callback(area_id, color_hex)
-
-    def _on_tree_context_menu(self, pos: QtCore.QPoint) -> None:
-        tree = self._tree()
-        if tree is None:
-            return
-        item = tree.itemAt(pos)
-        if item is None:
-            return
-        area_id = str(item.data(0, QtCore.Qt.ItemDataRole.UserRole) or "")
-        if not area_id:
-            return
-        menu = QtWidgets.QMenu(tree)
-        if area_id == self._ALL_AREAS_ID:
-            return
-        action_export = menu.addAction("Export Area…")
-        menu.addSeparator()
-        action_delete = menu.addAction("Remove Area…")
-        chosen = menu.exec(tree.mapToGlobal(pos))
-        if chosen == action_export:
-            self._request_export_area(area_id)
-        elif chosen == action_delete and callable(self._delete_area_callback):
-            self._delete_area_callback(area_id)
-
-    def _request_export_area(self, area_id: str) -> None:
-        if area_id and callable(self._export_area_requested_callback):
-            self._export_area_requested_callback(area_id)
-
-    def _request_write_areas_to_metadata(self) -> None:
-        if self._marked_area_rows and callable(self._write_areas_to_metadata_requested_callback):
-            self._write_areas_to_metadata_requested_callback()

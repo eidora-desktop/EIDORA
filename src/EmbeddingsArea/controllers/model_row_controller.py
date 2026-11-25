@@ -37,6 +37,7 @@ class ModelRowController(QtCore.QObject):
 
     def set_installing(self, pending):
         active = pending is not None
+        self.status.setVisible(active)
         self.progress_panel.setVisible(active)
         self.summary.setVisible(not active)
         self.cancel.setVisible(active)
@@ -48,7 +49,7 @@ class ModelRowController(QtCore.QObject):
             self.status.setText("Cancelling…" if pending.abort_requested else f"Installing {pending.progress}%")
             self.cancel.setEnabled(not pending.abort_requested)
         else:
-            self.status.setText("Installed")
+            self.status.clear()
 
     def dispose(self):
         # Tree items die immediately; row widgets survive until deferred deletion.

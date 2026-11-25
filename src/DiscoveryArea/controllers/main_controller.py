@@ -7,12 +7,15 @@ import threading
 import uuid
 from collections import deque
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
+
+from shared.qt import file_dialogs
 from shiboken6 import isValid
 
 from application_settings.repository import ApplicationPreferences
@@ -22,6 +25,7 @@ from DiscoveryArea.controllers.area_export_dialog_controller import (
     AreaExportDialogController,
 )
 from DiscoveryArea.controllers.save_metadata_groups_dialog_controller import SaveMetadataGroupsDialogController
+from DiscoveryArea.controllers.save_area_dialog_controller import SaveAreaDialogController
 from DiscoveryArea.controllers.layers_setting_panel_controller import LayersSettingPanelController
 from DiscoveryArea.controllers.appearance_panel_controller import AppearancePanelController
 from DiscoveryArea.controllers.canvas_layers_panel_controller import CanvasLayersPanelController
@@ -59,6 +63,7 @@ from DiscoveryArea.canvas.thumbnail_planner import (
 )
 from DiscoveryArea.canvas.style_preparation import (
     AreaColorOverlay,
+    apply_area_colors,
     CanvasStyleRequest,
     CanvasStyleResult,
     StyleBuildCancelled,
@@ -113,6 +118,7 @@ from shared.qt.ui_loader import load_ui
 from shared.qt.deferred import defer_to_event_loop
 from shared.qt.widgets import add_widget_to_container, require_child
 from shared.persistence import json_store
+from shared.qt.project_save_state import ProjectSaveState
 
 
 @dataclass
@@ -529,6 +535,7 @@ class DiscoveryAreaController:
         self._panel_lookup: dict[type[UiPanelController], UiPanelController] = {}
         self._canvas_widget: DiscoveryCanvasWidget | None = None
         self._canvas_style_revision = 0
+        self._refreshing_metadata_groups = False
         self._canvas_style_runner = BackgroundTasks(self._widget)
         self._canvas_style_runner.finished.connect(self._on_canvas_style_completed)
         self._canvas_style_runner.failed.connect(self._on_canvas_style_failed)
@@ -550,11 +557,10 @@ class DiscoveryAreaController:
         self._transform_coordinator.cancelled.connect(self._handle_transform_cancelled)
         self._transform_coordinator.progress.connect(self._handle_transform_progress)
         self._filtered_opacity = 1.0
-        self._show_marked_areas = True
+        self._lasso_active = False
         self._polygon_areas: list[PolygonArea] = []
         self._selected_polygon_area_id: str | None = None
         self._selected_polygon_metadata_ids: set[int] = set()
-        self._marked_area_opacity = 0.2
         self._tooltip_layer_enabled = True
         self._metadata_access: DiscoveryMetadataAccess | None = None
         # Compatibility-only test seam. Production metadata is column-oriented
@@ -670,6 +676,11 @@ class DiscoveryAreaController:
         self._persist_pins_timer.setInterval(120)
         self._persist_pins_timer.timeout.connect(self._persist_canvas_pins)
         self._pending_appearance_state: dict[str, object] | None = None
+        self.save_state = ProjectSaveState(self._widget)
+        self._settings_loaded = False
+        self._appearance_loaded = False
+        self._pins_read_failed = False
+        self._pending_pin_save = None
         self._persist_appearance_timer = QtCore.QTimer(self._widget)
         self._persist_appearance_timer.setSingleShot(True)
         self._persist_appearance_timer.setInterval(120)
@@ -685,7 +696,6 @@ class DiscoveryAreaController:
         self._visibility_filter = _DiscoveryVisibilityFilter(self)
         self._widget.installEventFilter(self._visibility_filter)
         self._load_panels()
-        self._sync_initial_areas_layer_visibility()
         self._install_canvas_host()
         self._wire_interactions()
         self._default_exploration_settings = self._exploration_settings_payload()
@@ -716,15 +726,6 @@ class DiscoveryAreaController:
         if canvas_layers is not None:
             canvas_layers.close_layer_settings_popups()
         self._hide_tooltip_popup()
-
-    def _sync_initial_areas_layer_visibility(self) -> None:
-        panel = self._panel(CanvasLayersPanelController)
-        checkbox = (
-            None
-            if panel is None
-            else panel.widget.findChild(QtWidgets.QCheckBox, "checkbox_show_marked_areas")
-        )
-        self._show_marked_areas = bool(checkbox is not None and checkbox.isChecked())
 
     def _handle_space_key_event(self, _obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         if event.type() not in (
@@ -790,6 +791,12 @@ class DiscoveryAreaController:
         self._set_project(project)
 
     def _set_project(self, project: Project | None) -> None:
+        self.flush_pending_saves()
+        if self.save_state.pending:
+            if project is not None and self._project is not None and project.root == self._project.root:
+                self._show_status("Discovery refresh postponed: save or discard pending changes first.")
+                return
+            raise ValueError("Save or discard pending Discovery changes before switching projects.")
         self._hide_tooltip_popup()
         if self._pin_playback is not None:
             self._pin_playback.reset()
@@ -798,9 +805,10 @@ class DiscoveryAreaController:
         self._snapshot_write_revision += 1
         if project is not self._project:
             self._close_selection_actions()
-        self._flush_pin_persistence()
-        self._persist_project_appearance_state()
-        self._persist_project_exploration_settings()
+        self.discard_pending_saves()
+        self._settings_loaded = False
+        self._appearance_loaded = False
+        self._pins_read_failed = False
         if project is not self._project:
             self._cancel_all_discovery_runs()
             self._active_dataset = self._source_dataset = None
@@ -847,6 +855,11 @@ class DiscoveryAreaController:
         finally:
             self._restoring_project_state = False
 
+        if self._project_has_storage():
+            # Legacy Pin records can supply settings during restoration. Keep
+            # their migration pending just like a user edit, until saved.
+            self.save_state.begin("Discovery settings")
+
     def refresh(self) -> None:
         if self._activity_manager is None:
             self._reload_discovery_options()
@@ -866,22 +879,35 @@ class DiscoveryAreaController:
 
         if self._project is None:
             return
-        self._rebuild_metadata_access()
+        # Rebinding field choices can emit several style/filter callbacks. Render
+        # once after the complete refresh instead of rebuilding intermediate states.
+        self._refreshing_metadata_groups = True
+        try:
+            self._rebuild_metadata_access(groups_only=True)
+        finally:
+            self._refreshing_metadata_groups = False
         if self._active_dataset is not None:
             self._render_active_dataset(preserve_view=True, fit_view=False)
 
-    def _rebuild_metadata_access(self) -> None:
+    def _rebuild_metadata_access(self, *, groups_only: bool = False) -> None:
         """Replace caches whose row IDs or columns may have changed on disk."""
 
         if self._project is None:
             return
-        self._metadata_access = DiscoveryMetadataAccess(self._project)
+        self._metadata_access = (
+            self._metadata_access.with_updated_groups(self._project)
+            if groups_only and self._metadata_access is not None
+            else DiscoveryMetadataAccess(self._project)
+        )
         for controller_type in (AppearancePanelController, FiltersPanelController, SlicerPanelController):
             panel = self._panel(controller_type)
             if panel is None:
                 continue
-            panel.set_metadata_access(self._metadata_access)
-            panel.set_project(self._project)
+            if groups_only and isinstance(panel, SlicerPanelController):
+                panel.refresh_metadata_groups(self._metadata_access)
+            else:
+                panel.set_metadata_access(self._metadata_access)
+                panel.set_project(self._project)
         self._refresh_metadata_cache(self._project)
         self._sync_pin_metadata_fields()
 
@@ -899,6 +925,15 @@ class DiscoveryAreaController:
             self._disable_missing_thumbnail_variant(variants)
             if self._pin_playback is not None or self._pin_text_preview is not None:
                 self._apply_pin_display_elements()
+
+    def _handle_projection_preview_assets_changed(self, variants) -> None:
+        self._disable_missing_thumbnail_variant(variants)
+        self._apply_pin_display_elements()
+        if self._tooltip_popup is not None and self._tooltip_popup.isVisible() and self._hovered_metadata_id is not None:
+            self._show_tooltip_for_metadata_id(
+                self._hovered_metadata_id, self._tooltip_popup.pos(),
+                settings_preview=self._settings_preview_tooltip_active,
+            )
 
     def set_metadata_changed_callback(self, callback: Callable[[], None] | None) -> None:
         self._metadata_changed_callback = callback
@@ -964,9 +999,7 @@ class DiscoveryAreaController:
             self._tooltip_preview = None
         self._snapshot_write_revision += 1
         self._close_selection_actions()
-        self._flush_pin_persistence()
-        self._persist_project_appearance_state()
-        self._persist_project_exploration_settings()
+        self.flush_pending_saves()
         self._canvas_style_revision += 1
         for event in self._canvas_style_cancel_events.values():
             event.set()
@@ -1016,12 +1049,34 @@ class DiscoveryAreaController:
         self._discovery_run_worker = None
         self._discovery_run_thread = None
 
-    def _flush_pin_persistence(self) -> None:
+    def _flush_pin_persistence(self) -> bool:
         if not self._project_has_storage():
-            return
-        if self._persist_pins_timer.isActive():
+            return True
+        if self._persist_pins_timer.isActive() or (
+            "Pins" in self.save_state.pending and self._pending_pin_save is None
+        ):
             self._persist_pins_timer.stop()
-        self._persist_canvas_pins()
+            self._persist_canvas_pins()
+        elif self._pending_pin_save is not None:
+            self._write_pending_pins()
+        return "Pins" not in self.save_state.pending
+
+    def flush_pending_saves(self) -> None:
+        self._flush_pin_persistence()
+        self._persist_project_appearance_state()
+        if "Discovery settings" in self.save_state.pending:
+            self._persist_project_exploration_settings()
+
+    def discard_pending_saves(self) -> None:
+        self.stop_pending_autosaves()
+        self._pending_appearance_state = None
+        self._pending_pin_save = None
+        self.save_state.clear()
+
+    def stop_pending_autosaves(self) -> None:
+        self._persist_pins_timer.stop()
+        self._persist_appearance_timer.stop()
+        self._persist_settings_timer.stop()
 
     def _clear_pins_for_project_switch(self) -> None:
         if self._persist_pins_timer.isActive():
@@ -1198,7 +1253,6 @@ class DiscoveryAreaController:
             slicer_panel.set_slicer_changed_callback(self._handle_slicer_changed)
         canvas_layers_panel = self._panel(CanvasLayersPanelController)
         if canvas_layers_panel is not None:
-            canvas_layers_panel.set_areas_visibility_changed_callback(self._handle_areas_visibility_toggled)
             canvas_layers_panel.set_pins_visibility_changed_callback(self._handle_pins_visibility_toggled)
             canvas_layers_panel.set_tooltips_visibility_changed_callback(self._handle_tooltips_visibility_toggled)
             canvas_layers_panel.set_camera_save_callback(self._save_camera_preset)
@@ -1216,17 +1270,8 @@ class DiscoveryAreaController:
             snapshots_panel.set_delete_snapshot_callback(self._delete_snapshot_from_path)
         layers_panel = self._panel(LayersSettingPanelController)
         if layers_panel is not None:
-            layers_panel.set_selection_changed_callback(self._handle_area_tree_selection_changed)
-            layers_panel.set_delete_area_callback(self._queue_area_tree_delete_requested)
-            layers_panel.set_area_visibility_callback(self._queue_area_visibility_changed)
-            layers_panel.set_points_visibility_callback(self._queue_area_points_visibility_changed)
-            layers_panel.set_all_area_visibility_callback(self._queue_all_area_visibility_changed)
-            layers_panel.set_all_points_visibility_callback(self._queue_all_area_points_visibility_changed)
-            layers_panel.set_rename_callback(self._queue_area_renamed)
-            layers_panel.set_color_changed_callback(self._queue_area_color_changed)
-            layers_panel.set_export_area_requested_callback(self._queue_export_area_requested)
-            layers_panel.set_marked_area_style_changed_callback(self._handle_marked_area_style_changed)
             layers_panel.set_pin_display_changed_callback(self._handle_pin_display_changed)
+            layers_panel.set_preview_assets_changed_callback(self._handle_projection_preview_assets_changed)
             layers_panel.set_tooltip_thumbnail_size_changed_callback(self._handle_tooltip_thumbnail_size_changed)
             layers_panel.set_tooltip_thumbnail_size_preview_hidden_callback(self._hide_settings_preview_tooltip)
             layers_panel.set_create_thumbnails_requested_callback(
@@ -1337,7 +1382,7 @@ class DiscoveryAreaController:
             "PDF Document (*.pdf)"
         )
         initial_dir = self._project.root if self._project is not None else Path.home()
-        selected_path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        selected_path, selected_filter = file_dialogs.get_save_file_name(
             self._widget,
             "Quick Export Cropped Canvas",
             str(initial_dir / "discovery_canvas"),
@@ -1451,7 +1496,6 @@ class DiscoveryAreaController:
                 transform_panel.set_projection(
                     None, populated=False
                 )
-            self._sync_areas_panel()
             self._refresh_preset_menus()
             self._discovery_debug("reload_discovery_options_no_project")
             return
@@ -1549,6 +1593,11 @@ class DiscoveryAreaController:
         if self._project is None:
             self._discovery_debug("discovery_selection_no_project", selection_key=selection_key)
             return
+        if not self._flush_pin_persistence():
+            panel = self._panel(DiscoveryPanelController)
+            if panel is not None:
+                panel.set_selected_key(self._active_discovery_key, emit_signal=False)
+            return
         option = self._discovery_options.get(selection_key)
         if option is None:
             self._discovery_debug("discovery_selection_missing_option", selection_key=selection_key)
@@ -1562,6 +1611,9 @@ class DiscoveryAreaController:
             self._source_dataset = None
             self._active_transform = None
             self._active_arrangement_ref = "original"
+            layers = self._panel(LayersSettingPanelController)
+            if layers is not None:
+                layers.set_projection_item_ids(())
             transform_panel = self._panel(TransformPanelController)
             if transform_panel is not None:
                 transform_panel.set_projection(
@@ -1598,7 +1650,6 @@ class DiscoveryAreaController:
             return
         if selection_key != self._active_discovery_key:
             self._close_selection_actions()
-            self._flush_pin_persistence()
         self._active_discovery_key = selection_key
         if discovery_panel is not None and discovery_panel.current_selection_key() != selection_key:
             discovery_panel.set_selected_key(selection_key, emit_signal=False)
@@ -1652,6 +1703,9 @@ class DiscoveryAreaController:
         self._selected_polygon_area_id = None
         self._selected_polygon_metadata_ids.clear()
         self._active_pin_annotation_id = None
+        layers = self._panel(LayersSettingPanelController)
+        if layers is not None:
+            layers.set_projection_item_ids(self._active_dataset.metadata_ids)
         self._load_polygon_areas_for_active_discovery()
         self._load_pins_for_active_discovery()
         self._discovery_debug("discovery_render_call", preserve_view=False, fit_view=True)
@@ -1671,7 +1725,8 @@ class DiscoveryAreaController:
         option = self._discovery_options.get(self._active_discovery_key)
         if option is None:
             return
-        self._flush_pin_persistence()
+        if not self._flush_pin_persistence():
+            return
         normalized = settings.normalized()
         panel = self._panel(TransformPanelController)
         if (
@@ -1786,6 +1841,13 @@ class DiscoveryAreaController:
         self._handle_transform_cancel_requested()
 
     def _render_active_dataset(self, *, preserve_view: bool, fit_view: bool) -> None:
+        if getattr(self, "_refreshing_metadata_groups", False):
+            return
+        layers = self._panel(LayersSettingPanelController)
+        if layers is not None and self._project_has_storage():
+            layers.set_projection_item_ids(
+                self._active_dataset.metadata_ids if self._active_dataset is not None else (),
+            )
         if self._canvas_widget is not None:
             dataset = self._active_dataset
             if dataset is None:
@@ -1854,15 +1916,6 @@ class DiscoveryAreaController:
             if isinstance(raw_slicer_values, list)
             else ()
         )
-        visible_areas = [area for area in self._polygon_areas if area.points_visible] if self._show_marked_areas else []
-        visible_areas.sort(key=lambda area: area.area_id == self._selected_polygon_area_id)
-        overlays = tuple(
-            AreaColorOverlay(
-                metadata_ids=np.asarray(area.metadata_ids, dtype=np.int64),
-                color_hex=area.color_hex,
-            )
-            for area in visible_areas
-        )
         return CanvasStyleRequest(
             revision=int(revision),
             metadata_ids=dataset.metadata_ids,
@@ -1874,7 +1927,7 @@ class DiscoveryAreaController:
             slicer_column=slicer_column,
             slicer_values=slicer_values,
             filtered_opacity=self._filtered_opacity,
-            area_overlays=overlays,
+            area_overlays=self._lasso_color_overlays(),
             filter_matching=filter_matching,
         )
 
@@ -1966,7 +2019,15 @@ class DiscoveryAreaController:
                 (str(label).strip() or "(missing)"): int(np.count_nonzero((column_values == label) & visible))
                 for label in np.unique(column_values).tolist()
             }
-            panel.set_mapped_color_view_counts(target, column, visible_counts, visible_total)
+            labels, counts = np.unique(column_values, return_counts=True)
+            total_counts = {
+                (str(label).strip() or "(missing)"): int(count)
+                for label, count in zip(labels, counts, strict=True)
+            }
+            panel.set_mapped_color_view_counts(
+                target, column, visible_counts, visible_total,
+                total_counts=total_counts, total=int(dataset.metadata_ids.size),
+            )
 
     @QtCore.Slot(int, str)
     def _on_canvas_style_failed(self, revision: int, message: str) -> None:
@@ -2088,14 +2149,20 @@ class DiscoveryAreaController:
         self._refresh_current_snapshot_update_state()
 
     def _handle_mode_changed(self, mode: str) -> None:
+        lasso_changed = self._lasso_active != (mode == "lasso")
+        self._lasso_active = mode == "lasso"
         if self._canvas_widget is not None:
             self._canvas_widget.set_interaction_mode(mode)
             if mode != "selection":
                 self._canvas_widget.clear_selected_metadata_id()
-        if mode == "lasso":
-            self._ensure_canvas_layer_checked("checkbox_show_marked_areas")
-        if mode == "lasso":
+        if self._lasso_active:
             self._hide_tooltip_popup()
+        else:
+            self._selected_polygon_metadata_ids.clear()
+        if lasso_changed:
+            self._apply_canvas_polygons()
+            if self._active_dataset is not None:
+                self._render_active_dataset(preserve_view=True, fit_view=False)
 
     def _ensure_canvas_layer_checked(self, checkbox_name: str) -> None:
         panel = self._panel(CanvasLayersPanelController)
@@ -2104,11 +2171,15 @@ class DiscoveryAreaController:
             checkbox.setChecked(True)
 
     def _handle_lasso_selection_changed(self, payload: dict) -> None:
+        if not self._lasso_active:
+            return
         metadata_ids = payload.get("metadata_ids") if isinstance(payload, dict) else None
         count = len(metadata_ids) if isinstance(metadata_ids, list) else 0
         self._selected_polygon_metadata_ids = {int(value) for value in (metadata_ids or []) if isinstance(value, int)}
         self._show_status(f"Lasso selected {count} item(s).")
-        if self._active_dataset is not None:
+        # An unfinished area's selection arrives before its deferred save dialog.
+        # Rendering persisted polygons here would erase the just-drawn outline.
+        if payload.get("area_id") and self._active_dataset is not None:
             self._render_active_dataset(preserve_view=True, fit_view=False)
 
     def _handle_canvas_pins_changed(self, _payload: object) -> None:
@@ -2118,6 +2189,9 @@ class DiscoveryAreaController:
             return
         if self._restoring_project_state:
             return
+        if self._pins_read_failed or not self._project_has_storage() or self._active_discovery_scope() is None:
+            return
+        self.save_state.begin("Pins")
         self._persist_pins_timer.start()
         self._refresh_current_snapshot_update_state()
 
@@ -2580,6 +2654,7 @@ class DiscoveryAreaController:
         self._show_status(status)
 
     def _handle_pins_visibility_toggled(self, visible: bool) -> None:
+        self._queue_project_exploration_settings_save()
         if self._canvas_widget is not None:
             self._canvas_widget.set_pinned_annotations_visible(bool(visible))
         if not self._applying_project_layer_state and not self._restoring_project_state:
@@ -3713,9 +3788,26 @@ class DiscoveryAreaController:
                     continue
                 point = self._active_dataset.coordinates[idx]
                 points_by_metadata_id[int(metadata_id)] = (float(point[0]), float(point[1]))
-        pin_payloads = self._service.list_pin_payloads(project=self._project, discovery_scope=scope)
+        if self._persist_pins_timer.isActive():
+            self._persist_canvas_pins()
+        if self._pending_pin_save is not None:
+            pending_scope, pending_payloads = self._pending_pin_save
+            if pending_scope != scope:
+                return
+            pin_payloads = deepcopy(pending_payloads)
+        elif "Pins" in self.save_state.pending:
+            # Capturing the current edits failed. Keep the live canvas intact.
+            return
+        else:
+            self._pins_read_failed = True
+            pin_payloads = self._service.list_pin_payloads(project=self._project, discovery_scope=scope)
+            self._pins_read_failed = False
         display_payload = self._display_payload_from_pin_payloads(pin_payloads)
         if display_payload is not None:
+            # Current settings are authoritative. Embedded display data is only
+            # a migration fallback for projects saved before independent settings.
+            if not self._restoring_project_state or self._has_saved_pin_settings:
+                display_payload.update(self._exploration_settings_payload()["pins"])
             if not self._restoring_project_state or self._has_saved_tooltip_settings:
                 display_payload.update(self._exploration_settings_payload()["tooltip"])
             self._apply_pin_display_payload(display_payload)
@@ -3852,12 +3944,27 @@ class DiscoveryAreaController:
             self._applying_project_layer_state = False
 
     def _persist_canvas_pins(self) -> None:
-        if self._restoring_project_state:
+        self._persist_pins_timer.stop()
+        if self._restoring_project_state or self._pins_read_failed:
             return
         if not self._project_has_storage() or self._canvas_widget is None:
             return
+        try:
+            self._capture_pending_pins()
+        except Exception as error:
+            # The canvas now contains newer edits than any earlier snapshot.
+            # Retry must capture those edits, not publish the obsolete payload.
+            self._pending_pin_save = None
+            self.save_state.failed("Pins", error)
+            self._show_status(f"Failed to prepare Pins for saving: {error}")
+            return
+        self._write_pending_pins()
+
+    def _capture_pending_pins(self) -> None:
         scope = self._active_discovery_scope()
         if scope is None:
+            if "Pins" in self.save_state.pending:
+                raise ValueError("The Pin projection is unavailable. Restore it before retrying.")
             return
         payload = self._canvas_widget.pinned_annotations_payload()
         display_payload = self._current_pin_display_payload()
@@ -3905,7 +4012,21 @@ class DiscoveryAreaController:
                 except (TypeError, ValueError):
                     pass
             pin_payloads.append(pin_payload)
-        self._service.replace_pin_payloads(project=self._project, discovery_scope=scope, payloads=pin_payloads)
+        self._pending_pin_save = (scope, pin_payloads)
+        self.save_state.begin("Pins")
+
+    def _write_pending_pins(self) -> None:
+        if self._pending_pin_save is None:
+            return
+        scope, payloads = self._pending_pin_save
+        try:
+            self._service.replace_pin_payloads(project=self._project, discovery_scope=scope, payloads=payloads)
+        except Exception as error:
+            self.save_state.failed("Pins", error)
+            self._show_status(f"Failed to save Pins: {error}")
+        else:
+            self._pending_pin_save = None
+            self.save_state.saved("Pins")
 
     def _current_pin_display_payload(self) -> dict[str, object]:
         panel = self._panel(LayersSettingPanelController)
@@ -4032,6 +4153,7 @@ class DiscoveryAreaController:
         self._refresh_current_snapshot_update_state()
 
     def _handle_slicer_changed(self) -> None:
+        self._queue_project_exploration_settings_save()
         if self._active_dataset is None:
             return
         self._render_active_dataset(preserve_view=True, fit_view=False)
@@ -4062,6 +4184,7 @@ class DiscoveryAreaController:
     def _exploration_settings_payload(self) -> dict:
         layers = self._panel(LayersSettingPanelController)
         filters = self._panel(FiltersPanelController)
+        slicer = self._panel(SlicerPanelController)
         canvas_layers = self._panel(CanvasLayersPanelController)
         checkbox = (
             canvas_layers.widget.findChild(QtWidgets.QCheckBox, "checkbox_show_tooltips")
@@ -4071,39 +4194,54 @@ class DiscoveryAreaController:
         return {
             "canvas": self._canvas_widget.background_state() if self._canvas_widget is not None else {},
             "tooltip": {key: value for key, value in display.items() if key.startswith("tooltip_")},
+            "pins": {key: value for key, value in self._current_pin_display_payload().items()
+                     if not key.startswith("tooltip_")},
+            "slicer": slicer.slicer_state_payload() if slicer is not None else {},
             "tooltips_visible": checkbox.isChecked() if checkbox is not None else True,
             "filters": filters.filter_state_payload() if filters is not None else {},
         }
 
     def _queue_project_exploration_settings_save(self) -> None:
-        if self._restoring_project_state or not self._project_has_storage():
+        if self._restoring_project_state or not self._project_has_storage() or not self._settings_loaded:
             return
+        self.save_state.begin("Discovery settings")
         self._persist_settings_timer.start()
 
     def _persist_project_exploration_settings(self) -> None:
-        if self._restoring_project_state or not self._project_has_storage():
+        if self._restoring_project_state or not self._project_has_storage() or not self._settings_loaded:
             return
         self._persist_settings_timer.stop()
+        self.save_state.begin("Discovery settings")
         try:
             DiscoverySettingsRepository(self._project.paths.state).save(self._exploration_settings_payload())
-        except OSError:
+        except Exception as error:
+            self.save_state.failed("Discovery settings", error)
             self._show_status("Failed to save Discovery settings.")
+        else:
+            self.save_state.saved("Discovery settings")
 
     def _load_project_exploration_settings(self) -> None:
+        self._settings_loaded = False
         payload = (
             DiscoverySettingsRepository(self._project.paths.state).load()
             if self._project_has_storage() else {}
         )
+        self._settings_loaded = True
         if self._canvas_widget is not None:
             self._canvas_widget.restore_background_state(payload.get("canvas", {}))
         self._has_saved_tooltip_settings = "tooltip" in payload
+        self._has_saved_pin_settings = "pins" in payload
         defaults = self._default_exploration_settings
         layers = self._panel(LayersSettingPanelController)
         if layers is not None:
-            display = layers.pin_display_settings_payload()
+            display = dict(defaults["pins"])
+            display.update(payload.get("pins", {}))
             display.update(defaults["tooltip"])
             display.update(payload.get("tooltip", {}))
-            layers.apply_pin_display_settings_payload(display)
+            self._apply_pin_display_payload(display)
+        slicer = self._panel(SlicerPanelController)
+        if slicer is not None:
+            slicer.apply_slicer_state_payload(payload.get("slicer", defaults["slicer"]))
         filters = self._panel(FiltersPanelController)
         if filters is not None:
             filters.apply_filter_state_payload(payload.get("filters", defaults["filters"]))
@@ -4115,31 +4253,37 @@ class DiscoveryAreaController:
                 checkbox.setChecked(bool(payload.get("tooltips_visible", defaults["tooltips_visible"])))
 
     def _queue_project_appearance_state_save(self, payload: dict[str, object]) -> None:
-        if self._project is None:
+        if self._project is None or self._restoring_project_state or not self._appearance_loaded:
             return
         self._pending_appearance_state = dict(payload)
+        self.save_state.begin("Discovery appearance")
         self._persist_appearance_timer.start()
 
     def _persist_project_appearance_state(self) -> None:
         if self._project is None or self._pending_appearance_state is None:
             return
+        self._persist_appearance_timer.stop()
         try:
             path = self._project_appearance_state_path(self._project)
             path.parent.mkdir(parents=True, exist_ok=True)
             json_store.write_json(path, self._pending_appearance_state)
             self._pending_appearance_state = None
-        except OSError:
+            self.save_state.saved("Discovery appearance")
+        except Exception as error:
+            self.save_state.failed("Discovery appearance", error)
             self._show_status("Failed to save appearance state.")
 
     def _load_project_appearance_state(self) -> None:
+        self._appearance_loaded = False
         if self._project is None:
             return
-        try:
-            payload = json_store.read_json(self._project_appearance_state_path(self._project), default=None)
-        except Exception:
+        payload = json_store.read_json(self._project_appearance_state_path(self._project), default=None)
+        if payload is None:
+            self._appearance_loaded = True
             return
         if not isinstance(payload, dict):
-            return
+            raise ValueError("Invalid saved Discovery appearance.")
+        self._appearance_loaded = True
         panel = self._panel(AppearancePanelController)
         if panel is not None:
             panel.apply_preset_payload(payload)
@@ -4290,6 +4434,8 @@ class DiscoveryAreaController:
 
     def _restore_snapshot_from_path(self, path: Path) -> bool:
         if self._project is None:
+            return False
+        if not self._flush_pin_persistence():
             return False
         snapshot = self._service.load_snapshot(self._project, path)
         if snapshot is None:
@@ -4461,7 +4607,10 @@ class DiscoveryAreaController:
             "canvas_state": snapshot.canvas_state,
             "camera_state": snapshot.camera_state,
             "slicer_state": snapshot.slicer_state,
-            "layer_state": snapshot.layer_state,
+            "layer_state": {
+                key: value for key, value in snapshot.layer_state.items()
+                if key != "areas_visible"
+            },
             "pinboard_state": snapshot.pinboard_state,
             "metadata_signature": snapshot.metadata_signature,
         }
@@ -4553,7 +4702,6 @@ class DiscoveryAreaController:
         return {
             "tooltips_visible": bool(panel.widget.findChild(QtWidgets.QCheckBox, "checkbox_show_tooltips").isChecked()),
             "pins_visible": bool(panel.widget.findChild(QtWidgets.QCheckBox, "checkbox_show_pins").isChecked()),
-            "areas_visible": bool(panel.widget.findChild(QtWidgets.QCheckBox, "checkbox_show_marked_areas").isChecked()),
             "viewport_aspect_preset": (
                 self._canvas_widget.viewport_aspect_preset()
                 if self._canvas_widget is not None
@@ -4586,7 +4734,6 @@ class DiscoveryAreaController:
         checkbox_map = {
             "tooltips_visible": "checkbox_show_tooltips",
             "pins_visible": "checkbox_show_pins",
-            "areas_visible": "checkbox_show_marked_areas",
         }
         for key, name in checkbox_map.items():
             box = canvas_panel.widget.findChild(QtWidgets.QCheckBox, name)
@@ -5177,15 +5324,12 @@ class DiscoveryAreaController:
     def _load_polygon_areas_for_active_discovery(self) -> None:
         if self._project is None:
             self._polygon_areas = []
-            self._sync_areas_panel()
             return
         scope = self._active_discovery_scope()
         if scope is None:
             self._polygon_areas = []
-            self._sync_areas_panel()
             return
         self._polygon_areas = self._service.list_polygon_areas(self._project, scope)
-        self._sync_areas_panel()
 
     def _active_discovery_scope(self) -> str | None:
         option = self._discovery_options.get(self._active_discovery_key)
@@ -5196,7 +5340,7 @@ class DiscoveryAreaController:
     def _apply_canvas_polygons(self) -> None:
         if self._canvas_widget is None:
             return
-        if not self._show_marked_areas:
+        if not self._lasso_active:
             self._canvas_widget.clear_lasso_polygons()
             return
         payloads = [
@@ -5204,47 +5348,18 @@ class DiscoveryAreaController:
                 "area_id": area.area_id,
                 "label": area.label,
                 "color_hex": area.color_hex,
-                "area_visible": area.area_visible,
-                "points_visible": area.points_visible,
                 "polygon": [[float(x), float(y)] for x, y in area.polygon],
             }
             for area in self._polygon_areas
-            if area.area_visible and area.arrangement_ref == self._active_arrangement_ref
+            if area.arrangement_ref == self._active_arrangement_ref
         ]
         self._canvas_widget.set_polygon_render_state(
             payloads,
-            fill_opacity=self._marked_area_opacity,
+            fill_opacity=0.2,
         )
         if self._selected_polygon_area_id:
             index = self._polygon_index_by_area_id(self._selected_polygon_area_id)
             self._canvas_widget.set_lasso_selected_polygon_index(index)
-
-    def _sync_areas_panel(self) -> None:
-        panel = self._panel(LayersSettingPanelController)
-        if panel is None:
-            return
-        total = 0
-        if self._active_dataset is not None:
-            total = int(self._active_dataset.metadata_ids.shape[0])
-        visible_member_ids: set[int] = set()
-        for area in self._polygon_areas:
-            if area.points_visible:
-                visible_member_ids.update(int(value) for value in area.metadata_ids)
-        panel.set_marked_areas(
-            [
-                {
-                    "area_id": area.area_id,
-                    "label": area.label,
-                    "color_hex": area.color_hex,
-                    "area_visible": area.area_visible,
-                    "points_visible": area.points_visible,
-                    "share": f"{(len(area.metadata_ids) / total * 100.0):.1f}%" if total > 0 else "0.0%",
-                }
-                for area in self._polygon_areas
-            ],
-            selected_area_id=self._selected_polygon_area_id,
-            all_areas_share=f"{(len(visible_member_ids) / total * 100.0):.1f}%" if total > 0 else "0.0%",
-        )
 
     def _polygon_index_by_area_id(self, area_id: str) -> int | None:
         if self._canvas_widget is None:
@@ -5255,32 +5370,35 @@ class DiscoveryAreaController:
                 return index
         return None
 
-    def _prompt_area_label(self) -> str | None:
-        text, accepted = QtWidgets.QInputDialog.getText(self._widget, "Save Area", "Area label:")
-        if not accepted:
-            return None
-        label = text.strip()
-        return label or None
-
     def _handle_lasso_polygon_created(self, payload: dict) -> None:
+        if not self._lasso_active:
+            return
         if self._project is None or self._active_dataset is None:
             return
         scope = self._active_discovery_scope()
         if scope is None:
             return
-        label = self._prompt_area_label()
         polygon_points = self._service.normalize_polygon_points(payload.get("polygon"))
-        if label is None or len(polygon_points) < 3:
+        project = self._project
+        dataset = self._active_dataset
+        arrangement_ref = self._active_arrangement_ref
+        result = None
+        if len(polygon_points) >= 3:
+            result = SaveAreaDialogController().exec(
+                polygon_points=polygon_points,
+                dataset=dataset,
+                visibility=self._canvas_widget.visibility_array() if self._canvas_widget is not None else None,
+            )
+        # A project/projection switch during the nested dialog loop invalidates it.
+        if (self._project is not project or self._active_dataset is not dataset
+                or self._active_arrangement_ref != arrangement_ref or not self._lasso_active):
+            return
+        if result is None:
             index = int(payload.get("polygon_index", -1))
             if index >= 0 and self._canvas_widget is not None:
                 self._canvas_widget.remove_lasso_polygon(index)
             return
-        metadata_ids = self._service.metadata_ids_in_polygon(
-            polygon_points=polygon_points,
-            dataset=self._active_dataset,
-            visibility=self._canvas_widget.visibility_array() if self._canvas_widget is not None else None,
-            visible_threshold=0.5,
-        )
+        label, metadata_ids = result
         area = self._service.save_polygon_area(
             project=self._project,
             discovery_scope=scope,
@@ -5290,11 +5408,18 @@ class DiscoveryAreaController:
             metadata_ids=metadata_ids,
             arrangement_ref=self._active_arrangement_ref,
         )
-        self._sync_polygon_area_custom_group(area)
         self._selected_polygon_area_id = area.area_id
         self._selected_polygon_metadata_ids = set(metadata_ids)
-        self._load_polygon_areas_for_active_discovery()
-        self._render_active_dataset(preserve_view=True, fit_view=False)
+        # save_polygon_area already returns authoritative memberships. Re-reading
+        # every saved area both delays feedback and scales with all prior selections.
+        self._polygon_areas = [old for old in self._polygon_areas if old.area_id != area.area_id]
+        self._polygon_areas.append(area)
+        self._polygon_areas.sort(key=lambda item: (item.label.lower(), item.area_id))
+        self._apply_canvas_polygons()
+        if self._sync_polygon_area_custom_group(area):
+            self._show_status(f'Saved area "{area.label}" with {len(metadata_ids):,} selected item(s).')
+        else:
+            self._render_active_dataset(preserve_view=True, fit_view=False)
 
     def _next_polygon_area_color(self) -> str:
         return next_unused_area_color([area.color_hex for area in self._polygon_areas])
@@ -5308,25 +5433,48 @@ class DiscoveryAreaController:
         if not area_id:
             return
         self._selected_polygon_area_id = area_id
-        self._sync_areas_panel()
 
     def _handle_lasso_polygon_context(self, payload: dict) -> None:
-        polygon_index = int(payload.get("polygon_index", -1))
-        if polygon_index < 0 or self._canvas_widget is None:
+        if not self._lasso_active or self._canvas_widget is None:
             return
         area_id = str(payload.get("area_id") or "").strip()
+        polygon_index = self._polygon_index_by_area_id(area_id) if area_id else None
+        if area_id and polygon_index is None:
+            return
         label = str(payload.get("label") or "").strip() or self._area_label_by_id(area_id)
         anchor_index = payload.get("anchor_index")
         menu = QtWidgets.QMenu(self._widget)
+        overlapping = payload.get("overlapping_areas", [])
+        selection_actions = {}
+        if len(overlapping) > 1:
+            select_menu = menu.addMenu("Select Area")
+            for candidate in overlapping:
+                candidate_id = str(candidate.get("area_id") or "")
+                action = select_menu.addAction(str(candidate.get("label") or "Area"))
+                action.setCheckable(True)
+                action.setChecked(candidate_id == self._selected_polygon_area_id)
+                selection_actions[action] = candidate_id
+            menu.addSeparator()
         action_rename = menu.addAction("Rename Area…")
-        action_color = menu.addAction("Change Color…")
+        action_rename.setEnabled(bool(area_id))
+        action_export = menu.addAction("Export Area…")
+        action_export.setEnabled(bool(area_id))
+        action_groups = menu.addAction("Save as groups…")
+        action_groups.setEnabled(bool(self._polygon_areas))
         menu.addSeparator()
         if anchor_index is not None:
             action_anchor_remove = menu.addAction("Remove Anchor")
         else:
             action_anchor_remove = None
         action_remove = menu.addAction("Remove Area…")
+        action_remove.setEnabled(bool(area_id))
         chosen = menu.exec(QtGui.QCursor.pos())
+        if chosen in selection_actions:
+            self._selected_polygon_area_id = selection_actions[chosen]
+            self._apply_canvas_polygons()
+            if self._active_dataset is not None:
+                self._render_active_dataset(preserve_view=True, fit_view=False)
+            return
         if chosen == action_rename and area_id:
             next_label, accepted = QtWidgets.QInputDialog.getText(
                 self._widget,
@@ -5337,13 +5485,11 @@ class DiscoveryAreaController:
             if accepted and next_label.strip():
                 self._handle_area_renamed(area_id, next_label.strip())
             return
-        if chosen == action_color and area_id:
-            current_color = QtGui.QColor(str(payload.get("color_hex") or "#3b82f6"))
-            if not current_color.isValid():
-                current_color = QtGui.QColor("#3b82f6")
-            color = QtWidgets.QColorDialog.getColor(current_color, self._widget, "Select area color")
-            if color.isValid():
-                self._handle_area_color_changed(area_id, color.name())
+        if chosen == action_export and area_id:
+            self._handle_export_area_requested(area_id)
+            return
+        if chosen == action_groups:
+            self._handle_write_areas_to_metadata_requested()
             return
         if chosen == action_anchor_remove and anchor_index is not None:
             try:
@@ -5360,13 +5506,13 @@ class DiscoveryAreaController:
         QtCore.QTimer.singleShot(0, lambda: self._handle_lasso_polygon_context(payload_copy))
 
     def _handle_lasso_polygon_delete_requested(self, payload: dict) -> None:
-        if self._canvas_widget is None:
+        if not self._lasso_active or self._canvas_widget is None:
             return
-        polygon_index = int(payload.get("polygon_index", -1))
-        if polygon_index < 0:
+        area_id = str(payload.get("area_id") or "")
+        polygon_index = self._polygon_index_by_area_id(area_id)
+        if polygon_index is None:
             return
-        label = str(payload.get("label") or "").strip() or self._area_label_by_id(str(payload.get("area_id") or ""))
-        self._request_remove_lasso_polygon(polygon_index, label=label)
+        self._request_remove_lasso_polygon(polygon_index, label=self._area_label_by_id(area_id))
 
     def _queue_lasso_polygon_delete_requested(self, payload: dict) -> None:
         payload_copy = dict(payload or {})
@@ -5440,106 +5586,6 @@ class DiscoveryAreaController:
             self._sync_polygon_area_custom_group(area)
         self._render_active_dataset(preserve_view=True, fit_view=False)
 
-    def _handle_areas_visibility_toggled(self, visible: bool) -> None:
-        self._show_marked_areas = bool(visible)
-        if self._active_dataset is not None:
-            self._render_active_dataset(preserve_view=True, fit_view=False)
-        else:
-            self._apply_canvas_polygons()
-        self._refresh_current_snapshot_update_state()
-
-    def _handle_area_tree_selection_changed(self, area_id: str) -> None:
-        self._selected_polygon_area_id = str(area_id)
-        self._selected_polygon_metadata_ids.clear()
-        for area in self._polygon_areas:
-            if area.area_id == self._selected_polygon_area_id and area.points_visible:
-                self._selected_polygon_metadata_ids = set(area.metadata_ids)
-                break
-        if self._canvas_widget is not None:
-            self._canvas_widget.set_lasso_selected_polygon_index(self._polygon_index_by_area_id(area_id))
-        if self._active_dataset is not None:
-            self._render_active_dataset(preserve_view=True, fit_view=False)
-
-    def _handle_area_tree_delete_requested(self, area_id: str) -> None:
-        if self._project is None:
-            return
-        label = self._area_label_by_id(area_id)
-        if not self._confirm_remove_area(label):
-            self._show_status("Area removal cancelled.")
-            return
-        self._service.remove_polygon_area(project=self._project, area_id=area_id)
-        self._service.remove_polygon_area_group(project=self._project, area_id=area_id)
-        self._notify_custom_groups_changed()
-        if self._selected_polygon_area_id == area_id:
-            self._selected_polygon_area_id = None
-            self._selected_polygon_metadata_ids.clear()
-        self._load_polygon_areas_for_active_discovery()
-        self._render_active_dataset(preserve_view=True, fit_view=False)
-
-    def _queue_area_tree_delete_requested(self, area_id: str) -> None:
-        area_key = str(area_id)
-        defer_to_event_loop(lambda: self._handle_area_tree_delete_requested(area_key))
-
-    def _handle_area_visibility_changed(self, area_id: str, visible: bool) -> None:
-        if self._project is None:
-            return
-        self._service.set_polygon_area_visibility(project=self._project, area_id=area_id, area_visible=visible)
-        self._load_polygon_areas_for_active_discovery()
-        self._apply_canvas_polygons()
-        self._refresh_current_snapshot_update_state()
-
-    def _queue_area_visibility_changed(self, area_id: str, visible: bool) -> None:
-        area_key = str(area_id)
-        next_visible = bool(visible)
-        defer_to_event_loop(lambda: self._handle_area_visibility_changed(area_key, next_visible))
-
-    def _handle_area_points_visibility_changed(self, area_id: str, visible: bool) -> None:
-        if self._project is None:
-            return
-        self._service.set_polygon_area_visibility(project=self._project, area_id=area_id, points_visible=visible)
-        self._load_polygon_areas_for_active_discovery()
-        if self._active_dataset is not None:
-            self._render_active_dataset(preserve_view=True, fit_view=False)
-        self._refresh_current_snapshot_update_state()
-
-    def _queue_area_points_visibility_changed(self, area_id: str, visible: bool) -> None:
-        area_key = str(area_id)
-        next_visible = bool(visible)
-        defer_to_event_loop(lambda: self._handle_area_points_visibility_changed(area_key, next_visible))
-
-    def _handle_all_area_visibility_changed(self, visible: bool) -> None:
-        if self._project is None:
-            return
-        self._service.set_polygon_areas_visibility(
-            project=self._project,
-            area_ids=[area.area_id for area in self._polygon_areas],
-            area_visible=visible,
-        )
-        self._load_polygon_areas_for_active_discovery()
-        self._apply_canvas_polygons()
-        self._refresh_current_snapshot_update_state()
-
-    def _queue_all_area_visibility_changed(self, visible: bool) -> None:
-        next_visible = bool(visible)
-        defer_to_event_loop(lambda: self._handle_all_area_visibility_changed(next_visible))
-
-    def _handle_all_area_points_visibility_changed(self, visible: bool) -> None:
-        if self._project is None:
-            return
-        self._service.set_polygon_areas_visibility(
-            project=self._project,
-            area_ids=[area.area_id for area in self._polygon_areas],
-            points_visible=visible,
-        )
-        self._load_polygon_areas_for_active_discovery()
-        if self._active_dataset is not None:
-            self._render_active_dataset(preserve_view=True, fit_view=False)
-        self._refresh_current_snapshot_update_state()
-
-    def _queue_all_area_points_visibility_changed(self, visible: bool) -> None:
-        next_visible = bool(visible)
-        defer_to_event_loop(lambda: self._handle_all_area_points_visibility_changed(next_visible))
-
     def _handle_area_renamed(self, area_id: str, label: str) -> None:
         if self._project is None or not label:
             return
@@ -5552,9 +5598,9 @@ class DiscoveryAreaController:
 
     def _sync_polygon_area_custom_group(
         self, area, *, rename_existing: bool = False
-    ) -> None:
+    ) -> bool:
         if self._project is None:
-            return
+            return False
         option = self._discovery_options.get(self._active_discovery_key)
         discovery_label = option.label if option is not None else "Discovery"
         try:
@@ -5566,36 +5612,14 @@ class DiscoveryAreaController:
             )
         except Exception as exc:
             self._show_status(f"Area saved, but its custom group could not be updated: {exc}")
-            return
+            return False
         self._notify_custom_groups_changed()
+        return True
 
     def _notify_custom_groups_changed(self) -> None:
         self.refresh_metadata_groups()
         if callable(self._groups_changed_callback):
             self._groups_changed_callback()
-
-    def _queue_area_renamed(self, area_id: str, label: str) -> None:
-        area_key = str(area_id)
-        next_label = str(label)
-        defer_to_event_loop(lambda: self._handle_area_renamed(area_key, next_label))
-
-    def _handle_area_color_changed(self, area_id: str, color_hex: str) -> None:
-        if self._project is None:
-            return
-        self._service.set_polygon_area_color(project=self._project, area_id=area_id, color_hex=color_hex)
-        self._load_polygon_areas_for_active_discovery()
-        self._apply_canvas_polygons()
-        if self._active_dataset is not None:
-            self._render_active_dataset(preserve_view=True, fit_view=False)
-
-    def _queue_area_color_changed(self, area_id: str, color_hex: str) -> None:
-        area_key = str(area_id)
-        next_color = str(color_hex)
-        defer_to_event_loop(lambda: self._handle_area_color_changed(area_key, next_color))
-
-    def _queue_export_area_requested(self, area_id: str) -> None:
-        area_key = str(area_id)
-        defer_to_event_loop(lambda: self._handle_export_area_requested(area_key))
 
     def _handle_export_area_requested(self, area_id: str) -> None:
         if self._project is None:
@@ -5674,12 +5698,6 @@ class DiscoveryAreaController:
         self._show_status(
             f"Saved {affected_count} item memberships across {group_count} groups in '{set_name}'."
         )
-
-    def _handle_marked_area_style_changed(self, opacity: float) -> None:
-        self._marked_area_opacity = float(np.clip(float(opacity), 0.0, 1.0))
-        if self._active_dataset is not None:
-            self._render_active_dataset(preserve_view=True, fit_view=False)
-        self._refresh_current_snapshot_update_state()
 
     def _discovery_source_options(self) -> list[tuple[str, str]]:
         if self._project is None:
@@ -5933,42 +5951,21 @@ class DiscoveryAreaController:
             "#111111",
         )
 
-    def _apply_polygon_point_colors(self, dataset: DiscoveryDataset, colors: np.ndarray) -> np.ndarray:
-        """Apply marked-area colours to member point RGB without changing point alpha."""
-        if not getattr(self, "_show_marked_areas", True):
-            return np.asarray(colors, dtype=np.float32)
-        visible_areas = [
-            area
-            for area in getattr(self, "_polygon_areas", [])
-            if area.points_visible
+    def _lasso_color_overlays(self) -> tuple[AreaColorOverlay, ...]:
+        if not self._lasso_active:
+            return ()
+        areas = [
+            area for area in self._polygon_areas
+            if area.arrangement_ref == self._active_arrangement_ref
         ]
-        if not visible_areas:
-            return np.asarray(colors, dtype=np.float32)
-        selected_area_id = getattr(self, "_selected_polygon_area_id", None)
-        visible_areas.sort(key=lambda area: area.area_id == selected_area_id)
-        color_by_metadata_id: dict[int, tuple[float, float, float]] = {}
-        for area in visible_areas:
-            rgb = self._hex_to_rgb01(area.color_hex)
-            color_by_metadata_id.update({int(metadata_id): rgb for metadata_id in area.metadata_ids})
-        output = np.asarray(colors, dtype=np.float32).copy()
-        for index, metadata_id in enumerate(dataset.metadata_ids.tolist()):
-            rgb = color_by_metadata_id.get(int(metadata_id))
-            if rgb is not None and index < output.shape[0]:
-                output[index, :3] = rgb
-        return output
+        areas.sort(key=lambda area: area.area_id == self._selected_polygon_area_id)
+        return tuple(
+            AreaColorOverlay(np.asarray(area.metadata_ids, dtype=np.int64), area.color_hex)
+            for area in areas
+        )
 
-    @staticmethod
-    def _hex_to_rgb01(color: str) -> tuple[float, float, float]:
-        text = color.strip().lstrip("#")
-        if len(text) != 6:
-            return 0.12, 0.12, 0.12
-        try:
-            r = int(text[0:2], 16) / 255.0
-            g = int(text[2:4], 16) / 255.0
-            b = int(text[4:6], 16) / 255.0
-            return float(r), float(g), float(b)
-        except ValueError:
-            return 0.12, 0.12, 0.12
+    def _apply_polygon_point_colors(self, dataset: DiscoveryDataset, colors: np.ndarray) -> np.ndarray:
+        return apply_area_colors(dataset.metadata_ids, colors, self._lasso_color_overlays())
 
     def _project_metadata_ids(self, project: Project) -> np.ndarray:
         try:

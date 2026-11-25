@@ -12,6 +12,8 @@ from EmbeddingsArea.clustering.parameters import PREPROCESSING, preprocessing_de
 from EmbeddingsArea.clustering.registry import ClusteringRegistry
 from EmbeddingsArea.clustering.repository import ClusteringRepository
 from EmbeddingsArea.clustering.process_runner import ClusteringCancelled, run_isolated
+from EmbeddingsArea.clustering.cpu import available_cpu_threads, clustering_cpu_budget
+from application_settings.repository import ApplicationPreferences
 
 
 def now():
@@ -34,14 +36,23 @@ def _timestamp_precedes(value, cutoff):
 
 
 class ClusterService:
-    def __init__(self, project, datasets, runs_repository, metadata_repository, registry=None, model_catalog=None):
+    def __init__(self, project, datasets, runs_repository, metadata_repository, registry=None, model_catalog=None, *, preferences=None):
         self._project = project
         self._metadata = metadata_repository
         self._runs = runs_repository
         self._model_catalog = model_catalog
         self._registry = registry or ClusteringRegistry()
+        self._preferences = preferences if preferences is not None else ApplicationPreferences()
         self.repository = ClusteringRepository(project.paths.metadata_groups_database)
         self.groups = MetadataGroupService(self.repository.groups, metadata_repository)
+
+    def cpu_allocation(self):
+        percentage = int(self._preferences.read()["clustering_cpu_usage"])
+        available = available_cpu_threads()
+        return percentage, clustering_cpu_budget(percentage, available=available), available
+
+    def set_cpu_usage(self, percentage):
+        self._preferences.update(clustering_cpu_usage=str(percentage))
 
     def require_method(self, method_id):
         return self._registry.require_method(method_id)
@@ -173,6 +184,8 @@ class ClusterService:
 
         record = self.repository.start(result_id)
         try:
+            # Freeze the global preference for both PCA and fitting in this run.
+            record["cpu_budget"] = self.cpu_allocation()[1]
             with tempfile.TemporaryDirectory(prefix="eidora-clustering-") as directory:
                 result = (run_isolated(self._project, record, directory, cancelled, status) if isolated else
                           compute(self._project, record, directory, status))

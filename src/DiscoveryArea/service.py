@@ -267,19 +267,38 @@ class DiscoveryService:
         visibility: np.ndarray | None,
         visible_threshold: float = 0.5,
     ) -> list[int]:
+        selected, _filtered = self.polygon_selection_members(
+            polygon_points=polygon_points,
+            dataset=dataset,
+            visibility=visibility,
+            visible_threshold=visible_threshold,
+        )
+        return selected
+
+    def polygon_selection_members(
+        self,
+        *,
+        polygon_points: list[list[float]],
+        dataset: DiscoveryDataset,
+        visibility: np.ndarray | None,
+        visible_threshold: float = 0.5,
+    ) -> tuple[list[int], list[int]]:
+        """Partition polygon members into selected and filter/slicer-excluded IDs."""
         polygon = np.asarray(polygon_points, dtype=np.float32)
         if polygon.ndim != 2 or polygon.shape[0] < 3 or dataset.coordinates.shape[0] == 0:
-            return []
+            return [], []
         if dataset.coordinates.shape[0] != dataset.metadata_ids.shape[0]:
-            return []
+            return [], []
         from DiscoveryArea.canvas.indexing import points_in_polygon
 
         inside = points_in_polygon(dataset.coordinates[:, :2].astype(np.float32), polygon)
         if inside.shape[0] != dataset.metadata_ids.shape[0]:
-            return []
+            return [], []
+        member_ids = dataset.metadata_ids[inside]
         if visibility is not None and visibility.shape[0] == inside.shape[0]:
-            inside = inside & (visibility >= float(visible_threshold))
-        return [int(value) for value in dataset.metadata_ids[inside].tolist()]
+            selected = visibility[inside] >= float(visible_threshold)
+            return member_ids[selected].tolist(), member_ids[~selected].tolist()
+        return member_ids.tolist(), []
 
     def list_polygon_areas(self, project: "Project", discovery_scope: str) -> list[PolygonArea]:
         return self.polygon_area_repository_for_project(project).list_areas(discovery_scope)
@@ -295,9 +314,16 @@ class DiscoveryService:
         metadata_ids: list[int],
         arrangement_ref: str = "original",
     ) -> PolygonArea:
-        return self.polygon_area_repository_for_project(project).upsert_area(
+        repository = self.polygon_area_repository_for_project(project)
+        base_label = str(label or "").strip()
+        available_label = base_label
+        suffix = 2
+        while repository.area_label_exists(discovery_scope=discovery_scope, label=available_label):
+            available_label = f"{base_label}_{suffix}"
+            suffix += 1
+        return repository.upsert_area(
             discovery_scope=discovery_scope,
-            label=label,
+            label=available_label,
             color_hex=color_hex,
             polygon_points=polygon_points,
             metadata_ids=metadata_ids,
@@ -320,34 +346,6 @@ class DiscoveryService:
 
     def remove_polygon_area(self, *, project: "Project", area_id: str) -> None:
         self.polygon_area_repository_for_project(project).remove_area(area_id=area_id)
-
-    def set_polygon_area_visibility(
-        self,
-        *,
-        project: "Project",
-        area_id: str,
-        area_visible: bool | None = None,
-        points_visible: bool | None = None,
-    ) -> None:
-        self.polygon_area_repository_for_project(project).set_area_visibility(
-            area_id=area_id,
-            area_visible=area_visible,
-            points_visible=points_visible,
-        )
-
-    def set_polygon_areas_visibility(
-        self,
-        *,
-        project: "Project",
-        area_ids: list[str],
-        area_visible: bool | None = None,
-        points_visible: bool | None = None,
-    ) -> None:
-        self.polygon_area_repository_for_project(project).set_areas_visibility(
-            area_ids=area_ids,
-            area_visible=area_visible,
-            points_visible=points_visible,
-        )
 
     @staticmethod
     def polygon_area_overlap_count(areas: list[PolygonArea]) -> int:
@@ -559,9 +557,6 @@ class DiscoveryService:
 
     def rename_polygon_area(self, *, project: "Project", area_id: str, label: str) -> None:
         self.polygon_area_repository_for_project(project).rename_area(area_id=area_id, label=label)
-
-    def set_polygon_area_color(self, *, project: "Project", area_id: str, color_hex: str) -> None:
-        self.polygon_area_repository_for_project(project).set_area_color(area_id=area_id, color_hex=color_hex)
 
     def list_pins(self, *, project: "Project", discovery_scope: str) -> list[PinnedAnnotation]:
         return self.pin_repository_for_project(project).list_pins(discovery_scope)
@@ -1187,6 +1182,12 @@ class DiscoveryService:
 
     def list_thumbnail_variants(self, project: "Project") -> list[ThumbnailVariant]:
         return [variant for variant in ThumbnailVariantRepository(project.paths.root).list_variants() if variant.preview_kind == "image"]
+
+    @staticmethod
+    def projection_preview_variants(project, metadata_ids, *, should_cancel=lambda: False):
+        return ThumbnailVariantRepository(project.paths.root).list_variants_for_items(
+            metadata_ids, should_cancel=should_cancel,
+        )
 
     def compute_visibility(
         self,

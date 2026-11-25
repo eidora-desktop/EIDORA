@@ -75,13 +75,20 @@ class FigureWorkService:
             raise
 
     def load(self):
-        return self._renders.submit(self._request, {"load": str(self.repository.data.root.parent)})
+        return self._loads.submit(self._load)
 
-    def prepare_measurements(self, composition, values, selected_cell=None):
+    def _load(self):
+        self._wait_for_previous_service()
+        return self.repository.load()
+
+    def prepare_saved_tab(self, record):
+        return self._loads.submit(self.repository.prepare_tab, record)
+
+    def prepare_measurements(self, composition, values):
         from FiguresArea.measurements import measurement_snapshot
         return self._renders.submit(self._request, {
             'measurements': measurement_snapshot(composition),
-            'measurement_values': dict(values), 'selected_cell': selected_cell,
+            'measurement_values': dict(values),
         })
 
     def set_preview_active(self, owner, active):

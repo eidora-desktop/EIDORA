@@ -91,8 +91,8 @@ def measurement_snapshot(composition):
         figure_elements=copy.deepcopy(composition.figure_elements))
 
 
-def prepare_measurements(composition, values, selected_cell=None):
-    """Solve the requested pixel sizes against their resulting layout.
+def prepare_measurements(composition, values):
+    """Solve the requested pixel sizes for all plots against their resulting layout.
 
     Runs in the isolated rendering process. Only design overrides are returned;
     subsequent page edits scale those values normally, with no rounding drift.
@@ -107,8 +107,6 @@ def prepare_measurements(composition, values, selected_cell=None):
         raise ValueError(f'Text sizes must be at least {minimum_font:.2f} px.')
     if values.get('grid_cell_size_mm', 1) <= 0:
         raise ValueError('Grid cell size must be greater than zero.')
-    targets = set(composition.plot_cells) if selected_cell is None else {tuple(selected_cell)}
-    targets &= set(composition.plot_cells)
     renderer = FigureMatplotlibRenderer()
     figure = Figure(figsize=(1, 1), dpi=max(composition.settings.export_dpi, 36))
     try:
@@ -116,17 +114,16 @@ def prepare_measurements(composition, values, selected_cell=None):
             figure.clear()
             page = measure_page(renderer, composition, figure)
             error = 0.0
-            for cell_key in targets:
+            for cell_key, cell in composition.plot_cells.items():
                 effective = page.plots[cell_key][4]
                 measured = output_measurements(effective)
                 scale = effective.content_scale
-                cell = composition.plot_cells[cell_key]
                 for key, desired in values.items():
                     error = max(error, abs(measured[key] - desired))
                     factor = scale * pixels_per_unit(effective, key)
                     cell.size_overrides[key] = desired / factor
             if error < .002:
-                return {key: dict(cell.size_overrides) for key, cell in composition.plot_cells.items() if key in targets}
+                return {key: dict(cell.size_overrides) for key, cell in composition.plot_cells.items()}
         raise ValueError('These measurements cannot fit in the current plot cells. Increase the figure size or reduce the requested sizes.')
     finally:
         figure.clear()

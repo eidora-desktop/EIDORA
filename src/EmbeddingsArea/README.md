@@ -102,11 +102,16 @@ Artifact ordinals remain the mapping into run inputs. Relocating media updates
 future preparation and preview lookup without rewriting saved run provenance.
 Deleting a source or vector set does not implicitly delete its items.
 
-Completed vector-data and clustering card menus expose **Citations…**.
+Completed vector-data and clustering card menus expose **Methods & Citations…**,
+also available through the project menu. Reports start with brief methods and
+references; detailed parameters and technical records remain expandable.
 `provenance.py` formats saved model metadata, execution/preprocessing settings,
 and clustering parameters without running analysis. New embedding artifacts
-retain the model package's citation metadata and version; older artifacts report
-missing citations explicitly rather than substituting the current catalog.
+retain the model package's citation metadata and version. When references are
+missing, saved-run reports consult the installed package with the same model ID
+and recorded version (when available). Recovered references are labeled with
+their source; saved artifact metadata is unchanged. Unmatched models retain an
+explicit missing-citation warning.
 
 ONNX configs require top-level `bibtex` with self-contained model references.
 `model_package.py` validates the records; the runtime freezes the exact config
@@ -160,3 +165,7 @@ removing owned original files and runtime caches. A failed computation or databa
 publication leaves the original intact. Cleanup failures are reported separately
 from successful publication. Saved projections, clusters and figures remain as
 previously computed; future analyses use the reduced vectors.
+
+Embedding-run methods reports describe the model, input data, preprocessing and
+resulting vectors. Their bibliography includes recorded model and processing
+references, without automatically adding EIDORA.

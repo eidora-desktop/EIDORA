@@ -185,7 +185,7 @@ def _preview(
         format=format_name,
         columns=columns,
         rows=rows,
-        preview_rows=rows[:20],
+        preview_rows=rows[:25],
     )
 
 

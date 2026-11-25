@@ -28,7 +28,7 @@ def run(connection) -> None:
             try:
                 if request.get('measurements') is not None:
                     from FiguresArea.measurements import prepare_measurements
-                    reply = prepare_measurements(request['measurements'], request['measurement_values'], request.get('selected_cell'))
+                    reply = prepare_measurements(request['measurements'], request['measurement_values'])
                     connection.send((True, reply))
                     continue
                 if request.get("load"):

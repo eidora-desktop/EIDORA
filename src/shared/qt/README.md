@@ -1,5 +1,8 @@
 # Shared Qt helpers
 
+`logging.configure_multimedia_logging` suppresses routine multimedia debug/info
+output during desktop startup while retaining playback warnings and errors.
+
 `ui_loader.py` loads Designer forms, semantic icons and surface roles.
 `theme.py` follows light/dark palettes; `icons.py` refreshes tinted pixmaps on
 palette changes. Row hover/selection and enabled button hover/pressed/checked
@@ -97,3 +100,12 @@ and layout-only forms through idle, running and expanded states in both themes.
 `item_views.configure_checkable_item_view` applies a view-local Fusion style so
 checkable trees/lists paint indicators at the same positions used for clicking,
 including on macOS. Presets and Canvas Layers share this helper.
+
+`item_views.configure_parameter_checkbox` gives parameter-table checkbox widgets
+the same owned Fusion style for indicator drawing, sizing, and hit-testing.
+Cell widgets do not inherit the table style. Apply it to nullable checkbox
+editors too; avoid partial `QCheckBox::indicator` stylesheets. Parameter forms
+own NoSelection, NoFocus and NoEditTriggers with standard alternating rows;
+the shared theme applies hover highlighting only to selectable views.
+`fit_parameter_table_rows` uses the standard Qt row height, growing only to
+fit cell editors without extra padding. Embedded editors retain keyboard focus.

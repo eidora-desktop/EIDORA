@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from shared.qt import file_dialogs
+
 from EmbeddingsArea.domain import MediaContentType, MediaProgress
 from EmbeddingsArea.media_sources import cleanup_media_source_inspection, source_id_for_path
 from EmbeddingsArea.session import EmbeddingsAreaSession
@@ -419,7 +421,7 @@ class MediaSourcesPanelController(UiPanelController):
         self._table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.Stretch)
 
     def _choose_media_file_path(self) -> Path | None:
-        file_path, _filter = QtWidgets.QFileDialog.getOpenFileName(
+        file_path, _filter = file_dialogs.get_open_file_name(
             self._widget,
             "Import Media File",
             "",
@@ -454,7 +456,7 @@ class MediaSourcesPanelController(UiPanelController):
             buttons.rejected.disconnect(dialog.reject)
 
     def _choose_media_folder_path(self) -> Path | None:
-        directory = QtWidgets.QFileDialog.getExistingDirectory(self._widget, "Import Media Folder")
+        directory = file_dialogs.get_import_directory(self._widget, "Import Media Folder")
         return Path(directory) if directory else None
 
     def _on_locate_source(self, source_id):
@@ -463,9 +465,9 @@ class MediaSourcesPanelController(UiPanelController):
         from EmbeddingsArea.domain import MediaSourceKind
         source = self._summaries[source_id].source
         if source.source_kind == MediaSourceKind.DIRECTORY:
-            path = QtWidgets.QFileDialog.getExistingDirectory(self._widget, "Locate Media Folder")
+            path = file_dialogs.get_import_directory(self._widget, "Locate Media Folder")
         else:
-            path, _ = QtWidgets.QFileDialog.getOpenFileName(self._widget, "Locate Media File")
+            path, _ = file_dialogs.get_open_file_name(self._widget, "Locate Media File")
         if path:
             project = self._project
             self._jobs.submit(source_id, "Locating source",

@@ -172,7 +172,13 @@
             </sizepolicy>
            </property>
            <property name="text">
-            <string>Open Existing…</string>
+            <string>Open Project…</string>
+           </property>
+           <property name="toolTip">
+            <string>Open a project folder in place or extract a project ZIP into your project storage.</string>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton#button_import_project::menu-indicator { width: 12px; height: 8px; subcontrol-position: right center; right: 8px; }</string>
            </property>
           </widget>
          </item>
@@ -186,6 +192,9 @@
            </property>
            <property name="text">
             <string>More Options...</string>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">QPushButton#button_more_options::menu-indicator { width: 12px; height: 8px; subcontrol-position: right center; right: 8px; }</string>
            </property>
           </widget>
          </item>
@@ -222,7 +231,7 @@
       <item>
        <widget class="QLabel" name="label_recent_projects">
         <property name="text">
-         <string>Recent projects</string>
+         <string>Projects</string>
         </property>
         <property name="textRole" stdset="0">
          <string>primary</string>
@@ -267,7 +276,7 @@
          </sizepolicy>
         </property>
         <property name="text">
-         <string>No recent projects. Create a new project or import an existing one.</string>
+         <string>No projects found. Create a new project or open an existing one.</string>
         </property>
         <property name="alignment">
          <set>Qt::AlignmentFlag::AlignCenter</set>

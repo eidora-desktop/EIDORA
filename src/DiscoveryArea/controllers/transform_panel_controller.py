@@ -230,18 +230,12 @@ class TransformPanelController(UiPanelController):
             minimum_spacing=staged.minimum_spacing if enabled else 0.0,
         ).normalized()
 
-    def _show_methods_report(self) -> None:
-        from DiscoveryArea.settings_provenance import settings_report
-        from shared.qt.methods_citations_dialog import MethodsCitationsDialogController
-        MethodsCitationsDialogController().exec(settings_report("Applied Transforms", transform=self.applied_settings().to_dict()))
-
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._widget)
         self._options_menu = menu
         self._load_recent_menu = menu.addMenu("Apply preset…")
         self._save_preset_action = menu.addAction("Save as preset…")
         self._save_preset_action.triggered.connect(self._save_current_preset)
-        menu.addAction("Citations…").triggered.connect(self._show_methods_report)
         self._options_button.setMenu(menu)
         self._options_button.setPopupMode(
             QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup

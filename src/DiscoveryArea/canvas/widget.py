@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict, deque
+from collections.abc import Iterator
 import datetime as dt
 import math
 import os
@@ -1810,8 +1811,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._lasso_polygon_labels: list[str] = []
         self._lasso_polygon_colors: list[str] = []
         self._lasso_fill_opacity = 0.2
-        self._lasso_polygon_area_visible: list[bool] = []
-        self._lasso_polygon_points_visible: list[bool] = []
         self._lasso_current_vertices: list[np.ndarray] = []
         self._lasso_selected_polygon_index: int | None = None
         self._lasso_dragging_anchor: tuple[int, int, bool] | None = None
@@ -4544,8 +4543,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._lasso_polygon_ids = ["" for _ in self._lasso_polygons]
         self._lasso_polygon_labels = ["" for _ in self._lasso_polygons]
         self._lasso_polygon_colors = ["#3b82f6" for _ in self._lasso_polygons]
-        self._lasso_polygon_area_visible = [True for _ in self._lasso_polygons]
-        self._lasso_polygon_points_visible = [True for _ in self._lasso_polygons]
         self._lasso_selected_polygon_index = None
         self._lasso_pending_draw_start = False
         self._refresh()
@@ -4569,8 +4566,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         ids: list[str] = []
         labels: list[str] = []
         colors: list[str] = []
-        area_visible: list[bool] = []
-        points_visible: list[bool] = []
         for payload in payloads:
             polygon_raw = payload.get("polygon") if isinstance(payload, dict) else None
             if not isinstance(polygon_raw, (list, tuple)):
@@ -4582,14 +4577,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             ids.append(str(payload.get("area_id") or ""))
             labels.append(str(payload.get("label") or ""))
             colors.append(str(payload.get("color_hex") or "#3b82f6"))
-            area_visible.append(bool(payload.get("area_visible", True)))
-            points_visible.append(bool(payload.get("points_visible", True)))
         self._lasso_polygons = polygons
         self._lasso_polygon_ids = ids
         self._lasso_polygon_labels = labels
         self._lasso_polygon_colors = colors
-        self._lasso_polygon_area_visible = area_visible
-        self._lasso_polygon_points_visible = points_visible
         self._lasso_selected_polygon_index = None
         self._lasso_pending_draw_start = keep_pending_draw_start
         self._lasso_dragging_anchor = None
@@ -4608,8 +4599,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                     "area_id": self._lasso_polygon_ids[index] if index < len(self._lasso_polygon_ids) else "",
                     "label": self._lasso_polygon_labels[index] if index < len(self._lasso_polygon_labels) else "",
                     "color_hex": self._lasso_polygon_colors[index] if index < len(self._lasso_polygon_colors) else "#3b82f6",
-                    "area_visible": self._lasso_polygon_area_visible[index] if index < len(self._lasso_polygon_area_visible) else True,
-                    "points_visible": self._lasso_polygon_points_visible[index] if index < len(self._lasso_polygon_points_visible) else True,
                     "polygon": np.asarray(polygon, dtype=np.float32).tolist(),
                 }
             )
@@ -4627,12 +4616,13 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._refresh()
 
     def clear_lasso_polygons(self) -> None:
+        self._lasso_query_revision += 1
+        for event in self._lasso_query_cancel_events.values():
+            event.set()
         self._lasso_polygons.clear()
         self._lasso_polygon_ids.clear()
         self._lasso_polygon_labels.clear()
         self._lasso_polygon_colors.clear()
-        self._lasso_polygon_area_visible.clear()
-        self._lasso_polygon_points_visible.clear()
         self._lasso_current_vertices.clear()
         self._lasso_selected_polygon_index = None
         self._lasso_dragging_anchor = None
@@ -5752,19 +5742,25 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 return True
             anchor_hit = self._anchor_hit_at_canvas(mouse_event.position())
             hit_polygon = anchor_hit[0] if anchor_hit is not None and not anchor_hit[2] else None
+            hits = list(self._polygon_indices_at_world_point(world_point)) if world_point is not None else []
             if hit_polygon is None:
-                hit_polygon = self._polygon_index_at_world_point(world_point) if world_point is not None else None
+                hit_polygon = (
+                    self._lasso_selected_polygon_index
+                    if self._lasso_selected_polygon_index in hits
+                    else next(iter(hits), None)
+                )
             if hit_polygon is not None:
                 self._lasso_selected_polygon_index = hit_polygon
                 payload = self._lasso_polygon_payload(hit_polygon)
                 if anchor_hit is not None and not anchor_hit[2]:
                     payload["anchor_index"] = int(anchor_hit[1])
+                payload["overlapping_areas"] = [self._lasso_polygon_payload(index) for index in hits]
                 self.lasso_polygon_context.emit(payload)
                 self._emit_lasso_polygon_selected(hit_polygon)
                 self._emit_lasso_selection_for_polygon(hit_polygon)
                 self._refresh()
                 return True
-            self._lasso_current_vertices.clear()
+            self.lasso_polygon_context.emit({})
             self._refresh()
             return True
         if mouse_event.button() != QtCore.Qt.MouseButton.LeftButton:
@@ -5853,8 +5849,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._lasso_polygon_ids.append("")
         self._lasso_polygon_labels.append("")
         self._lasso_polygon_colors.append("#3b82f6")
-        self._lasso_polygon_area_visible.append(True)
-        self._lasso_polygon_points_visible.append(True)
         created_index = len(self._lasso_polygons) - 1
         self._lasso_selected_polygon_index = created_index
         self._lasso_pending_draw_start = False
@@ -5891,17 +5885,14 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return x, y
 
     def _polygon_index_at_world_point(self, world_point: np.ndarray) -> int | None:
-        if not self._lasso_polygons:
-            return None
+        return next(self._polygon_indices_at_world_point(world_point), None)
+
+    def _polygon_indices_at_world_point(self, world_point: np.ndarray) -> Iterator[int]:
         points = np.asarray([world_point], dtype=np.float32)
         for index in range(len(self._lasso_polygons) - 1, -1, -1):
             polygon = self._lasso_polygons[index]
-            if polygon.shape[0] < 3:
-                continue
-            mask = points_in_polygon(points, polygon)
-            if mask.size and bool(mask[0]):
-                return index
-        return None
+            if polygon.shape[0] >= 3 and bool(points_in_polygon(points, polygon)[0]):
+                yield index
 
     def _anchor_hit_at_canvas(self, canvas_pos: QtCore.QPointF) -> tuple[int, int, bool] | None:
         if self._lasso_current_vertices:
@@ -6141,8 +6132,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._lasso_polygon_ids,
             self._lasso_polygon_labels,
             self._lasso_polygon_colors,
-            self._lasso_polygon_area_visible,
-            self._lasso_polygon_points_visible,
         ):
             if index < len(values):
                 del values[index]
@@ -6177,8 +6166,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             "area_id": self._lasso_polygon_ids[polygon_index] if polygon_index < len(self._lasso_polygon_ids) else "",
             "label": self._lasso_polygon_labels[polygon_index] if polygon_index < len(self._lasso_polygon_labels) else "",
             "color_hex": self._lasso_polygon_colors[polygon_index] if polygon_index < len(self._lasso_polygon_colors) else "#3b82f6",
-            "area_visible": self._lasso_polygon_area_visible[polygon_index] if polygon_index < len(self._lasso_polygon_area_visible) else True,
-            "points_visible": self._lasso_polygon_points_visible[polygon_index] if polygon_index < len(self._lasso_polygon_points_visible) else True,
             "polygon": np.asarray(self._lasso_polygons[polygon_index], dtype=np.float32).tolist(),
         }
 

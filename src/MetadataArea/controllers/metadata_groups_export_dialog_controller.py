@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from shared.qt import file_dialogs
+
 from MetadataArea.controllers.metadata_groups_export_selection_panel_controller import (
     MetadataGroupsExportSelectionPanelController,
 )
@@ -295,7 +297,7 @@ class MetadataGroupsExportDialogController:
         suggested_name, filters, _default_format = self._file_dialog_options(
             self._structure()
         )
-        path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        path, selected_filter = file_dialogs.get_save_file_name(
             self._dialog,
             "Export Groups",
             str(Path.home() / suggested_name),

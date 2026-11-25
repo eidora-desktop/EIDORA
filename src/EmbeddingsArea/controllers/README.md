@@ -8,6 +8,11 @@ the panels. `vector_data_panel_controller.py` joins run and dataset records by
 run ID, while `vector_data_card_controller.py` updates each card and its nested
 clustering tree in place.
 
+Saved and queued embedding cards start collapsed. When an embedding begins
+running, the panel collapses the other cards and opens that run's Progress tab.
+Refreshes, progress updates and completion preserve the user's expansion choice;
+the last run stays open until closed or another run starts.
+
 Opening a card or changing its details tab can populate the clustering tree.
 Resolve selection by clustering ID after those signals return. Detail refreshes
 insert replacement rows before retiring old ones to keep accessibility models

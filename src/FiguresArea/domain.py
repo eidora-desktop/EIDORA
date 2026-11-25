@@ -16,6 +16,7 @@ class Figure:
 class FigurePlotSettings:
     width_mm: float = 70.0
     height_mm: float = 70.0
+    aspect_ratio: Literal["snapshot", "fit"] = "snapshot"
     layout_version: int = 2
     plot_width_mm: float = 0.0
     plot_height_mm: float = 0.0
@@ -94,8 +95,8 @@ class FigurePlotSettings:
     legend_alignment: Literal["start", "center", "end"] = "start"
 
     def __post_init__(self) -> None:
-        # Capture the initial plot aspect once; changing the page later does
-        # not change the authored plot dimensions or stretch its contents.
+        # Retain the initial design dimensions as the style reference and
+        # aspect fallback. Render-only sizing never rewrites these values.
         if self.plot_width_mm <= 0:
             object.__setattr__(self, "plot_width_mm", self.width_mm)
         if self.plot_height_mm <= 0:

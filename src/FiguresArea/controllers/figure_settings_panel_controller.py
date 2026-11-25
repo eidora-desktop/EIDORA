@@ -7,6 +7,8 @@ from typing import Protocol
 
 from PySide6 import QtCore, QtWidgets
 
+from shared.qt import file_dialogs
+
 from FiguresArea.domain import FigurePlotSettings
 from FiguresArea.measurements import LOCAL_SIZES, FONT_SIZES, PIXEL_SIZES, pixels_per_unit, scaled_sizes
 from FiguresArea.controllers.measurement_controls import MeasurementSpinBox
@@ -62,9 +64,6 @@ class FigureSettingsPanelController(UiPanelController):
         self._measurement_timer = QtCore.QTimer(self._widget)
         self._measurement_timer.setInterval(25)
         self._measurement_timer.timeout.connect(self._poll_measurements)
-        self._measurement_scope = self._widget.findChild(QtWidgets.QComboBox, "combo_measurement_plot")
-        self._measurement_scope.addItem("All plots", None)
-        self._measurement_scope.currentIndexChanged.connect(self._measurement_scope_changed)
         self._available_fonts = BUNDLED_FONT_FAMILIES
         self._figure_setting_widgets: dict[str, QtWidgets.QWidget] = {}
         self._save_preset_callback: Callable[[str, dict], bool] | None = None
@@ -220,8 +219,12 @@ class FigureSettingsPanelController(UiPanelController):
         self._add_double_spin(tree, figure_item, "height_mm", "final height", suffix=" px", minimum=1.0, maximum=24000.0)
         for key in ("width_mm", "height_mm"):
             self._figure_setting_widgets[key].setToolTip(
-                "Exact exported figure size, including margins, titles, captions and legends. Plots scale proportionally to fit."
+                "Exact exported figure size, including margins, titles, captions and legends."
             )
+        self._add_check_box(tree, figure_item, "aspect_ratio", "stretch plots")
+        self._figure_setting_widgets["aspect_ratio"].setToolTip(
+            "Resizes plots to fill its available space. Uncheck to preserve original proportions."
+        )
         self._add_double_spin(tree, figure_item, "margin_mm", "margin", suffix=" px", minimum=0.0, maximum=1000.0, step=0.1)
 
         subplot_item = self._add_group_item(tree, "Subplots")
@@ -519,6 +522,7 @@ class FigureSettingsPanelController(UiPanelController):
             settings = self._active_plot_tab.figure_settings()
         self._set_widget_value("width_mm", settings.width_mm)
         self._set_widget_value("height_mm", settings.height_mm)
+        self._set_widget_value("aspect_ratio", settings.aspect_ratio == "fit")
         self._set_widget_value("rows", settings.rows)
         self._set_widget_value("columns", settings.columns)
         self._set_widget_value("margin_mm", settings.margin_mm)
@@ -612,37 +616,9 @@ class FigureSettingsPanelController(UiPanelController):
         finally:
             widget.blockSignals(previous)
 
-    def _selected_measurement_cell(self):
-        value = self._measurement_scope.currentData()
-        return tuple(map(int, value.split(','))) if isinstance(value, str) else None
-
-    def _measurement_scope_changed(self, *_args):
-        # Scoped size drafts belong to the previously selected plot. Keep page
-        # edits, but discard unsubmitted sizes when changing their target.
-        settings = self._active_plot_tab.figure_settings() if self._active_plot_tab is not None else FigurePlotSettings()
-        self._changed_setting_keys.difference_update(scaled_sizes(settings))
-        self._refresh_measurements()
-        self._settings_unapplied = bool(self._changed_setting_keys)
-        self._refresh_action_buttons()
-
     def _refresh_measurements(self):
         getter = getattr(self._active_plot_tab, 'figure_measurements', None)
         measurements = getter() if getter is not None else {}
-        scope = self._measurement_scope
-        selected = scope.currentData()
-        keys = sorted(measurements)
-        if [scope.itemData(index) for index in range(1, scope.count())] != [f'{row},{column}' for row, column in keys]:
-            blocked = scope.blockSignals(True)
-            scope.clear()
-            scope.addItem('All plots', None)
-            for row, column in keys:
-                scope.addItem(f'Plot {row + 1}, {column + 1}', f'{row},{column}')
-            index = scope.findData(selected)
-            scope.setCurrentIndex(max(index, 0))
-            scope.blockSignals(blocked)
-        selected = self._selected_measurement_cell()
-        if selected is not None:
-            measurements = {tuple(selected): measurements[tuple(selected)]} if tuple(selected) in measurements else {}
         settings = self._active_plot_tab.figure_settings() if self._active_plot_tab is not None else FigurePlotSettings()
         # Adjacent insertion and completed legacy migration can change settings
         # outside this panel. Refresh only controls without a pending user edit.
@@ -652,7 +628,7 @@ class FigureSettingsPanelController(UiPanelController):
         for key in scaled_sizes(settings) - self._changed_setting_keys:
             widget = self._figure_setting_widgets.get(key)
             values = [value[key] for value in measurements.values() if key in value]
-            if key == 'caption_margin_mm' and selected is None and settings.main_caption_show:
+            if key == 'caption_margin_mm' and settings.main_caption_show:
                 values.append(settings.caption_margin_mm * pixels_per_unit(settings, key))
             if isinstance(widget, MeasurementSpinBox) and values:
                 rounded = {round(value, widget.decimals()) for value in values}
@@ -660,7 +636,6 @@ class FigureSettingsPanelController(UiPanelController):
                 widget.setRange(min(widget.minimum(), min(values)), max(widget.maximum(), max(values)))
                 widget.set_measurement(values[0], mixed=len(rounded) > 1)
                 widget.blockSignals(blocked)
-        scope.setEnabled(bool(keys) and self._operation is None)
 
     def _cancel_measurement_edit(self):
         self._measurement_timer.stop()
@@ -737,7 +712,7 @@ class FigureSettingsPanelController(UiPanelController):
             if edits and hasattr(self._active_plot_tab, 'prepare_measurement_edit'):
                 self._measurement_target = self._active_plot_tab
                 self._measurement_revision = getattr(self._measurement_target, 'measurement_revision', None)
-                self._measurement_future = self._measurement_target.prepare_measurement_edit(edits, self._selected_measurement_cell())
+                self._measurement_future = self._measurement_target.prepare_measurement_edit(edits)
                 self._measurement_activity = activity
                 self._measurement_timer.start()
             else:
@@ -756,6 +731,7 @@ class FigureSettingsPanelController(UiPanelController):
             current,
             width_mm=self._double_value("width_mm"),
             height_mm=self._double_value("height_mm"),
+            aspect_ratio="fit" if self._checked_value("aspect_ratio") else "snapshot",
             rows=self._int_value("rows"),
             columns=self._int_value("columns"),
             margin_mm=self._double_value("margin_mm"),
@@ -819,7 +795,7 @@ class FigureSettingsPanelController(UiPanelController):
                   if field.name in self._changed_setting_keys and field.name not in local}
         if 'axis_box_line_width' in values:
             values['show_axis'] = values['axis_box_line_width'] > 0
-        if 'caption_margin_mm' in self._changed_setting_keys and self._measurement_scope.currentData() is None:
+        if 'caption_margin_mm' in self._changed_setting_keys:
             values['caption_margin_mm'] = proposed.caption_margin_mm / pixels_per_unit(current, 'caption_margin_mm')
         return replace(current, **values)
 
@@ -831,7 +807,7 @@ class FigureSettingsPanelController(UiPanelController):
             payload['plot_sizes'] = getter()
             edits = {key: self._double_value(key) for key in self._changed_setting_keys & scaled_sizes(settings)}
             if edits:
-                payload['measurements'] = {'values': edits, 'cell': self._selected_measurement_cell(), 'units': 'px'}
+                payload['measurements'] = {'values': edits, 'units': 'px'}
         return payload
 
     def apply_figure_settings_preset_payload(self, payload: dict) -> bool:
@@ -857,9 +833,6 @@ class FigureSettingsPanelController(UiPanelController):
         measurements = payload.get('measurements')
         if isinstance(measurements, dict) and hasattr(self._active_plot_tab, 'prepare_measurement_edit'):
             from FiguresArea.measurements import validated_sizes
-            cell = measurements.get('cell')
-            index = self._measurement_scope.findData(f'{cell[0]},{cell[1]}' if isinstance(cell, (tuple, list)) and len(cell) == 2 else None)
-            self._measurement_scope.setCurrentIndex(max(index, 0))
             converted = {}
             for key, value in validated_sizes(measurements.get('values')).items():
                 if measurements.get('units') != 'px':
@@ -1049,7 +1022,6 @@ class FigureSettingsPanelController(UiPanelController):
             tree = self._widget.findChild(QtWidgets.QTreeWidget, name)
             if tree is not None:
                 tree.setEnabled(has_plot and self._operation is None)
-        self._measurement_scope.setEnabled(has_plot and self._operation is None)
         apply_button = self._widget.findChild(
             QtWidgets.QPushButton, "button_apply_figure_settings"
         )
@@ -1094,7 +1066,7 @@ class FigureSettingsPanelController(UiPanelController):
         suggested_name = f"{self._suggested_export_stem()}.{default_format}"
         filter_string = ";;".join(label for label, _formats in options)
         default_filter = self._filter_for_format(options, default_format) or options[0][0]
-        selected_path, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        selected_path, selected_filter = file_dialogs.get_save_file_name(
             self._widget,
             "Export Figure",
             str(Path(documents_dir) / suggested_name),

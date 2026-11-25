@@ -5,11 +5,12 @@ import logging
 from shared.persistence import json_store
 
 
-DEFAULTS = {"appearance": "system", "startup": "chooser", "pin_scope": "project"}
+DEFAULTS = {"appearance": "system", "startup": "chooser", "pin_scope": "project", "clustering_cpu_usage": "75"}
 CHOICES = {
     "appearance": {"system", "light", "dark"},
     "startup": {"chooser", "last_project"},
     "pin_scope": {"project", "projection"},
+    "clustering_cpu_usage": {"25", "50", "75", "100"},
 }
 
 
