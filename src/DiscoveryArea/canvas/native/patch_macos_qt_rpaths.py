@@ -53,10 +53,8 @@ def patch_library(library: Path, qt_lib_dir: Path) -> None:
         if rpath == str(qt_lib_dir) or rpath.startswith(("@loader_path", "@executable_path")):
             continue
         is_foreign_qt_sdk = rpath.startswith("/") and (
-            "/Qt/" in rpath
-            or "/opt/homebrew/" in rpath
-            or "/usr/local/" in rpath
-        )
+            Path(rpath) / "QtCore.framework"
+        ).is_dir()
         if is_foreign_qt_sdk:
             subprocess.run(
                 ["install_name_tool", "-delete_rpath", rpath, str(library)],
