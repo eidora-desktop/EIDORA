@@ -4,6 +4,11 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+## 0.3.0 — Prepared
+
+First public release. Earlier versions were development prototypes; compatibility
+with projects saved by those versions is not guaranteed.
+
 - Prevent delayed Media row resize callbacks from accessing deleted table items after source removal or project switching.
 
 - Standardize pop-up menu ordering, separators, preset labels, and pin-scope wording across all areas; label project deletion explicitly as Delete From Disk and projection-panel deletion as Delete Selected Projection.
