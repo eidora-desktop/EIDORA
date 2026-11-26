@@ -26,6 +26,7 @@ PIN_MOVE = "pin_move"
 PIN_REMOVE = "pin_remove"
 SELECTION_ADD = "selection_add"
 SELECTION_MODE = "selection_mode"
+CLICKABLE = "clickable"
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class CursorSpec:
 
 
 CURSOR_SPECS: dict[str, CursorSpec] = {
+    CLICKABLE: CursorSpec("hand_pointing", (21, 12), QtCore.Qt.CursorShape.PointingHandCursor),
     PAN_OPEN: CursorSpec("hand_open", (23, 23), QtCore.Qt.CursorShape.OpenHandCursor),
     PAN_CLOSED: CursorSpec("hand_closed", (23, 23), QtCore.Qt.CursorShape.ClosedHandCursor),
     ZOOM_IN: CursorSpec("zoom_in", (24, 24), QtCore.Qt.CursorShape.SizeFDiagCursor),

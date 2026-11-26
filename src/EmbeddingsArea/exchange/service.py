@@ -408,24 +408,27 @@ class EmbeddingExchangeService:
         run_dir = self.project.paths.embeddings / ".runs" / run_id
         store = ArtifactStore(run_dir)
         published = False
+        matches = None
         try:
             store.init_manifest(
                 {
                     "source": "import",
                     "dtype": np.dtype(inspection.dtype).str,
-                    "provenance": dict(inspection.probe.provenance),
+                    "provenance": {**inspection.probe.provenance, "import_sources": [
+                        member.source_path.name for member in inspection.probe.members
+                    ] or [inspection.probe.source_path.name]},
                 }
             )
             selected_rows = 0
             output_chunk = 0
             matches = (
-                np.load(plan.match_index_path, mmap_mode="r")
+                np.load(plan.match_index_path, mmap_mode="r", allow_pickle=False)
                 if plan.match_index_path is not None
                 else None
             )
             staged = ArtifactStore(inspection.staging_path)
             source_offset = 0
-            for source_ids, vectors, identifiers in staged.iter_chunks_with_names():
+            for source_ids, vectors, identifiers in staged.iter_chunks_with_names(mmap_mode=None):
                 if should_cancel is not None and should_cancel():
                     raise EmbeddingImportCancelled("Embedding import was aborted.")
                 start = source_offset
@@ -486,34 +489,51 @@ class EmbeddingExchangeService:
                 updated_at=now,
                 artifact_path=str(output),
             )
-            inputs = self._iter_import_inputs(plan, run_id)
-            self.runs.save_imported_run(
-                run,
-                inputs,
-                metadata_database=self.metadata.database_path,
-                metadata_table=self.metadata.table_id,
-                description_columns=inspection.description_columns,
-                description_rows=self._iter_descriptions(plan),
-                conflict_policy=plan.conflict_policy,
-                create_items=plan.strategy == "create_metadata",
-                source_identifier_column=self._source_identifier_column(inspection),
-                metadata_column=(
-                    plan.metadata_column if plan.strategy == "identifier" else ""
-                ),
-                expected_metadata_fingerprint=plan.metadata_fingerprint,
-                expected_metadata_revision=plan.metadata_revision,
-                create_unmatched=plan.create_unmatched,
-                expected_row_order_fingerprint=(
-                    plan.metadata_fingerprint if plan.strategy == "row_order" else ""
-                ),
-            )
-            published = True
+            inputs = self._iter_import_inputs(plan, run_id, matches)
+            descriptions = self._iter_descriptions(plan, matches)
+            source_identifier_column = self._source_identifier_column(inspection)
+            self._raise_if_import_cancelled(should_cancel)
+            try:
+                with closing(inputs), closing(descriptions):
+                    self.runs.save_imported_run(
+                        run,
+                        inputs,
+                        metadata_database=self.metadata.database_path,
+                        metadata_table=self.metadata.table_id,
+                        description_columns=inspection.description_columns,
+                        description_rows=descriptions,
+                        conflict_policy=plan.conflict_policy,
+                        create_items=plan.strategy == "create_metadata",
+                        source_identifier_column=source_identifier_column,
+                        metadata_column=(
+                            plan.metadata_column if plan.strategy == "identifier" else ""
+                        ),
+                        expected_metadata_fingerprint=plan.metadata_fingerprint,
+                        expected_metadata_revision=plan.metadata_revision,
+                        create_unmatched=plan.create_unmatched,
+                        expected_row_order_fingerprint=(
+                            plan.metadata_fingerprint if plan.strategy == "row_order" else ""
+                        ),
+                    )
+                    published = True
+            except Exception:
+                if not published:
+                    raise
+                LOGGER.exception("Vectors were imported, but input cleanup failed")
             if plan.strategy == "create_metadata" or plan.create_unmatched or inspection.description_columns:
-                self.metadata.refresh_schema_mirror()
+                try:
+                    self.metadata.refresh_schema_mirror()
+                except Exception:
+                    LOGGER.exception("Vectors were imported, but the derived metadata mirror could not be refreshed")
             if progress_callback is not None:
-                progress_callback(100, "Embeddings imported.")
+                try:
+                    progress_callback(100, "Embeddings imported.")
+                except Exception:
+                    LOGGER.exception("Vectors were imported, but completion feedback failed")
             return run
         finally:
+            if isinstance(matches, np.memmap):
+                matches._mmap.close()
             if not published:
                 output.unlink(missing_ok=True)
                 shutil.rmtree(run_dir, ignore_errors=True)
@@ -629,13 +649,8 @@ class EmbeddingExchangeService:
         return digest.hexdigest()
 
     def _iter_import_inputs(
-        self, plan: EmbeddingImportPlan, run_id: str
+        self, plan: EmbeddingImportPlan, run_id: str, matches: np.ndarray | None
     ) -> Iterator[EmbeddingRunInputSnapshot]:
-        matches = (
-            np.load(plan.match_index_path, mmap_mode="r")
-            if plan.match_index_path is not None
-            else None
-        )
         ordinal = 0
         with closing(sqlite3.connect(plan.inspection.staging_path / "identifiers.sqlite")) as connection:
             for row_index, identifier in connection.execute("SELECT row_index, identifier FROM identifiers ORDER BY row_index"):
@@ -673,8 +688,7 @@ class EmbeddingExchangeService:
                     conflicts.append((column,int(count)))
         return tuple(conflicts)
 
-    def _iter_descriptions(self, plan):
-        matches = np.load(plan.match_index_path, mmap_mode="r") if plan.match_index_path else None
+    def _iter_descriptions(self, plan, matches):
         with closing(sqlite3.connect(plan.inspection.staging_path / "identifiers.sqlite")) as connection:
             rows = connection.execute("SELECT i.row_index,COALESCE(d.payload,'{}') FROM identifiers i LEFT JOIN descriptions d USING(row_index) ORDER BY i.row_index")
             for index,payload in rows:

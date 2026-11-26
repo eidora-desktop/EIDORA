@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import numpy as np
     from MetadataArea.domain import MetadataMergePreview
 
 
@@ -101,6 +102,12 @@ class MediaAsset:
     status: MediaAssetStatus = MediaAssetStatus.READY
     created_at: str = ""
     updated_at: str = ""
+
+    @property
+    def text_record_key(self) -> str:
+        """Record assets carry a fragment; ordinary files keep their full path."""
+        return (self.source_key if self.content_type == MediaContentType.TEXT
+                and self.relative_path.startswith(self.absolute_path.name + "#") else "")
 
 
 @dataclass(frozen=True)
@@ -258,6 +265,18 @@ class MediaOperationResult:
 
 
 @dataclass(frozen=True)
+class EmbeddingMatrixInfo:
+    """Header/identity inspection without decoding vector values."""
+
+    row_count: int
+    dimensions: int
+    dtype: str
+    object_ids: np.ndarray
+    loading_min_bytes: int
+    loading_estimate_bytes: int
+
+
+@dataclass(frozen=True)
 class SavedEmbeddingDataset:
     run_id: str
     name: str
@@ -314,6 +333,7 @@ class EmbeddingRunInputSnapshot:
     mtime_ns: int | None
     link_revision: int = 0
     components: tuple[EmbeddingRunInputSnapshot, ...] = ()
+    text_record_key: str = ""
 
     @property
     def media_asset_id(self) -> str:

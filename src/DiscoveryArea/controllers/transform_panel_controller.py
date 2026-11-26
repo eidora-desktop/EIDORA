@@ -14,6 +14,7 @@ from DiscoveryArea.transforms import TransformSettings
 from shared.qt.item_views import configure_panel_item_view, minimum_panel_row_size
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
+from shared.qt.preset_menu import append_manage_presets_action
 from shared.qt.widgets import require_child
 
 
@@ -42,7 +43,7 @@ class TransformPanelController(UiPanelController):
         spacing_tooltip = (
             "Minimum center-to-center spacing. A value of 0.10 corresponds to 0.01 "
             "normalized projection units. Independent of zoom, point size, and "
-            "thumbnail size. Zero disables spreading."
+            "Preview Assets size. Zero disables spreading."
         )
         self._spacing_spin.setRange(0.0, 1.0)
         self._spacing_spin.setDecimals(3)
@@ -66,7 +67,6 @@ class TransformPanelController(UiPanelController):
         self._overlap_progress_active = False
         self._pending_apply_kind: str | None = None
         self._has_projection = False
-        self._transformable = True
         self._grid_spin.valueChanged.connect(self._settings_edited)
         self._grid_format.currentIndexChanged.connect(self._settings_edited)
         self._spacing_spin.valueChanged.connect(self._settings_edited)
@@ -112,12 +112,12 @@ class TransformPanelController(UiPanelController):
         if not labels:
             action = self._load_recent_menu.addAction("No Presets Saved")
             action.setEnabled(False)
-            return
-        for label in labels[:10]:
+        for label in labels:
             action = self._load_recent_menu.addAction(label)
             action.triggered.connect(
                 lambda _checked=False, value=label: self._load_preset_label(value)
             )
+        append_manage_presets_action(self._load_recent_menu, self._open_settings)
 
     def applied_preset_payload(self, name: str = "") -> dict[str, object]:
         return {
@@ -143,19 +143,11 @@ class TransformPanelController(UiPanelController):
         settings: TransformSettings | None,
         *,
         populated: bool,
-        transformable: bool = True,
     ) -> None:
         self._busy = False
         self._overlap_progress_active = False
         self._pending_apply_kind = None
         self._has_projection = bool(populated)
-        self._transformable = bool(transformable)
-        self._widget.setEnabled(self._transformable)
-        self._widget.setToolTip(
-            ""
-            if self._transformable
-            else "Transformations are unavailable for coordinate-truthful projections."
-        )
         self._applied = self._visible_settings(settings or TransformSettings())
         with QtCore.QSignalBlocker(self._grid_format):
             index = self._grid_format.findData(self._applied.grid_aspect_preset)
@@ -166,8 +158,6 @@ class TransformPanelController(UiPanelController):
         self._sync()
 
     def set_processing(self, *, calculate_overlap: bool = False) -> None:
-        if not self._transformable:
-            return
         self._busy = True
         self._overlap_progress_active = bool(calculate_overlap)
         if calculate_overlap:
@@ -201,7 +191,7 @@ class TransformPanelController(UiPanelController):
     def set_project(self, project) -> None:
         super().set_project(project)
         if project is None:
-            self.set_projection(None, populated=False, transformable=False)
+            self.set_projection(None, populated=False)
 
     def _settings_edited(self, *_args) -> None:
         self._sync()
@@ -240,18 +230,12 @@ class TransformPanelController(UiPanelController):
             minimum_spacing=staged.minimum_spacing if enabled else 0.0,
         ).normalized()
 
-    def _show_methods_report(self) -> None:
-        from DiscoveryArea.settings_provenance import settings_report
-        from shared.qt.methods_citations_dialog import MethodsCitationsDialogController
-        MethodsCitationsDialogController().exec(settings_report("Applied Transforms", transform=self.applied_settings().to_dict()))
-
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._widget)
         self._options_menu = menu
-        self._load_recent_menu = menu.addMenu("Load Recent")
-        self._save_preset_action = menu.addAction("Save Preset…")
+        self._load_recent_menu = menu.addMenu("Apply Preset")
+        self._save_preset_action = menu.addAction("Save as Preset…")
         self._save_preset_action.triggered.connect(self._save_current_preset)
-        menu.addAction("Citations…").triggered.connect(self._show_methods_report)
         self._options_button.setMenu(menu)
         self._options_button.setPopupMode(
             QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup
@@ -334,7 +318,7 @@ class TransformPanelController(UiPanelController):
         return float(value) * cls.SPACING_DISPLAY_SCALE
 
     def _sync_controls(self) -> None:
-        enabled = self._has_projection and self._transformable and not self._busy
+        enabled = self._has_projection and not self._busy
         self._grid_spin.setEnabled(enabled)
         self._grid_format.setEnabled(enabled)
         self._spacing_spin.setEnabled(enabled)
@@ -368,7 +352,6 @@ class TransformPanelController(UiPanelController):
         self._update_apply_button_icon(self._overlap_button)
         self._grid_button.setEnabled(
             self._has_projection
-            and self._transformable
             and (
                 self._busy and self._pending_apply_kind in {"grid", "preset"}
                 or not self._busy
@@ -376,7 +359,6 @@ class TransformPanelController(UiPanelController):
         )
         self._overlap_button.setEnabled(
             self._has_projection
-            and self._transformable
             and (
                 self._busy and self._pending_apply_kind in {"overlap", "preset"}
                 or not self._busy

@@ -36,14 +36,20 @@ def main(argv: list[str] | None = None) -> int:
     from shared.qt.theme import install_theme
     from shared.qt.icons import install_icon_palette_refresh
     from shared.qt.keyboard_focus import install_keyboard_focus
+    from shared.qt.logging import configure_multimedia_logging
 
     configure_logging()
+    configure_multimedia_logging()
 
     app = QtWidgets.QApplication.instance()
     owns_app = app is None
     if app is None:
         application_arguments = sys.argv if argv is None else [sys.argv[0], *arguments]
         app = QtWidgets.QApplication(application_arguments)
+
+    from shared.qt.garbage_collection import install_gui_garbage_collection
+
+    install_gui_garbage_collection(app)
 
     # QStandardPaths uses these values for AppDataLocation.  Set them before
     # services/controllers can resolve model or project storage paths so the
@@ -58,10 +64,13 @@ def main(argv: list[str] | None = None) -> int:
     diagnostics = DiagnosticsMonitor(app)
     # Keep diagnostics installed before importing and constructing workspaces.
     from MainWindow.controllers import MainWindowController, ProjectChooserController
+    from MainWindow.controllers.loading_panel_controller import LoadingPanelController
     from project.service import ProjectService
+    from application_settings.repository import ApplicationPreferences
 
     install_dialog_window_policy(app)
-    install_theme(app)
+    preferences = ApplicationPreferences().read()
+    install_theme(app).set_preference(preferences["appearance"])
     install_keyboard_focus(app)
     install_icon_palette_refresh(app)
     install_application_icon(app)
@@ -72,21 +81,37 @@ def main(argv: list[str] | None = None) -> int:
     app.setQuitOnLastWindowClosed(False)
     controller = None
 
-    def prepare_project(project) -> None:
+    def prepare_project(project):
         nonlocal controller
-        # Adding Discovery's first QQuickWidget to a visible shell can
-        # recreate its native window. Build the workspaces before showing it.
-        controller = MainWindowController(project=project, project_service=project_service)
+        # Construct every workspace (including Discovery's Quick host) while
+        # hidden, yielding to the loading panel between GUI operations.
+        controller = MainWindowController(
+            project=project, project_service=project_service, prepare_workspaces=False,
+        )
+        try:
+            yield
+            yield from controller.initialize_workspaces()
+            app.aboutToQuit.connect(controller.shutdown)
+            controller.window.destroyed.connect(diagnostics.close)
+            controller.show()
+            set_dialog_window_owner(app, controller.window)
+        except BaseException:
+            controller.shutdown()
+            controller.window.close()
+            controller = None
+            raise
 
     try:
         project = None
-        if getattr(sys, "frozen", False):
+        if preferences["startup"] == "last_project":
+            project = LoadingPanelController().run(project_service.load_last_project, prepare_project)
+        if project is None and getattr(sys, "frozen", False):
             from MainWindow.controllers.starter_collection_controller import prepare_bundled_starter
 
             project = prepare_bundled_starter(project_service)
-        if project is not None:
-            prepare_project(project)
-        else:
+            if project is not None:
+                LoadingPanelController().run(lambda: project, prepare_project)
+        if project is None:
             chooser = ProjectChooserController(project_service, prepare_project=prepare_project)
             try:
                 if chooser.exec() != QtWidgets.QDialog.DialogCode.Accepted:
@@ -95,16 +120,13 @@ def main(argv: list[str] | None = None) -> int:
                 chooser.dispose()
     except BaseException:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
+        diagnostics.close()
         raise
     if controller is None:
         app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
         diagnostics.close()
         return 0
 
-    app.aboutToQuit.connect(controller.shutdown)
-    controller.window.destroyed.connect(diagnostics.close)
-    controller.show()
-    set_dialog_window_owner(app, controller.window)
     app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
 
     if owns_app:

@@ -49,7 +49,7 @@ class _LayerSettingsClickFilter(QtCore.QObject):
 
     def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
         if event.type() in (QtCore.QEvent.Type.MouseButtonPress, QtCore.QEvent.Type.MouseButtonDblClick):
-            self._owner._close_layer_settings_if_clicked_outside(event)
+            self._owner._close_layer_settings_if_clicked_outside(event, obj)
         return False
 
 
@@ -62,12 +62,10 @@ class CanvasLayersPanelController(UiPanelController):
     _LAYER_SETTINGS = {
         "tooltip": ("checkbox_show_tooltips", "ui/tooltip_settings.ui"),
         "pins": ("checkbox_show_pins", "ui/pins_settings.ui"),
-        "areas": ("checkbox_show_marked_areas", "ui/areas_settings.ui"),
         "previews": ("checkbox_show_thumbnails", "ui/previews_settings.ui"),
     }
 
     def _wire(self) -> None:
-        self._areas_visibility_callback = None
         self._pins_visibility_callback = None
         self._tooltips_visibility_callback = None
         self._layer_settings_view_provider: Callable[[str], QtWidgets.QWidget | None] | None = None
@@ -81,7 +79,6 @@ class CanvasLayersPanelController(UiPanelController):
         self._checkboxes = [
             require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_tooltips"),
             require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_pins"),
-            require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_marked_areas"),
         ]
         for checkbox in self._checkboxes:
             checkbox.toggled.connect(
@@ -89,9 +86,6 @@ class CanvasLayersPanelController(UiPanelController):
                     f"{label} layer {'shown' if checked else 'hidden'}."
                 )
             )
-        require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_marked_areas").toggled.connect(
-            self._on_areas_toggled
-        )
         require_child(self._widget, QtWidgets.QCheckBox, "checkbox_show_pins").toggled.connect(
             self._on_pins_toggled
         )
@@ -110,9 +104,14 @@ class CanvasLayersPanelController(UiPanelController):
         self._load_camera_callback: Callable[[Path], bool] | None = None
         self._default_camera_callback: Callable[[], None] | None = None
         self._camera_entries: list[PresetEntry] = []
-        require_child(self._widget, QtWidgets.QToolButton, "button_add_camera_preset").clicked.connect(
-            self._save_camera_preset
-        )
+        camera_options = require_child(self._widget, QtWidgets.QToolButton, "button_add_camera_preset")
+        camera_options.setToolTip("Camera presets")
+        camera_options.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
+        camera_menu = QtWidgets.QMenu(camera_options)
+        camera_menu.addAction("Save as Preset…").triggered.connect(self._save_camera_preset)
+        camera_options.setMenu(camera_menu)
+        camera_options.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._camera_combo.setToolTip("Apply camera preset; settings are copied into the current view.")
         self._viewport_aspect_callback: Callable[[str], None] | None = None
         self._active_viewport_aspect_preset = "free"
         self._configure_crop_controls()
@@ -208,13 +207,6 @@ class CanvasLayersPanelController(UiPanelController):
         if index >= 0:
             with QtCore.QSignalBlocker(self._crop_combo):
                 self._crop_combo.setCurrentIndex(index)
-
-    def _on_areas_toggled(self, checked: bool) -> None:
-        if callable(self._areas_visibility_callback):
-            self._areas_visibility_callback(bool(checked))
-
-    def set_areas_visibility_changed_callback(self, callback) -> None:
-        self._areas_visibility_callback = callback
 
     def _on_pins_toggled(self, checked: bool) -> None:
         if callable(self._pins_visibility_callback):
@@ -339,7 +331,9 @@ class CanvasLayersPanelController(UiPanelController):
         popup.resize(width, height)
         popup.move(x, y)
 
-    def _close_layer_settings_if_clicked_outside(self, event: QtGui.QMouseEvent) -> None:
+    def _close_layer_settings_if_clicked_outside(
+        self, event: QtGui.QMouseEvent, receiver: QtCore.QObject | None = None,
+    ) -> None:
         layer = self._active_layer_settings_layer
         popup = self._layer_settings_popups.get(layer)
         if popup is None or not popup.isVisible():
@@ -347,6 +341,16 @@ class CanvasLayersPanelController(UiPanelController):
         position = event.globalPosition().toPoint()
         if popup.rect().contains(popup.mapFromGlobal(position)):
             return
+        # A dropdown is a separate window. Its event target remains owned by
+        # the settings even when Qt no longer reports an active popup.
+        if isinstance(receiver, QtWidgets.QWidget) and popup.isAncestorOf(receiver):
+            window = receiver.window()
+            if window.rect().contains(window.mapFromGlobal(position)):
+                return
+        for combo in popup.findChildren(QtWidgets.QComboBox):
+            dropdown = combo.view().window()
+            if dropdown.isVisible() and dropdown.rect().contains(dropdown.mapFromGlobal(position)):
+                return
         # Let the active arrow handle its own toggle on release.
         button = self._layer_settings_buttons[layer]
         if event.button() == QtCore.Qt.MouseButton.LeftButton and button.rect().contains(
@@ -398,7 +402,7 @@ class CanvasLayersPanelController(UiPanelController):
         with QtCore.QSignalBlocker(self._camera_combo):
             self._camera_combo.clear()
             self._camera_combo.addItem(self._CENTER_FIT_CAMERA_LABEL, self._CENTER_FIT_CAMERA_DATA)
-            for entry in self._camera_entries[:50]:
+            for entry in self._camera_entries:
                 path = str(entry.path)
                 self._camera_combo.addItem(entry.label, path)
             if selected:

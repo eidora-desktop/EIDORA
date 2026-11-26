@@ -2,18 +2,35 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+import json
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.presets_repository import PresetEntry
-from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, configure_panel_item_view
+from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, clear_list_items, configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
 
 
 SNAPSHOT_PREVIEW_IMAGE_SIZE = 96
+
+
+class _SnapshotListClickFilter(QtCore.QObject):
+    def __init__(self, view: QtWidgets.QListWidget) -> None:
+        super().__init__(view)
+        self._view = view
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (event.type() == QtCore.QEvent.Type.MouseButtonPress
+                and event.button() == QtCore.Qt.MouseButton.LeftButton
+                and self._view.itemAt(event.position().toPoint()) is None):
+            self._view.clearSelection()
+            self._view.setCurrentRow(-1)
+            return True
+        return super().eventFilter(watched, event)
 
 
 class SnapshotsPanelController(UiPanelController):
@@ -23,6 +40,7 @@ class SnapshotsPanelController(UiPanelController):
     def _wire(self) -> None:
         self._list = require_child(self._widget, QtWidgets.QListWidget, "list_snapshots")
         configure_panel_item_view(self._list)
+        self._empty_click_filter = _SnapshotListClickFilter(self._list)
         self._add_button = require_child(self._widget, QtWidgets.QPushButton, "button_add_snapshot")
         self._options_button = require_child(self._widget, QtWidgets.QToolButton, "button_snapshots_options")
         self._size_spin = require_child(self._widget, QtWidgets.QSpinBox, "spin_snapshot_thumbnail_size")
@@ -45,8 +63,11 @@ class SnapshotsPanelController(UiPanelController):
         self._list.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_snapshot_context_menu)
         self._configure_options_menu()
+        QtWidgets.QApplication.instance().paletteChanged.connect(self._refresh_preview_theme)
 
     def set_project(self, project) -> None:
+        if project is not self._project and self._dialog is not None:
+            self._dialog.close()
         super().set_project(project)
         enabled = project is not None
         self._add_button.setEnabled(enabled)
@@ -55,6 +76,10 @@ class SnapshotsPanelController(UiPanelController):
             self.set_snapshot_entries([])
 
     def shutdown(self) -> None:
+        try:
+            QtWidgets.QApplication.instance().paletteChanged.disconnect(self._refresh_preview_theme)
+        except (RuntimeError, TypeError):
+            pass
         if self._dialog is not None:
             self._dialog.close()
 
@@ -62,7 +87,7 @@ class SnapshotsPanelController(UiPanelController):
         self._entries = list(entries)
         selected_path = self._preferred_snapshot_path or self.selected_snapshot_path()
         with QtCore.QSignalBlocker(self._list):
-            self._list.clear()
+            clear_list_items(self._list)
             self._update_buttons.clear()
             self._row_icon_labels.clear()
             icon_size = self._list.iconSize()
@@ -81,7 +106,7 @@ class SnapshotsPanelController(UiPanelController):
                             max(PANEL_ITEM_ROW_HEIGHT, icon_label.height() + 8),
                         )
                     )
-                next_row = 0
+                next_row = -1
                 if selected_path is not None:
                     for row, entry in enumerate(self._entries):
                         if entry.path == selected_path:
@@ -188,11 +213,47 @@ class SnapshotsPanelController(UiPanelController):
             return
         MethodsCitationsDialogController().exec(report)
 
+    def _refresh_preview_theme(self, _palette) -> None:
+        self._set_thumbnail_size(self._size_spin.value())
+
+    @staticmethod
+    def _theme_preview_background(pixmap: QtGui.QPixmap, snapshot_path: Path) -> QtGui.QPixmap:
+        try:
+            payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            if payload.get("states", {}).get("canvas", {}).get("background_color"):
+                return pixmap
+        except (OSError, ValueError, AttributeError):
+            return pixmap
+        image = pixmap.toImage()
+        dark = QtWidgets.QApplication.palette().color(QtGui.QPalette.ColorRole.Window).lightness() < 128
+        target = QtGui.QColor("#7d7d7e" if dark else "#ffffff")
+        source = QtGui.QColor("#ffffff" if dark else "#7d7d7e")
+        # Old previews are opaque captures. Replace only default-colored pixels
+        # connected to the image edge, leaving enclosed artwork colors intact.
+        width, height = image.width(), image.height()
+        pending = [(x, y) for x in range(width) for y in (0, height - 1)]
+        pending.extend((x, y) for y in range(height) for x in (0, width - 1))
+        while pending:
+            x, y = pending.pop()
+            if image.pixelColor(x, y) != source:
+                continue
+            image.setPixelColor(x, y, target)
+            if x > 0:
+                pending.append((x - 1, y))
+            if x + 1 < width:
+                pending.append((x + 1, y))
+            if y > 0:
+                pending.append((x, y - 1))
+            if y + 1 < height:
+                pending.append((x, y + 1))
+        return QtGui.QPixmap.fromImage(image)
+
     def _snapshot_pixmap(self, snapshot_path: Path, max_edge: int) -> QtGui.QPixmap:
         png = snapshot_path.with_suffix(".png")
         if png.exists():
             pix = QtGui.QPixmap(str(png))
             if not pix.isNull():
+                pix = self._theme_preview_background(pix, snapshot_path)
                 return pix.scaled(
                     max(1, int(max_edge)),
                     max(1, int(max_edge)),
@@ -207,6 +268,12 @@ class SnapshotsPanelController(UiPanelController):
         return QtGui.QIcon(self._snapshot_pixmap(snapshot_path, min(icon_size.width(), icon_size.height())))
 
     def _open_snapshot_save_dialog(self) -> None:
+        if self._dialog is not None:
+            require_child(self._dialog, QtWidgets.QLineEdit, "edit_preset_name").clear()
+            self._dialog.show()
+            self._dialog.raise_()
+            self._dialog.activateWindow()
+            return
         self._dialog = load_ui(self.package, "ui/save_preset_dialog.ui", self._widget)
         self._dialog.setWindowTitle("save new snapshot")
         warning = self._dialog.findChild(QtWidgets.QLabel, "label_preset_exists_warning")
@@ -255,7 +322,6 @@ class SnapshotsPanelController(UiPanelController):
 
     def _on_current_row_changed(self, row: int) -> None:
         if row >= 0:
-            self._show_status(f"Selected snapshot {row + 1}.")
             item = self._list.item(row)
             if item is not None:
                 self._on_item_activated(item)
@@ -265,10 +331,11 @@ class SnapshotsPanelController(UiPanelController):
     def _configure_options_menu(self) -> None:
         self._menu = QtWidgets.QMenu(self._options_button)
         self._load_recent_menu = self._menu.addMenu("Load Recent")
-        self._action_cite = self._menu.addAction("Citations…")
-        self._action_cite.triggered.connect(lambda: self._cite_snapshot(self.selected_snapshot_path()))
         self._action_save_current = self._menu.addAction("Save Snapshot…")
         self._action_save_current.triggered.connect(self._open_snapshot_save_dialog)
+        self._action_cite = self._menu.addAction("Methods && Citations…")
+        self._action_cite.triggered.connect(lambda: self._cite_snapshot(self.selected_snapshot_path()))
+        self._menu.addSeparator()
         self._action_update_selected = self._menu.addAction("Overwrite Snapshot")
         self._action_update_selected.triggered.connect(self._update_selected_snapshot)
         self._options_button.setMenu(self._menu)
@@ -280,7 +347,7 @@ class SnapshotsPanelController(UiPanelController):
         self._load_recent_menu.clear()
         recent = self._entries[:10]
         if not recent:
-            action = self._load_recent_menu.addAction("No Presets Saved")
+            action = self._load_recent_menu.addAction("No Snapshots Saved")
             action.setEnabled(False)
         for entry in recent:
             action = self._load_recent_menu.addAction(entry.label)
@@ -347,7 +414,7 @@ class SnapshotsPanelController(UiPanelController):
         if path is None or not label:
             return None
         menu = QtWidgets.QMenu(self._list)
-        menu.addAction("Citations…").triggered.connect(lambda: self._cite_snapshot(path))
+        menu.addAction("Methods && Citations…").triggered.connect(lambda: self._cite_snapshot(path))
         menu.addSeparator()
         action = menu.addAction(f"Delete {label}")
         action.triggered.connect(lambda _checked=False, path=path, label=label: self._delete_snapshot(path, label))

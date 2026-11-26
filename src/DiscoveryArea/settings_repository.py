@@ -6,21 +6,18 @@ from shared.persistence import json_store
 
 
 class DiscoverySettingsRepository:
-    """Current canvas, tooltip and filter settings, independent of pins and presets."""
+    """Current exploration settings, independent of pin records and presets."""
 
     def __init__(self, state_directory: Path) -> None:
         self._path = state_directory / "discovery_settings.json"
 
     def load(self) -> dict:
-        try:
-            payload = json_store.read_json(self._path, default={})
-        except (OSError, ValueError):
-            return {}
+        payload = json_store.read_json(self._path, default={})
         if not isinstance(payload, dict):
-            return {}
+            raise ValueError("Invalid saved Discovery settings.")
         return {
             key: value for key, value in payload.items()
-            if (key in {"tooltip", "filters", "canvas"} and isinstance(value, dict))
+            if (key in {"tooltip", "pins", "slicer", "filters", "canvas"} and isinstance(value, dict))
             or (key == "tooltips_visible" and isinstance(value, bool))
         }
 

@@ -8,8 +8,8 @@ from typing import Any
 
 import numpy as np
 
-from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset, MediaSourceKind
-from EmbeddingsArea.runtime.readers import load_embedding_matrix_with_ids
+from EmbeddingsArea.domain import EmbeddingRunState, MediaAsset
+from EmbeddingsArea.runtime.readers import inspect_embedding_matrix, load_embedding_matrix_with_ids
 from EmbeddingsArea.repository import EmbeddingRunRepository, MediaRepository
 from MetadataArea.repository import MetadataRepository
 from MetadataArea.group_repository import MetadataGroupRepository
@@ -74,6 +74,17 @@ class DiscoveryService:
         self._repository = repository or DiscoveryRepository()
         self._method_catalog = method_catalog or DiscoveryMethodCatalog()
 
+    def inspect_projection_inputs(self, project, artifact_path, metadata_ids, *, source_key=None):
+        from DiscoveryArea.domain import ProjectionInputInfo
+
+        info = inspect_embedding_matrix(Path(artifact_path))
+        canonical_ids = self._canonical_artifact_metadata_ids(
+            project, source_key=source_key, artifact_path=artifact_path, object_ids=info.object_ids,
+        )
+        selected = int(np.count_nonzero(np.isin(metadata_ids, canonical_ids)))
+        return ProjectionInputInfo(info.row_count, selected, info.dimensions,
+                                   info.loading_min_bytes, info.loading_estimate_bytes)
+
     def discovery_scope_for_option(self, option: DiscoveryOption) -> str:
         if option.is_random:
             return "random"
@@ -133,19 +144,7 @@ class DiscoveryService:
             ItemMediaSource(
                 asset.id, asset.source_id, sources[asset.source_id].label,
                 asset.absolute_path, asset.content_type.value,
-                text_record_key=(
-                    asset.source_key
-                    if asset.content_type.value == "text"
-                    and asset.absolute_path.suffix.lower() in {".jsonl", ".ndjson"}
-                    and (
-                        sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN
-                        or (
-                            sources[asset.source_id].source_kind == MediaSourceKind.FILE
-                            and sources[asset.source_id].path.suffix.lower() in {".jsonl", ".ndjson"}
-                        )
-                    )
-                    else ""
-                ),
+                text_record_key=asset.text_record_key,
             )
             for asset in assets
             if supports_media_preview(asset.content_type.value, asset.absolute_path)
@@ -268,19 +267,38 @@ class DiscoveryService:
         visibility: np.ndarray | None,
         visible_threshold: float = 0.5,
     ) -> list[int]:
+        selected, _filtered = self.polygon_selection_members(
+            polygon_points=polygon_points,
+            dataset=dataset,
+            visibility=visibility,
+            visible_threshold=visible_threshold,
+        )
+        return selected
+
+    def polygon_selection_members(
+        self,
+        *,
+        polygon_points: list[list[float]],
+        dataset: DiscoveryDataset,
+        visibility: np.ndarray | None,
+        visible_threshold: float = 0.5,
+    ) -> tuple[list[int], list[int]]:
+        """Partition polygon members into selected and filter/slicer-excluded IDs."""
         polygon = np.asarray(polygon_points, dtype=np.float32)
         if polygon.ndim != 2 or polygon.shape[0] < 3 or dataset.coordinates.shape[0] == 0:
-            return []
+            return [], []
         if dataset.coordinates.shape[0] != dataset.metadata_ids.shape[0]:
-            return []
+            return [], []
         from DiscoveryArea.canvas.indexing import points_in_polygon
 
         inside = points_in_polygon(dataset.coordinates[:, :2].astype(np.float32), polygon)
         if inside.shape[0] != dataset.metadata_ids.shape[0]:
-            return []
+            return [], []
+        member_ids = dataset.metadata_ids[inside]
         if visibility is not None and visibility.shape[0] == inside.shape[0]:
-            inside = inside & (visibility >= float(visible_threshold))
-        return [int(value) for value in dataset.metadata_ids[inside].tolist()]
+            selected = visibility[inside] >= float(visible_threshold)
+            return member_ids[selected].tolist(), member_ids[~selected].tolist()
+        return member_ids.tolist(), []
 
     def list_polygon_areas(self, project: "Project", discovery_scope: str) -> list[PolygonArea]:
         return self.polygon_area_repository_for_project(project).list_areas(discovery_scope)
@@ -296,9 +314,16 @@ class DiscoveryService:
         metadata_ids: list[int],
         arrangement_ref: str = "original",
     ) -> PolygonArea:
-        return self.polygon_area_repository_for_project(project).upsert_area(
+        repository = self.polygon_area_repository_for_project(project)
+        base_label = str(label or "").strip()
+        available_label = base_label
+        suffix = 2
+        while repository.area_label_exists(discovery_scope=discovery_scope, label=available_label):
+            available_label = f"{base_label}_{suffix}"
+            suffix += 1
+        return repository.upsert_area(
             discovery_scope=discovery_scope,
-            label=label,
+            label=available_label,
             color_hex=color_hex,
             polygon_points=polygon_points,
             metadata_ids=metadata_ids,
@@ -321,34 +346,6 @@ class DiscoveryService:
 
     def remove_polygon_area(self, *, project: "Project", area_id: str) -> None:
         self.polygon_area_repository_for_project(project).remove_area(area_id=area_id)
-
-    def set_polygon_area_visibility(
-        self,
-        *,
-        project: "Project",
-        area_id: str,
-        area_visible: bool | None = None,
-        points_visible: bool | None = None,
-    ) -> None:
-        self.polygon_area_repository_for_project(project).set_area_visibility(
-            area_id=area_id,
-            area_visible=area_visible,
-            points_visible=points_visible,
-        )
-
-    def set_polygon_areas_visibility(
-        self,
-        *,
-        project: "Project",
-        area_ids: list[str],
-        area_visible: bool | None = None,
-        points_visible: bool | None = None,
-    ) -> None:
-        self.polygon_area_repository_for_project(project).set_areas_visibility(
-            area_ids=area_ids,
-            area_visible=area_visible,
-            points_visible=points_visible,
-        )
 
     @staticmethod
     def polygon_area_overlap_count(areas: list[PolygonArea]) -> int:
@@ -560,9 +557,6 @@ class DiscoveryService:
 
     def rename_polygon_area(self, *, project: "Project", area_id: str, label: str) -> None:
         self.polygon_area_repository_for_project(project).rename_area(area_id=area_id, label=label)
-
-    def set_polygon_area_color(self, *, project: "Project", area_id: str, color_hex: str) -> None:
-        self.polygon_area_repository_for_project(project).set_area_color(area_id=area_id, color_hex=color_hex)
 
     def list_pins(self, *, project: "Project", discovery_scope: str) -> list[PinnedAnnotation]:
         return self.pin_repository_for_project(project).list_pins(discovery_scope)
@@ -779,16 +773,8 @@ class DiscoveryService:
             for method in self._method_catalog.list_methods()
             if method.method_id not in hidden_method_ids
         ]
-        return sorted(methods, key=lambda method: (method.method_id != "pca", method.name.casefold()))
-
-    def discovery_supports_arrangement_transform(self, method_id: object) -> bool:
-        key = str(method_id or "").strip().lower()
-        if key == "t-sne":
-            key = "tsne"
-        definition = self._method_catalog.get(key)
-        return bool(
-            definition is not None and definition.supports_arrangement_transform
-        )
+        priority = {"umap": 0, "umap_05": 1, "pca": 2}
+        return sorted(methods, key=lambda method: (priority.get(method.method_id, 3), method.name.casefold()))
 
     def discovery_method_defaults(self, method_id: str) -> dict[str, object]:
         return self._method_catalog.default_parameters(method_id)
@@ -812,7 +798,10 @@ class DiscoveryService:
         filter_preset_snapshot: dict[str, object] | None = None,
         progress_callback=None,
         status_callback=None,
+        output_slug: str | None = None,
     ) -> DiscoveryOption:
+        from DiscoveryArea.discovery_methods.methods.umap.parameters import resolve_legacy_method
+        method_id = resolve_legacy_method(method_id, parameters or {})
         definition = self._method_catalog.get(method_id)
         if definition is None:
             raise ValueError(f"Unknown discovery method: {method_id}")
@@ -827,6 +816,14 @@ class DiscoveryService:
             matrix = np.zeros((metadata_ids.shape[0], 2), dtype=np.float32)
             aligned_ids = np.asarray(metadata_ids, dtype=np.int64)
         else:
+            from DiscoveryArea.projection_assessment import assess_projection
+
+            # Reinspect at execution time: queued work may outlive the dialog's
+            # count, source or available-memory snapshot. Check before decoding.
+            inputs = self.inspect_projection_inputs(project, artifact_path, metadata_ids, source_key=source_key)
+            assessment = assess_projection(method_id, normalized_parameters, inputs)
+            if assessment.state == "blocked":
+                raise ValueError(" ".join(assessment.messages))
             matrix, object_ids, embedding_summary = load_embedding_matrix_with_ids(Path(artifact_path))
             artifact_metadata_ids = self._canonical_artifact_metadata_ids(
                 project,
@@ -886,6 +883,7 @@ class DiscoveryService:
             ),
             progress_callback=progress_callback,
             status_callback=status_callback,
+            output_slug=output_slug,
         )
 
     def create_discovery_from_custom_coordinates(
@@ -900,6 +898,7 @@ class DiscoveryService:
         y_column: str = "y",
         progress_callback=None,
         status_callback=None,
+        output_slug: str | None = None,
     ) -> DiscoveryOption:
         _emit_status(status_callback, "Loading and validating coordinate data...")
         if progress_callback is not None:
@@ -944,6 +943,7 @@ class DiscoveryService:
             provenance=provenance,
             progress_callback=progress_callback,
             status_callback=status_callback,
+            output_slug=output_slug,
         )
 
     def import_discovery_data(
@@ -1104,41 +1104,6 @@ class DiscoveryService:
             label, payload, allow_overwrite=True
         )
 
-    def ensure_filter_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.filter_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
-    def ensure_appearance_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.appearance_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
-    def ensure_camera_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.camera_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
-    def ensure_slicer_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.slicer_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
-    def ensure_transform_preset(self, project: "Project", label: str, payload: dict[str, Any]) -> Path:
-        return PresetRepository(project.paths.transform_presets).ensure_payload(
-            label,
-            payload,
-            ignored_keys=("name",),
-        )
-
     def load_filter_preset(self, project: "Project", path: Path) -> dict[str, Any] | None:
         return PresetRepository(project.paths.filter_presets).load_payload_from_path(path)
 
@@ -1216,7 +1181,13 @@ class DiscoveryService:
         return SnapshotRepository(project.root, project.paths.snapshot_presets)
 
     def list_thumbnail_variants(self, project: "Project") -> list[ThumbnailVariant]:
-        return ThumbnailVariantRepository(project.paths.root).list_variants()
+        return [variant for variant in ThumbnailVariantRepository(project.paths.root).list_variants() if variant.preview_kind == "image"]
+
+    @staticmethod
+    def projection_preview_variants(project, metadata_ids, *, should_cancel=lambda: False):
+        return ThumbnailVariantRepository(project.paths.root).list_variants_for_items(
+            metadata_ids, should_cancel=should_cancel,
+        )
 
     def compute_visibility(
         self,
@@ -1342,6 +1313,7 @@ class DiscoveryService:
         provenance: dict[str, object] | None = None,
         progress_callback=None,
         status_callback=None,
+        output_slug: str | None = None,
     ) -> DiscoveryOption:
         coordinates = np.asarray(coordinates, dtype=np.float32)
         metadata_ids = np.asarray(metadata_ids, dtype=np.int64)
@@ -1374,6 +1346,7 @@ class DiscoveryService:
             source=source,
             provenance=stored_provenance,
             description=description,
+            slug_override=output_slug,
         )
         if progress_callback is not None:
             progress_callback(92)

@@ -45,7 +45,7 @@ class EmbeddingsAreaController:
         self._execution_coordinator.thumbnails_requested.connect(self._start_default_thumbnails)
         self._model_zoo_dialog: ModelZooDialogController | None = None
         self._load_panels()
-        QtCore.QTimer.singleShot(0, self._configure_layout_splitters)
+        QtCore.QTimer.singleShot(0, self._widget, self._configure_layout_splitters)
 
     @property
     def widget(self) -> QtWidgets.QWidget:
@@ -92,7 +92,7 @@ class EmbeddingsAreaController:
             try:
                 self._thumbnails_requested_callback(run_id)
             except Exception as exc:  # The embedding has already completed.
-                self._show_status(f"Could not start default thumbnails: {exc}")
+                self._show_status(f"Could not start creating Preview Assets: {exc}")
 
     def refresh_clustering_groups(self):
         if self._vector_data_panel is not None:
@@ -187,6 +187,12 @@ class EmbeddingsAreaController:
         finally:
             if activity is not None:
                 activity.finish()
+
+    def refresh_model_locations(self) -> None:
+        """Refresh installed packages after choosing another storage destination."""
+        self._on_models_changed()
+        if self._model_zoo_dialog is not None:
+            self._model_zoo_dialog.set_session(self._session)
 
     def _show_model_zoo(self) -> None:
         if self._model_zoo_dialog is None:

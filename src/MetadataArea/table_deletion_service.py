@@ -91,7 +91,7 @@ class MetadataTableDeletionService:
         # Remove associations, preserving the source assets and records in other tables.
         specs=[(self.project.paths.media/'media_index.db','media_links','metadata_row_id','Media links'),
                (self.project.paths.metadata_groups_database,'group_memberships','metadata_id','Group memberships'),
-               (self.project.root/'thumbnails/variants.db','thumbnail_variant_items','metadata_id','Thumbnail associations'),
+               (self.project.root/'thumbnails/variants.db','thumbnail_variant_items','metadata_id','Preview Assets associations'),
                (self.project.paths.state/'discovery_pins.db','discovery_pins','metadata_id','Pins'),
                (self.project.paths.state/'discovery_areas.db','polygon_area_members','metadata_id','Marked-area memberships')]
         for database,table,field,label in specs:
@@ -150,6 +150,11 @@ class MetadataTableDeletionService:
             added={path for path,payload in documents if path not in files and any(value in references for value in strings(payload))}
             if not added:break
             files.update(added)
+        # apply() rescans all documents for new dependencies. Only documents
+        # covered by the deletion need protection against intervening edits.
+        for path, _ in documents:
+            if path not in files and files.isdisjoint(path.parents):
+                fingerprints.pop(path, None)
         files={path for path in files if not any(parent in files for parent in path.parents)}
         descriptions.extend(f'Saved data: {path.relative_to(root)}' for path in sorted(files) if path.suffix=='.json')
         remember(repo.database_path)
@@ -160,9 +165,12 @@ class MetadataTableDeletionService:
 
     def apply(self, plan):
         for path,size,mtime in plan.fingerprints:
-            stat=path.stat()
+            try:
+                stat=path.stat()
+            except FileNotFoundError as exc:
+                raise ValueError(f'{path.name} disappeared after the deletion preview. Review it again.') from exc
             if (stat.st_size,stat.st_mtime_ns)!=(size,mtime):
-                raise ValueError('Project data changed after the deletion preview. Review it again.')
+                raise ValueError(f'{path.name} changed after the deletion preview. Review it again.')
         current = self.preview(plan.table_id)
         if (current.row_count, current.descriptions, current.statements, current.files) != (
                 plan.row_count, plan.descriptions, plan.statements, plan.files):

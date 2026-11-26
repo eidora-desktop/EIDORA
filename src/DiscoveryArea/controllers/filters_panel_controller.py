@@ -19,13 +19,15 @@ from DiscoveryArea.filters import (
     SelectionFilter,
     SliderFilter,
 )
-from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
+from DiscoveryArea.metadata_access import DiscoveryMetadataAccess, filter_options, numeric_value_range
+from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from DiscoveryArea.range_slider import RangeSlider, ThresholdSlider
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
-from shared.qt.item_views import configure_panel_item_view, minimum_panel_row_size
+from shared.qt.preset_menu import append_manage_presets_action
+from shared.qt.item_views import clear_list_items, configure_panel_item_view, minimum_panel_row_size
 from shared.qt.ui_loader import load_ui
-from shared.qt.widgets import require_child
+from shared.qt.widgets import delete_removed_widgets, require_child
 
 if TYPE_CHECKING:
     from project.domain import Project
@@ -122,16 +124,13 @@ class FiltersPanelController(UiPanelController):
     ui_path = "ui/filters_panel.ui"
     _ADD_RULE_ITEM_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 1
     _SLIDER_POSITION_STEPS = 1_000
-    _QUERY_VALUE_BUTTON_NAMES = {
-        "button_query_equals",
-        "button_query_not_equals",
-        "button_query_less",
-        "button_query_less_equal",
-        "button_query_greater",
-        "button_query_greater_equal",
-        "button_query_contains",
-        "button_query_starts_with",
-        "button_query_ends_with",
+    _QUERY_VALUE_OPERATORS = {
+        "equals",
+        "not_equals",
+        "less",
+        "less_equal",
+        "greater",
+        "greater_equal",
     }
     _UNQUOTED_METADATA_TYPES = {
         "bool",
@@ -163,6 +162,7 @@ class FiltersPanelController(UiPanelController):
     }
 
     def _wire(self) -> None:
+        self._metadata_options = MetadataOptions(self._widget, self._show_status)
         self._list = require_child(self._widget, QtWidgets.QListWidget, "list_filter_rules")
         configure_panel_item_view(self._list)
         self._list.setUniformItemSizes(False)
@@ -201,11 +201,13 @@ class FiltersPanelController(UiPanelController):
             QtWidgets.QToolButton,
             "button_hide_tooltip",
         )
-        self._hide_filtered_tooltips_button.toggled.connect(
-            self._emit_hide_filtered_tooltips_changed
+        self._hide_filtered_tooltips_buttons = (
+            self._hide_filtered_tooltips_button,
+            require_child(self._widget, QtWidgets.QToolButton, "button_hide_tooltip_advanced"),
         )
+        for button in self._hide_filtered_tooltips_buttons:
+            button.toggled.connect(self._emit_hide_filtered_tooltips_changed)
         self._ensure_add_rule_button()
-        self._list.currentRowChanged.connect(self._on_current_rule_changed)
         self._filtered_opacity_spins = (
             require_child(
                 self._widget,
@@ -243,6 +245,7 @@ class FiltersPanelController(UiPanelController):
                 panel.setVisible(False)
 
     def set_project(self, project) -> None:
+        self._metadata_options.reset()
         super().set_project(project)
         self._filter_controls_available = project is not None
         self._options_button.setEnabled(project is not None)
@@ -259,8 +262,10 @@ class FiltersPanelController(UiPanelController):
         metadata_access: DiscoveryMetadataAccess | None,
     ) -> None:
         self._metadata_access = metadata_access
+        self._metadata_options.reset()
 
     def shutdown(self) -> None:
+        self._metadata_options.shutdown()
         self._uninstall_delete_mode_dismiss_filter()
         if self._save_dialog is not None:
             self._save_dialog.close()
@@ -349,21 +354,38 @@ class FiltersPanelController(UiPanelController):
             QtWidgets.QPushButton,
             "button_apply_advanced_query",
         )
-        self._query_token_buttons = [
-            button
-            for button in self._advanced_filter_page.findChildren(QtWidgets.QPushButton)
-            if button.property("queryToken") is not None
-        ]
-        for button in self._query_token_buttons:
-            button.setToolTip("Click to insert, or drag into the query editor")
-            button.clicked.connect(
-                lambda _checked=False, source=button: self._insert_query_token(
-                    self._query_token_for_button(source)
-                )
+        self._advanced_operator_combo = require_child(
+            self._widget, QtWidgets.QComboBox, "combo_query_operator"
+        )
+        self._advanced_operator_button = require_child(
+            self._widget, QtWidgets.QPushButton, "button_query_insert_operator"
+        )
+        for name, label, token in (
+            ("equals", '==', ' == '),
+            ("not_equals", '!=', ' != '),
+            ("less", '<', ' < '),
+            ("less_equal", '<=', ' <= '),
+            ("greater", '>', ' > '),
+            ("greater_equal", '>=', ' >= '),
+            ("and", 'AND', ' AND '),
+            ("or", 'OR', ' OR '),
+            ("not", 'NOT', 'NOT '),
+            ("parenthesis", '( )', '('),
+            ("in", 'IN', ' IN ("")'),
+            ("contains", 'contains', ' CONTAINS ""'),
+            ("starts_with", 'starts with', ' STARTS WITH ""'),
+            ("ends_with", 'ends with', ' ENDS WITH ""'),
+            ("is_empty", 'is empty', ' IS EMPTY'),
+        ):
+            self._advanced_operator_combo.addItem(label, (name, token))
+        self._advanced_operator_button.clicked.connect(
+            lambda _checked=False: self._insert_query_token(
+                self._query_token_for_source(self._advanced_operator_button)
             )
+        )
         self._advanced_field_button.clicked.connect(
             lambda _checked=False: self._insert_query_token(
-                self._query_token_for_button(self._advanced_field_button)
+                self._query_token_for_source(self._advanced_field_button)
             )
         )
         self._advanced_field_combo.currentTextChanged.connect(
@@ -371,10 +393,10 @@ class FiltersPanelController(UiPanelController):
         )
         self._advanced_value_button.clicked.connect(self._insert_advanced_query_value)
         self._query_token_drag_filter = _QueryTokenDragFilter(
-            self._query_token_for_button,
+            self._query_token_for_source,
             self._widget,
         )
-        for button in [*self._query_token_buttons, self._advanced_field_button]:
+        for button in (self._advanced_field_button, self._advanced_operator_button):
             button.installEventFilter(self._query_token_drag_filter)
         self._advanced_query_editor.textChanged.connect(
             self._update_advanced_query_validation
@@ -418,6 +440,8 @@ class FiltersPanelController(UiPanelController):
             return
         self._paused_simple_apply_buttons.clear()
         for widget in self._iter_rule_widgets():
+            if widget.property("metadataLoading"):
+                continue
             apply_button = widget.findChild(QtWidgets.QPushButton, "button_apply_element")
             if apply_button is not None and apply_button.isChecked():
                 self._paused_simple_apply_buttons.add(apply_button)
@@ -435,22 +459,25 @@ class FiltersPanelController(UiPanelController):
                 self._update_rule_apply_button_icon(apply_button)
         self._paused_simple_apply_buttons.clear()
 
-    def _query_token_for_button(self, button: QtWidgets.QAbstractButton) -> str:
-        if button is self._advanced_field_button:
-            field = self._advanced_field_combo.currentText().strip()
+    def _query_token_for_source(self, source: QtCore.QObject) -> str:
+        if source is self._advanced_field_button:
+            field = str(self._advanced_field_combo.currentData() or self._advanced_field_combo.currentText()).strip()
+            label = self._advanced_field_combo.currentText().strip()
+            labels = self._metadata_field_labels
+            if list(labels.values()).count(label) == 1 and label not in self._metadata_columns:
+                field = label
             return f"[{field}]" if field else ""
-        token = str(button.property("queryToken") or "")
-        button_name = button.objectName()
-        if button_name == "button_query_parenthesis":
+        source_name, token = self._advanced_operator_combo.currentData()
+        if source_name == "parenthesis":
             return "()"
-        if button_name == "button_query_in":
+        if source_name == "in":
             return ' IN ("")' if self._query_field_uses_text_values() else " IN ()"
-        if button_name in self._QUERY_VALUE_BUTTON_NAMES and self._query_field_uses_text_values():
+        if source_name in self._QUERY_VALUE_OPERATORS and self._query_field_uses_text_values():
             return f'{token}""'
         return token
 
     def _query_field_uses_text_values(self) -> bool:
-        field = self._advanced_field_combo.currentText().strip()
+        field = str(self._advanced_field_combo.currentData() or self._advanced_field_combo.currentText()).strip()
         if not field:
             return False
         value_type = self._metadata_value_types.get(field, "").strip().casefold()
@@ -497,15 +524,17 @@ class FiltersPanelController(UiPanelController):
 
     def _refresh_advanced_query_values(self) -> None:
         current = self._advanced_value_combo.currentText()
-        field = self._advanced_field_combo.currentText().strip()
-        values = (
-            [value for value in self._metadata_values_for_column(field) if value != ""]
-            if field and self._query_field_uses_text_values()
-            else []
-        )
+        field = str(self._advanced_field_combo.currentData() or self._advanced_field_combo.currentText()).strip()
+        values = self._metadata_values_for_column(field) if field else []
+        self._advanced_value_combo.setProperty('metadataLoading', values is None)
+        if values is None:
+            self._advanced_value_combo.setEnabled(False)
+            self._advanced_value_button.setEnabled(False)
+            return
+        if not self._query_field_uses_text_values():
+            values = []
         with QtCore.QSignalBlocker(self._advanced_value_combo):
-            self._advanced_value_combo.clear()
-            self._advanced_value_combo.addItems(values)
+            self._set_value_choices(self._advanced_value_combo, values)
             index = self._advanced_value_combo.findText(current)
             if index >= 0:
                 self._advanced_value_combo.setCurrentIndex(index)
@@ -514,6 +543,7 @@ class FiltersPanelController(UiPanelController):
     def _update_advanced_query_value_controls(self) -> None:
         enabled = (
             self._filter_controls_available
+            and not self._advanced_value_combo.property('metadataLoading')
             and self._advanced_value_combo.count() > 0
             and self._advanced_query_accepts_value_at_cursor()
         )
@@ -625,34 +655,13 @@ class FiltersPanelController(UiPanelController):
             self._emit_filters_changed()
         self._show_status("Advanced filter query cleared.")
 
-    def _show_methods_report(self) -> None:
-        from DiscoveryArea.settings_provenance import settings_report
-        from DiscoveryArea.snapshot_provenance import SnapshotMethodsService
-        from shared.methods_report import combine_reports
-        from shared.qt.methods_citations_dialog import MethodsCitationsDialogController
-        state = self.filter_state_payload()
-        reports = [settings_report("Filters", filters=state)]
-        if self._project is not None:
-            reports.extend(SnapshotMethodsService.clustering_reports(self._project, [state]))
-        MethodsCitationsDialogController().exec(combine_reports("Filters", reports))
-
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._options_button)
-        self._load_menu = menu.addMenu("Load Recent")
-        menu.addAction("Save Preset…").triggered.connect(self._save_current_preset)
-        menu.addAction("Citations…").triggered.connect(self._show_methods_report)
-        menu.addSeparator()
-        menu.addAction("Add Selection Filter").triggered.connect(lambda: self._add_filter_rule("selection"))
-        menu.addAction("Add Slider Filter").triggered.connect(lambda: self._add_filter_rule("slider"))
-        menu.addAction("Add Range Filter").triggered.connect(
-            lambda: self._add_filter_rule("range")
-        )
-        menu.addSeparator()
-        menu.addAction("Remove…").triggered.connect(self._toggle_delete_mode)
+        self._load_menu = menu.addMenu("Apply Preset")
+        menu.addAction("Save as Preset…").triggered.connect(self._save_current_preset)
         self._options_button.setMenu(menu)
         self._options_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._options_button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
-        self._filter_menu = menu
         self._delete_mode = False
         self.set_recent_preset_labels([])
 
@@ -725,7 +734,7 @@ class FiltersPanelController(UiPanelController):
                 yield widget
 
     def _clear_filter_rules(self) -> None:
-        self._list.clear()
+        clear_list_items(self._list)
         self._add_rule_button = None
         self._ensure_add_rule_button()
 
@@ -921,18 +930,14 @@ class FiltersPanelController(UiPanelController):
                 )
         self._update_rule_value_options(rule)
 
-    def _on_current_rule_changed(self, row: int) -> None:
-        if row >= 0:
-            self._show_status(f"Selected filter row {row + 1}.")
-
     def _set_filter_controls_enabled(self, enabled: bool) -> None:
         self._matching_combo.setEnabled(enabled)
         self._advanced_query_editor.setEnabled(enabled)
         self._advanced_field_combo.setEnabled(enabled)
         self._advanced_field_button.setEnabled(enabled)
         self._advanced_clear_button.setEnabled(enabled)
-        for button in self._query_token_buttons:
-            button.setEnabled(enabled)
+        self._advanced_operator_combo.setEnabled(enabled)
+        self._advanced_operator_button.setEnabled(enabled)
         for widget_name in (
             "spin_filtered_point_size",
             "spin_border_width",
@@ -1045,6 +1050,7 @@ class FiltersPanelController(UiPanelController):
                 item = self._list.item(row)
                 if self._list.itemWidget(item) is widget:
                     self._list.takeItem(row)
+                    delete_removed_widgets(self._list, [widget])
                     self._show_status("Deleted filter row.")
                     break
             if self._filter_rule_count() == 0:
@@ -1096,6 +1102,9 @@ class FiltersPanelController(UiPanelController):
         return self._hide_filtered_tooltips_button.isChecked()
 
     def _emit_hide_filtered_tooltips_changed(self, checked: bool) -> None:
+        for button in self._hide_filtered_tooltips_buttons:
+            with QtCore.QSignalBlocker(button):
+                button.setChecked(checked)
         if self._hide_filtered_tooltips_changed_callback is not None:
             self._hide_filtered_tooltips_changed_callback(bool(checked))
 
@@ -1145,6 +1154,8 @@ class FiltersPanelController(UiPanelController):
             )
         filters: list[FilterRule] = []
         for widget in self._iter_rule_widgets():
+            if widget.property("metadataLoading"):
+                continue
             apply_button = widget.findChild(QtWidgets.QPushButton, "button_apply_element")
             if apply_button is None or not apply_button.isChecked():
                 continue
@@ -1275,10 +1286,10 @@ class FiltersPanelController(UiPanelController):
         if not self._preset_labels:
             action = self._load_menu.addAction("No Presets Saved")
             action.setEnabled(False)
-            return
-        for label in self._preset_labels[:10]:
+        for label in self._preset_labels:
             action = self._load_menu.addAction(label)
             action.triggered.connect(lambda _checked=False, value=label: self._load_preset_by_label(value))
+        append_manage_presets_action(self._load_menu, self._open_settings)
 
     def _load_preset_by_label(self, label: str) -> None:
         if self._load_preset_callback is None:
@@ -1291,6 +1302,9 @@ class FiltersPanelController(UiPanelController):
     def _rule_payload_for_widget(self, widget: QtWidgets.QWidget | None) -> dict:
         if widget is None:
             return {}
+        pending = widget.property("pendingMetadataState")
+        if isinstance(pending, dict):
+            return pending
         kind_map = {
             "row_filter_selection": "selection",
             "row_filter_query": "query",
@@ -1334,14 +1348,23 @@ class FiltersPanelController(UiPanelController):
         missing_column = False
         if column_combo is not None:
             requested_column = str(payload.get("column") or "")
+            missing_column = bool(requested_column and requested_column not in self._metadata_columns)
             idx = column_combo.findData(requested_column)
             if idx < 0:
                 idx = column_combo.findText(requested_column)
             if idx < 0 and requested_column:
                 column_combo.addItem(f"Missing: {requested_column}", requested_column)
                 idx = column_combo.count() - 1
-                missing_column = True
             column_combo.setCurrentIndex(idx if idx >= 0 else 0)
+        if payload.get("kind") in {"selection", "slider", "range"}:
+            values = self._metadata_values_for_column(str(payload.get("column") or ""), owner=widget,
+                ready=lambda: self._finish_rule_options(widget, False))
+            if values is None:
+                widget.setProperty("pendingMetadataState", dict(payload))
+                widget.setProperty("metadataLoading", True)
+                return
+            widget.setProperty("pendingMetadataState", None)
+            self._update_rule_value_options(widget)
         operator = widget.findChild(QtWidgets.QComboBox, "combo_operator")
         if operator is not None:
             idx = operator.findText(str(payload.get("operator") or ""))
@@ -1448,9 +1471,10 @@ class FiltersPanelController(UiPanelController):
                     },
                 )
                 index = column_combo.findData(current)
-                missing_column = index < 0 and bool(current)
+                pending = self._metadata_options.is_pending(('numeric', current))
+                missing_column = index < 0 and bool(current) and not pending
                 if index < 0 and current:
-                    column_combo.addItem(f"Missing: {current}", current)
+                    column_combo.addItem(f"{'Loading' if pending else 'Missing'}: {current}", current)
                     index = column_combo.count() - 1
                 column_combo.setCurrentIndex(index if index >= 0 else 0)
                 column_combo.blockSignals(False)
@@ -1489,8 +1513,14 @@ class FiltersPanelController(UiPanelController):
             return True
         if value_type in self._NON_NUMERIC_METADATA_TYPES:
             return False
-        values = self._metadata_values_for_column(column)
-        return self._numeric_range_for_column(column, values) is not None
+        if column in self._metadata_distinct_values:
+            return self._numeric_range_for_column(column, self._metadata_distinct_values[column]) is not None
+        if self._metadata_access is None:
+            return False
+        access = self._metadata_access
+        result = self._metadata_options.get(('numeric', column), (id(access), column),
+            lambda: (numeric_value_range(access.distinct_values(column)),), self._refresh_rule_option_widgets)
+        return result is not None and result[0] is not None
 
     def _update_rule_value_options(
         self,
@@ -1532,13 +1562,27 @@ class FiltersPanelController(UiPanelController):
         if value_combo is None and not has_slider_filter and not has_range_filter:
             return
         column = str(column_combo.currentData() or column_combo.currentText() or "").strip()
-        values = self._metadata_values_for_column(column)
+        pending = widget.property("pendingMetadataState")
+        if isinstance(pending, dict) and pending.get("column") != column:
+            widget.setProperty("pendingMetadataState", None)
+        values = self._metadata_values_for_column(column, owner=widget,
+            ready=lambda: self._finish_rule_options(widget, reset_slider_value))
+        widget.setProperty("metadataLoading", values is None)
+        for name in ('combo_operator', 'combo_min_max', 'button_apply_element'):
+            control = widget.findChild(QtWidgets.QWidget, name)
+            if control is not None:
+                control.setEnabled(values is not None)
+        if values is None:
+            for control in (value_combo, slider, integer_spin, double_spin, range_slider,
+                            range_integer_min, range_integer_max, range_double_min, range_double_max):
+                if control is not None:
+                    control.setEnabled(False)
+            return
 
         if value_combo is not None:
             current = value_combo.currentText()
             value_combo.blockSignals(True)
-            value_combo.clear()
-            value_combo.addItems(values)
+            self._set_value_choices(value_combo, values)
             index = value_combo.findText(current)
             if index >= 0:
                 value_combo.setCurrentIndex(index)
@@ -1565,52 +1609,45 @@ class FiltersPanelController(UiPanelController):
                 reset_value=reset_slider_value,
             )
 
-    def _metadata_values_for_column(self, column: str) -> list[str]:
-        if (
-            column
-            and column.lower() != "none"
-            and column not in self._metadata_distinct_values
-            and self._metadata_access is not None
-        ):
-            try:
-                self._metadata_distinct_values[column] = list(
-                    self._metadata_access.distinct_values(column)
-                )
-            except Exception:
-                self._metadata_distinct_values[column] = []
-        return self._metadata_distinct_values.get(column, [])
+    @staticmethod
+    def _set_value_choices(combo, values):
+        if not isinstance(combo.model(), QtCore.QStringListModel):
+            combo.setModel(QtCore.QStringListModel(combo))
+        combo.model().setStringList(values)
+
+    def _finish_rule_options(self, widget, reset):
+        self._update_rule_value_options(widget, reset_slider_value=reset)
+        pending = widget.property("pendingMetadataState")
+        if isinstance(pending, dict):
+            self._apply_rule_payload(widget, pending)
+        self._emit_filters_changed()
+
+    def _metadata_values_for_column(self, column: str, *, owner=None, ready=None):
+        if column in self._metadata_distinct_values:
+            return self._metadata_distinct_values[column]
+        owner = self._advanced_field_combo if owner is None else owner
+        if not column or column.lower() == "none" or self._metadata_access is None:
+            self._metadata_options.cancel(owner)
+            return []
+        access = self._metadata_access
+        result = self._metadata_options.get(owner, (id(access), column),
+            lambda: filter_options(access, column), ready or self._refresh_advanced_query_values)
+        if result is None:
+            return None
+        values, numeric_range = result
+        self._metadata_numeric_ranges[column] = numeric_range
+        return values
 
     def _numeric_range_for_column(
         self,
         column: str,
         values: list[str],
     ) -> tuple[float, float, bool] | None:
-        if not column or column.lower() == "none":
+        if not column or column.lower() == "none" or not values:
             return None
         if column in self._metadata_numeric_ranges:
             return self._metadata_numeric_ranges[column]
-        numeric_values: list[float] = []
-        use_double_spin = False
-        for raw_value in values:
-            text = str(raw_value).strip()
-            if not text:
-                continue
-            try:
-                value = float(text)
-            except (TypeError, ValueError):
-                self._metadata_numeric_ranges[column] = None
-                return None
-            if math.isfinite(value):
-                numeric_values.append(value)
-                try:
-                    int(text)
-                except ValueError:
-                    use_double_spin = True
-        numeric_range = (
-            (min(numeric_values), max(numeric_values), use_double_spin)
-            if numeric_values
-            else None
-        )
+        numeric_range = numeric_value_range(values)
         self._metadata_numeric_ranges[column] = numeric_range
         return numeric_range
 

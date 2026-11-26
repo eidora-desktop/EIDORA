@@ -73,7 +73,6 @@ class CanvasToolsPanelController(UiPanelController):
 
     def _activate_mode(self, mode: str) -> None:
         self.set_active_mode(mode)
-        self._show_status(f"Canvas tool mode: {mode}")
 
     def set_active_mode(self, mode: str) -> None:
         if mode not in self._mode_buttons:
@@ -98,7 +97,6 @@ class CanvasToolsPanelController(UiPanelController):
             return
         if self._background_color_callback is not None:
             self._background_color_callback(color)
-        self._show_status(f"Canvas background color: {color.name()}")
 
     def _on_quick_export_clicked(self) -> None:
         if self._quick_export_callback is None:
@@ -126,7 +124,6 @@ class CanvasToolsPanelController(UiPanelController):
             line_edit.setFocus()
             line_edit.selectAll()
             self._on_find_item_text_changed(line_edit.text())
-        self._show_status("Find item popover opened.")
 
     def _hide_find_item_popover(self) -> None:
         if self._find_dialog is not None:
@@ -134,7 +131,6 @@ class CanvasToolsPanelController(UiPanelController):
         self._uninstall_find_item_popover_dismiss_filter()
         if self._clear_find_item_callback is not None:
             self._clear_find_item_callback()
-        self._show_status("Find item popover closed.")
 
     def _on_find_item_text_changed(self, text: str) -> None:
         value = str(text or "").strip()

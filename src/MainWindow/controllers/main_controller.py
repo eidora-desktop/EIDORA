@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtWidgets
 
+from shared.qt import file_dialogs
+
 from MainWindow.controllers.help_panel_controller import HelpPanelController
 from MainWindow.controllers.project_panel_controller import ProjectPanelController
+from MainWindow.controllers.project_save_panel_controller import ProjectSavePanelController
 from MainWindow.controllers.project_chooser_controller import ProjectChooserController
 from MainWindow.controllers.workspace_tour_controller import WorkspaceTourController
+from MainWindow.controllers.window_layout_controller import WindowLayoutController
 from MainWindow.navigation import NavigationItem
 from MainWindow.tour_repository import TourPreferences
 from project.service import ProjectService
@@ -18,7 +23,7 @@ from shared.qt.ui_loader import load_ui
 
 if TYPE_CHECKING:
     from MetadataArea.controllers import MetadataAreaController
-    from AssetsArea.controllers import AssetsAreaController
+    from MediaArea.controllers import MediaAreaController
     from project.domain import Project
 
 
@@ -31,9 +36,11 @@ class MainWindowController:
         project_service: ProjectService | None = None,
         *,
         defer_secondary_areas: bool = False,
+        prepare_workspaces: bool = True,
         tour_preferences: TourPreferences | None = None,
     ) -> None:
         self.window = load_ui("MainWindow", "ui/main_window.ui")
+        self._window_layout = WindowLayoutController(self.window)
         self._base_window_title = self.window.windowTitle() or "EIDORA"
         self._project = project
         self._project_service = project_service or ProjectService()
@@ -44,6 +51,7 @@ class MainWindowController:
         self._status_bar = self._find_required(QtWidgets.QStatusBar, "status_bar")
         self._activity = ActivityManager(self._status_bar)
         self._areas: list[object] = []
+        self._project_saves = ProjectSavePanelController(self.window)
         self._pending_media_refresh = {}
         self._media_jobs_busy = False
         self._discovery_has_items = False
@@ -61,7 +69,7 @@ class MainWindowController:
         self._welcome_tour_timer = QtCore.QTimer(self.window)
         self._welcome_tour_timer.setSingleShot(True)
         self._welcome_tour_timer.timeout.connect(self._start_welcome_tour)
-        self._help_controller = HelpPanelController(self.window)
+        self._help_controller = HelpPanelController(self.window, open_settings=self.show_settings)
         self._tour_controller = WorkspaceTourController(
             self.window, self._help_controller.tour_action, self._navigation_items,
             self._show_area, self._show_status,
@@ -71,11 +79,22 @@ class MainWindowController:
         self._project_panel = ProjectPanelController(
             self.window, switch=self.show_project_chooser, rename=self._rename_project,
             export=self._export_project, delete=self._delete_project,
+            methods=self._show_project_methods,
         )
-        self._build_areas()
-        self.set_project(project)
-        self._show_area(0)
-        self._show_status("Ready")
+        if prepare_workspaces:
+            for _ in self.initialize_workspaces():
+                pass
+
+    def initialize_workspaces(self) -> Iterator[None]:
+        """Prepare the hidden shell, yielding between startup GUI operations."""
+        try:
+            yield from self._build_area_steps()
+            yield from self._set_project_steps(self._project)
+            self._show_area(0)
+        except BaseException:
+            self.shutdown()
+            self.window.close()
+            raise
 
     @property
     def area_names(self) -> tuple[str, ...]:
@@ -89,29 +108,113 @@ class MainWindowController:
             self._deferred_load_timer.start(50)
 
     def show_project_chooser(self) -> bool:
-        """Show the short-lived chooser without changing state on cancellation."""
+        """Close the shell while choosing, restoring the workspace on cancellation."""
         if self._chooser_open:
             return False
         self._tour_controller.close()
         self._chooser_open = True
-        chooser = self._create_project_chooser()
+        app = QtWidgets.QApplication.instance()
+        quit_on_last_window_closed = app.quitOnLastWindowClosed()
+        app.setQuitOnLastWindowClosed(False)
         try:
-            accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
-            project = chooser.selected_project
-            status = chooser.selection_status
+            if not self.window.close():
+                return False
+            chooser = self._create_project_chooser()
+            try:
+                accepted = chooser.exec() == QtWidgets.QDialog.DialogCode.Accepted
+                project = chooser.selected_project
+                status = chooser.selection_status
+            finally:
+                chooser.dispose()
+            if not accepted or project is None:
+                return False
+            self._show_status(status)
+            return True
         finally:
-            chooser.dispose()
             self._chooser_open = False
-        if not accepted or project is None:
-            return False
-        self._activate_project(project)
-        self._show_status(status)
-        return True
+            self._project_saves.cancel_leave()
+            try:
+                if self._project is not None:
+                    self.show()
+                else:
+                    app.quit()
+            finally:
+                app.setQuitOnLastWindowClosed(quit_on_last_window_closed)
+
+    def show_settings(self, *, tab: str = "general") -> None:
+        from MainWindow.controllers.settings_dialog_controller import SettingsDialogController
+
+        self._tour_controller.close()
+        controller = SettingsDialogController(
+            self._project_service,
+            project_open=self._project is not None,
+            current_project=self._project,
+            storage_busy=lambda: bool(self._activity.processes.records),
+            models_changed=self._refresh_model_locations,
+            presets_changed=self._refresh_preset_menus,
+            required_preset_paths=self._required_preset_paths,
+            before_project_storage_change=self._close_for_project_storage_change,
+        )
+        controller.select_tab(tab)
+        app = QtWidgets.QApplication.instance()
+        quit_on_close = app.quitOnLastWindowClosed()
+        app.setQuitOnLastWindowClosed(False)
+        try:
+            controller.exec()
+            if controller.project_closed_for_storage_change and not self._chooser_open:
+                self.show_project_chooser()
+        finally:
+            app.setQuitOnLastWindowClosed(quit_on_close)
+
+    def _close_for_project_storage_change(self):
+        """Detach all project consumers before storage moves; drain saves in the worker."""
+        from FiguresArea.controllers import FiguresAreaController
+
+        if not self.window.close():
+            raise ValueError("Project storage changes cancelled; the project remains open.")
+        if not self.set_project(None):
+            self.show()
+            raise ValueError("Project storage changes cancelled; the project remains open.")
+        self._welcome_tour_timer.stop()
+        self._deferred_load_timer.stop()
+        waits = [area.storage_completion_waiter() for area in self._areas
+                 if isinstance(area, FiguresAreaController)]
+        def wait_for_saves():
+            for wait in waits:
+                wait()
+        return wait_for_saves
+
+    def _refresh_preset_menus(self, project) -> None:
+        if self._project is None or project.root != self._project.root:
+            return
+        from DiscoveryArea.controllers import DiscoveryAreaController
+        from FiguresArea.controllers import FiguresAreaController
+
+        for area in self._areas:
+            if isinstance(area, (DiscoveryAreaController, FiguresAreaController)):
+                area.refresh_preset_menus()
+
+    def _required_preset_paths(self, project):
+        if self._project is None or project.root != self._project.root:
+            return ()
+        from FiguresArea.controllers import FiguresAreaController
+
+        return tuple(path for area in self._areas if isinstance(area, FiguresAreaController)
+                     for path in area.required_preset_paths())
+
+    def _refresh_model_locations(self) -> None:
+        from EmbeddingsArea.controllers import EmbeddingsAreaController
+
+        for area in self._areas:
+            if isinstance(area, EmbeddingsAreaController):
+                area.refresh_model_locations()
 
     def _create_project_chooser(self) -> ProjectChooserController:
         """Build one chooser instance; kept separate for focused UI testing."""
         return ProjectChooserController(
             self._project_service,
+            prepare_project=self._prepare_project_switch,
+            open_settings=lambda tab: self.show_settings(tab=tab),
             storage_read_only=self._project is not None,
             remove_project_callback=lambda project: self._delete_project(
                 project,
@@ -119,7 +222,15 @@ class MainWindowController:
             ),
         )
 
-    def set_project(self, project: Project | None) -> None:
+    def set_project(self, project: Project | None) -> bool:
+        if self._project is not None and not self._project_saves.confirm_leave():
+            return False
+        for _ in self._set_project_steps(project):
+            pass
+        return True
+
+    def _set_project_steps(self, project: Project | None) -> Iterator[None]:
+        self._project_saves.discard_if_confirmed()
         self._welcome_tour_timer.stop()
         self._tour_controller.close()
         self._is_example_collection = ProjectService.is_example_collection(project)
@@ -136,6 +247,8 @@ class MainWindowController:
             self._set_project_navigation_enabled(project is not None)
             for area in self._areas:
                 area.set_project(project)
+                self._window_layout.register_area(area.widget)
+                yield
             self._refresh_discovery_availability()
             self._refresh_figures_availability()
         self._welcome_tour_timer.start(0)
@@ -174,6 +287,9 @@ class MainWindowController:
         if self._shutdown:
             return
         self._shutdown = True
+        self._project_saves.discard_if_confirmed()
+        self._project_saves.shutdown()
+        self._window_layout.save()
         self._deferred_load_timer.stop()
         self._welcome_tour_timer.stop()
         self._tour_controller.shutdown()
@@ -185,78 +301,54 @@ class MainWindowController:
             area.shutdown()
         self._activity.shutdown()
 
-    def _build_areas(self) -> None:
+    def _build_area_steps(self) -> Iterator[None]:
         if self._defer_secondary_areas:
-            self._build_assets_area_first()
+            self._build_media_area_first()
+            yield
             return
 
-        # Keep the shell import light; area imports pull rendering and compute code.
-        from DiscoveryArea.controllers import DiscoveryAreaController
-        from EmbeddingsArea.controllers import EmbeddingsAreaController
-        from FiguresArea.controllers import FiguresAreaController
-        from MetadataArea.controllers import MetadataAreaController
-        from AssetsArea.controllers import AssetsAreaController
-
-        area_specs = [
-            ("Assets", "button_assets_area", AssetsAreaController),
-            ("Metadata", "button_metadata_area", MetadataAreaController),
-            ("Embeddings", "button_embeddings_area", EmbeddingsAreaController),
-            ("Discovery", "button_discovery_area", DiscoveryAreaController),
-            ("Figures", "button_figures_area", FiguresAreaController),
-        ]
-        assets_area: AssetsAreaController | None = None
-        metadata_area: MetadataAreaController | None = None
-        embeddings_area: EmbeddingsAreaController | None = None
-        discovery_area: DiscoveryAreaController | None = None
-        figures_area: FiguresAreaController | None = None
-
-        for index, (title, button_name, controller_type) in enumerate(area_specs):
+        area_specs = (
+            ("Media", "button_media_area"),
+            ("Metadata", "button_metadata_area"),
+            ("Embeddings", "button_embeddings_area"),
+            ("Discovery", "button_discovery_area"),
+            ("Figures", "button_figures_area"),
+        )
+        for index, (title, button_name) in enumerate(area_specs):
+            # Import separately from construction so paint/timer events can run
+            # between both operations. All widgets still belong to the GUI thread.
+            controller_type = self._deferred_controller_type(index)
+            yield
             button = self._find_required(QtWidgets.QAbstractButton, button_name)
             controller = controller_type(
                 parent=self.window,
                 status_callback=self._show_status,
                 activity_manager=self._activity,
             )
-            if isinstance(controller, AssetsAreaController):
-                assets_area = controller
-            elif isinstance(controller, MetadataAreaController):
-                metadata_area = controller
-            elif isinstance(controller, EmbeddingsAreaController):
-                embeddings_area = controller
-            elif isinstance(controller, DiscoveryAreaController):
-                discovery_area = controller
-            elif isinstance(controller, FiguresAreaController):
-                figures_area = controller
             self._areas.append(controller)
+            self._project_saves.register_area(controller)
             self._stack.addWidget(controller.widget)
             self._button_group.addButton(button, index)
             self._navigation_items.append(NavigationItem(title, button, controller.widget))
             button.clicked.connect(lambda _checked=False, page=index: self._show_area(page))
+            yield
 
-        if not all((assets_area, metadata_area, embeddings_area, discovery_area, figures_area)):
-            raise RuntimeError("Main window did not construct every workspace")
+        self._wire_area_dependencies(*self._areas)
+        yield
 
-        self._wire_area_dependencies(
-            assets_area,
-            metadata_area,
-            embeddings_area,
-            discovery_area,
-            figures_area,
-        )
-
-    def _build_assets_area_first(self) -> None:
+    def _build_media_area_first(self) -> None:
         """Build only the visible startup workspace and lightweight placeholders."""
 
-        from AssetsArea.controllers import AssetsAreaController
+        from MediaArea.controllers import MediaAreaController
 
         area_specs = (
-            ("Assets", "button_assets_area"),
+            ("Media", "button_media_area"),
             ("Metadata", "button_metadata_area"),
             ("Embeddings", "button_embeddings_area"),
             ("Discovery", "button_discovery_area"),
             ("Figures", "button_figures_area"),
         )
-        assets_area = AssetsAreaController(
+        media_area = MediaAreaController(
             parent=self.window,
             status_callback=self._show_status,
             activity_manager=self._activity,
@@ -264,17 +356,17 @@ class MainWindowController:
 
         for index, (title, button_name) in enumerate(area_specs):
             button = self._find_required(QtWidgets.QAbstractButton, button_name)
-            page = assets_area.widget if index == 0 else self._loading_page(title)
+            page = media_area.widget if index == 0 else self._loading_page(title)
             self._stack.addWidget(page)
             self._button_group.addButton(button, index)
             self._navigation_items.append(NavigationItem(title, button, page))
             button.clicked.connect(lambda _checked=False, page_index=index: self._show_area(page_index))
 
-        self._areas.append(assets_area)
-        assets_area.set_media_changed_callback(self._refresh_loaded_secondary_areas)
-        assets_area.set_metadata_changed_callback(self._refresh_loaded_secondary_areas)
-        assets_area.set_thumbnail_variants_changed_callback(self._refresh_loaded_secondary_areas)
-        assets_area.set_media_busy_callback(self._set_media_busy)
+        self._areas.append(media_area)
+        media_area.set_media_changed_callback(self._refresh_loaded_secondary_areas)
+        media_area.set_metadata_changed_callback(self._refresh_loaded_secondary_areas)
+        media_area.set_thumbnail_variants_changed_callback(self._refresh_loaded_secondary_areas)
+        media_area.set_media_busy_callback(self._set_media_busy)
 
     def _load_next_deferred_area(self) -> None:
         if self._shutdown or len(self._areas) >= len(self._navigation_items):
@@ -300,7 +392,9 @@ class MainWindowController:
         )
         placeholder.deleteLater()
         self._areas.append(controller)
+        self._project_saves.register_area(controller)
         controller.set_project(self._project)
+        self._window_layout.register_area(controller.widget)
         metadata_callback = getattr(controller, "set_metadata_changed_callback", None)
         if callable(metadata_callback):
             metadata_callback(self._refresh_discovery_availability)
@@ -314,11 +408,14 @@ class MainWindowController:
             return
 
         self._wire_area_dependencies(*self._areas)
-        self._show_status("All workspaces ready")
         self._welcome_tour_timer.start(0)
 
     @staticmethod
     def _deferred_controller_type(index: int):
+        if index == 0:
+            from MediaArea.controllers import MediaAreaController
+
+            return MediaAreaController
         if index == 1:
             from MetadataArea.controllers import MetadataAreaController
 
@@ -354,12 +451,14 @@ class MainWindowController:
 
     def _wire_area_dependencies(
         self,
-        assets_area,
+        media_area,
         metadata_area,
         embeddings_area,
         discovery_area,
         figures_area,
     ) -> None:
+        for area in (discovery_area, figures_area):
+            area.set_open_settings_callback(lambda tab: self.show_settings(tab=tab))
 
         def refresh_after_project_media() -> None:
             metadata_area.refresh()
@@ -375,8 +474,8 @@ class MainWindowController:
             discovery_area.refresh_metadata_groups()
             discovery_area.refresh_thumbnail_variants()
 
-        assets_area.set_media_changed_callback(refresh_after_project_media)
-        assets_area.set_metadata_changed_callback(refresh_after_project_metadata)
+        media_area.set_media_changed_callback(refresh_after_project_media)
+        media_area.set_metadata_changed_callback(refresh_after_project_metadata)
         def refresh_after_media_operation(result):
             self._queue_media_refresh(2, "inputs", embeddings_area.refresh_embedding_inputs)
             if result.metadata_changed:
@@ -385,16 +484,16 @@ class MainWindowController:
             if result.metadata_changed or result.links_changed:
                 self._queue_media_refresh(3, "metadata", discovery_area.refresh_metadata)
 
-        assets_area.set_media_operation_callback(refresh_after_media_operation)
-        assets_area.set_media_busy_callback(self._set_media_busy)
-        assets_area.set_thumbnail_variants_changed_callback(discovery_area.refresh_thumbnail_variants)
-        assets_area.set_source_in_use_callback(embeddings_area.source_in_use)
-        embeddings_area.set_media_source_busy_callback(assets_area.media_source_busy)
+        media_area.set_media_operation_callback(refresh_after_media_operation)
+        media_area.set_media_busy_callback(self._set_media_busy)
+        media_area.set_thumbnail_variants_changed_callback(discovery_area.refresh_thumbnail_variants)
+        media_area.set_source_in_use_callback(embeddings_area.source_in_use)
+        embeddings_area.set_media_source_busy_callback(media_area.media_source_busy)
 
         def refresh_after_metadata() -> None:
             self._refresh_discovery_availability()
-            assets_area.refresh_media_sources()
-            assets_area.refresh_thumbnail_variants()
+            media_area.refresh_media_sources()
+            media_area.refresh_thumbnail_variants()
             embeddings_area.refresh_embedding_inputs()
             discovery_area.refresh_metadata()
             discovery_area.refresh_metadata_groups()
@@ -412,15 +511,15 @@ class MainWindowController:
         def refresh_after_embedding_metadata() -> None:
             self._refresh_discovery_availability()
             metadata_area.refresh()
-            assets_area.refresh_media_sources()
-            assets_area.refresh_thumbnail_variants()
+            media_area.refresh_media_sources()
+            media_area.refresh_thumbnail_variants()
             discovery_area.refresh_metadata()
             discovery_area.refresh_thumbnail_variants()
 
         embeddings_area.set_metadata_changed_callback(refresh_after_embedding_metadata)
 
         def start_embedding_thumbnails(run_id: str) -> None:
-            assets_area.start_embedding_thumbnails(run_id)
+            media_area.start_embedding_thumbnails(run_id)
 
         embeddings_area.set_thumbnails_requested_callback(start_embedding_thumbnails)
 
@@ -439,8 +538,8 @@ class MainWindowController:
         def refresh_after_discovery_metadata() -> None:
             self._refresh_discovery_availability()
             metadata_area.refresh()
-            assets_area.refresh_media_sources()
-            assets_area.refresh_thumbnail_variants()
+            media_area.refresh_media_sources()
+            media_area.refresh_thumbnail_variants()
             embeddings_area.refresh_embedding_inputs()
 
         discovery_area.set_metadata_changed_callback(refresh_after_discovery_metadata)
@@ -451,7 +550,7 @@ class MainWindowController:
 
         discovery_area.set_groups_changed_callback(refresh_after_discovery_groups)
         discovery_area.set_create_thumbnails_requested_callback(
-            lambda: self._open_thumbnail_creation(assets_area)
+            lambda: self._open_thumbnail_creation(media_area)
         )
         discovery_area.set_open_metadata_callback(
             lambda metadata_id: self._open_metadata_row(metadata_area, metadata_id)
@@ -462,14 +561,22 @@ class MainWindowController:
 
         discovery_area.set_snapshots_changed_callback(refresh_after_snapshots)
 
+        def create_slicer_animation(snapshot_path, preset_path, payload, values) -> None:
+            figures_area.create_slicer_animation(snapshot_path, preset_path, payload, values)
+            self._refresh_figures_availability()
+            self._show_area(4)
+
+        discovery_area.set_create_slicer_animation_callback(create_slicer_animation)
+
+
     def _open_metadata_row(self, metadata_area: MetadataAreaController, metadata_id: int) -> None:
         self._show_area(1)
         if not metadata_area.select_metadata_row(metadata_id):
             self._show_status(f"Metadata item {int(metadata_id)} is no longer available")
 
-    def _open_thumbnail_creation(self, assets_area: AssetsAreaController) -> None:
+    def _open_thumbnail_creation(self, media_area: MediaAreaController) -> None:
         self._show_area(0)
-        QtCore.QTimer.singleShot(0, assets_area.open_thumbnail_creation_dialog)
+        QtCore.QTimer.singleShot(0, media_area.open_thumbnail_creation_dialog)
 
     def _show_area(self, index: int) -> bool:
         if not 0 <= index < len(self._navigation_items):
@@ -482,7 +589,7 @@ class MainWindowController:
             self._show_status(f"Loading {self._navigation_items[index].title}…")
             return False
         if index == 3 and not self._discovery_has_items and not self._tour_controller.is_active:
-            self._show_status("Import metadata or run an analysis on assets to enable Discovery")
+            self._show_status("Import metadata or run an analysis on media to enable Discovery")
             return False
         if index == 4 and not self._figures_has_snapshots and not self._tour_controller.is_active:
             self._show_status("Create a snapshot to enable Figures")
@@ -497,7 +604,6 @@ class MainWindowController:
         activate = getattr(self._areas[index], "activate", None)
         if callable(activate):
             QtCore.QTimer.singleShot(0, activate)
-        self._show_status(f"Showing {self._navigation_items[index].title}")
         return True
 
     def _match_figures_sidebar_width(self) -> None:
@@ -509,8 +615,15 @@ class MainWindowController:
         )
         if discovery is None or figures is None:
             return
-        width = max(discovery.width(), discovery.minimumSizeHint().width())
-        figures.widget(1).setMinimumWidth(discovery.minimumSizeHint().width())
+        if self._window_layout.has_saved_splitter(figures):
+            return
+        sidebar = figures.widget(1)
+        minimum_width = max(
+            discovery.minimumSizeHint().width(),
+            sidebar.minimumWidth(), sidebar.minimumSizeHint().width(),
+        )
+        width = max(discovery.width(), minimum_width)
+        sidebar.setMinimumWidth(minimum_width)
         available = sum(figures.sizes())
         figures.setStretchFactor(0, 1)
         figures.setStretchFactor(1, 0)
@@ -542,7 +655,7 @@ class MainWindowController:
             if index == 3:
                 available = available and (self._discovery_has_items or touring)
                 item.button.setToolTip("" if self._discovery_has_items or touring else
-                                       "Import metadata or run an analysis on assets to enable Discovery")
+                                       "Import metadata or run an analysis on media to enable Discovery")
             if index == 4:
                 available = available and (self._figures_has_snapshots or touring)
                 item.button.setToolTip("" if self._figures_has_snapshots or touring else
@@ -572,9 +685,21 @@ class MainWindowController:
         if not self._discovery_has_items and self._stack.currentIndex() == 3 and not self._tour_controller.is_active:
             self._show_area(0)
 
+    def _show_project_methods(self, project: Project) -> None:
+        from project.methods_service import ProjectMethodsService
+        from shared.qt.methods_citations_dialog import MethodsCitationsDialogController
+
+        service = ProjectMethodsService(project)
+        try:
+            sources = service.sources()
+        except Exception as exc:  # Keep an unavailable saved store visible as a reporting error.
+            self._show_status(f"Methods reports unavailable: {exc}")
+            return
+        MethodsCitationsDialogController().exec(sources=sources, load_report=service.load)
+
     def _export_project(self, project: Project) -> None:
         default_path = str(Path.home() / f"{project.name}.zip")
-        bundle_path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        bundle_path, _selected_filter = file_dialogs.get_save_file_name(
             self.window,
             "Export Project Bundle",
             default_path,
@@ -602,7 +727,8 @@ class MainWindowController:
             return False
         is_active = self._project is not None and self._same_project_root(self._project.root, project.root)
         if is_active:
-            self.set_project(None)
+            if not self.set_project(None):
+                return False
         try:
             deleted_project = self._project_service.delete_project(project)
         except Exception as exc:
@@ -627,9 +753,12 @@ class MainWindowController:
         if not accepted:
             self._show_status("Rename project cancelled")
             return
+        if self._project is not None and not self._project_saves.confirm_leave():
+            return
         try:
             renamed_project = self._project_service.rename_project(project, project_name)
         except Exception as exc:
+            self._project_saves.cancel_leave()
             show_error(self.window, "Rename Project Failed", str(exc))
             self._show_status("Rename project failed")
             return
@@ -637,15 +766,28 @@ class MainWindowController:
             self.set_project(renamed_project)
         self._show_status(f"Renamed project {project.name} to {renamed_project.name}")
 
-    def _activate_project(self, project: Project) -> None:
-        self.set_project(project)
+    def _prepare_project_switch(self, project: Project) -> Iterator[None]:
+        """Keep the chooser's loader visible through workspace binding and show."""
+        if not self._project_saves.confirm_leave():
+            raise ValueError("Project switch cancelled; unsaved changes remain in the open project.")
+        previous_project = self._project
+        previous_area = self._stack.currentIndex()
+        try:
+            yield from self._set_project_steps(project)
+        except Exception:
+            # The chooser permits retry/cancel after an error. Restore the
+            # existing shell before returning control to that dialog.
+            yield from self._set_project_steps(previous_project)
+            self._show_area(previous_area)
+            raise
         self._show_area(0)
+        self.show()
 
     def _confirm_delete_project(self, project: Project) -> bool:
         message = (
             f'This will permanently delete project "{project.name}" and all data stored in its folder.\n\n'
             f"{project.root}\n\n"
-            "This includes metadata databases, embeddings, discovery, thumbnails, and figures."
+            "This includes metadata databases, embeddings, discovery, Preview Assets, and figures."
         )
         answer = QtWidgets.QMessageBox.warning(
             self.window,

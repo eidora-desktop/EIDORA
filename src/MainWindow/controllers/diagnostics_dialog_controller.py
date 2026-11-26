@@ -6,6 +6,8 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from shared.qt import file_dialogs
+
 from shared.diagnostics.service import build_report, failure_guidance
 from shared.qt.diagnostics import report_repository
 from shared.qt.ui_loader import load_ui
@@ -53,7 +55,7 @@ class DiagnosticsDialogController(QtCore.QObject):
 
     def save(self) -> None:
         filename = f"EIDORA-report-{datetime.now():%Y%m%d-%H%M%S}.txt"
-        destination, _ = QtWidgets.QFileDialog.getSaveFileName(
+        destination, _ = file_dialogs.get_save_file_name(
             self.dialog, "Save Diagnostic Report", filename, "Text files (*.txt)",
         )
         if not destination:

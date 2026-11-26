@@ -29,6 +29,8 @@ from FiguresArea.domain import (
     SlicerAnimationFrame,
     SnapshotAnimationFrame,
 )
+from shared.qt.responsive import run_responsive
+from shared.qt.item_views import clear_list_items
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import add_widget_to_container, require_child
@@ -88,6 +90,7 @@ class AnimationTabController(QtCore.QObject):
         work_service=None,
         preview_memory=None,
         cache_budgets=None,
+        defer_render: bool = False,
     ) -> None:
         super().__init__(parent)
         self._project = project
@@ -96,6 +99,7 @@ class AnimationTabController(QtCore.QObject):
         self._state_changed_callback = state_changed_callback
         self._activity_manager = activity_manager
         self._restoring = False
+        self._disposed = False
         self._state = AnimationTimelineState()
         self._playback_direction = 1
         self._cache_budgets = cache_budgets or FigureCacheBudgets()
@@ -174,6 +178,7 @@ class AnimationTabController(QtCore.QObject):
             work_service=work_service,
             preview_memory=preview_memory,
             cache_budgets=self._cache_budgets,
+            defer_render=defer_render,
         )
         add_widget_to_container(plot_host, self._plot.widget)
         self._preview_stack.setCurrentWidget(self._plot_preview_page)
@@ -200,7 +205,7 @@ class AnimationTabController(QtCore.QObject):
         )
         self._timeline_progress.setRange(0, 1)
         self._timeline_progress.setValue(0)
-        self._timeline_progress.setFormat("Updating thumbnails… %v / %m")
+        self._timeline_progress.setFormat("Updating Preview Assets… %v / %m")
         self._timeline_progress.hide()
         self._list_viewport = self._list.viewport()
         self._drop_indicator = QtWidgets.QFrame(self._list_viewport)
@@ -255,7 +260,7 @@ class AnimationTabController(QtCore.QObject):
         self._list_viewport.installEventFilter(self)
         self._proxy_preview_host.installEventFilter(self)
         self._list.currentItemChanged.connect(self._show_current_item)
-        self._list.model().rowsMoved.connect(lambda *_args: QtCore.QTimer.singleShot(0, self._sync_order))
+        self._list.model().rowsMoved.connect(lambda *_args: QtCore.QTimer.singleShot(0, self._widget, self._sync_order))
         self._play.toggled.connect(self._set_playing)
         self._previous.clicked.connect(lambda: self._move_selection(-1))
         self._next.clicked.connect(lambda: self._move_selection(1))
@@ -276,7 +281,7 @@ class AnimationTabController(QtCore.QObject):
         self._update_play_icon()
         self._update_slicer_import_state()
         self._update_control_states()
-        QtCore.QTimer.singleShot(0, self._position_apply_changes_button)
+        self._position_apply_changes_button()
         self.set_project(project)
         apply_icon_color(self._widget)
 
@@ -311,9 +316,9 @@ class AnimationTabController(QtCore.QObject):
     def restore_size_overrides(self, payload):
         self._plot.restore_size_overrides(payload)
 
-    def prepare_measurement_edit(self, values, selected_cell=None):
+    def prepare_measurement_edit(self, values):
         self._pause()
-        return self._plot.prepare_measurement_edit(values, selected_cell)
+        return self._plot.prepare_measurement_edit(values)
 
     def apply_measurement_overrides(self, overrides):
         self._plot.apply_measurement_overrides(overrides)
@@ -397,9 +402,12 @@ class AnimationTabController(QtCore.QObject):
         self._refresh_slicer_presets()
 
     def shutdown(self) -> None:
+        self._disposed = True
         self._cancel_thumbnail_generation()
         self._plot.shutdown()
         self._playback_timer.stop()
+        with QtCore.QSignalBlocker(self._list):
+            clear_list_items(self._list)
         self._set_preview_animation_note_visible(False)
         self._preview_cache.close()
         self._thumbnail_directory.cleanup()
@@ -453,10 +461,29 @@ class AnimationTabController(QtCore.QObject):
                     return True
         return super().eventFilter(obj, event)
 
+    def _capture_snapshot_source(self, path: Path) -> Path | None:
+        directory = (self._project_root / "state" / "figure_snapshots" if self._project_root is not None
+                     else Path(self._thumbnail_directory.name) / "snapshots")
+        self._snapshot_import_revision = getattr(self, "_snapshot_import_revision", 0) + 1
+        revision = self._snapshot_import_revision
+        loader = self._plot._snapshot_service
+        project_root = self._project_root
+        try:
+            captured = run_responsive(lambda: loader.archive_snapshot(path, directory))
+            if self._disposed or self._project_root != project_root or revision != self._snapshot_import_revision:
+                return None
+            return captured
+        except Exception as error:
+            self._show_status(f"Could not import snapshot: {error}")
+            return None
+
     def set_base_snapshot(self, snapshot_path: Path) -> bool:
         path = Path(snapshot_path)
         if path.suffix.lower() != ".json" or not path.exists():
             self._show_status("Could not load the animation base snapshot.")
+            return False
+        path = self._capture_snapshot_source(path)
+        if path is None:
             return False
         self._pause()
         if not self._plot.render_animation_base_snapshot(path):
@@ -514,6 +541,13 @@ class AnimationTabController(QtCore.QObject):
             if position.x() < rect.center().x():
                 return row
         return self._list.count()
+
+    def refresh_preset_menus(self) -> None:
+        self._refresh_slicer_presets()
+
+    def required_preset_paths(self):
+        return tuple(frame.slicer_preset_path for frame in self._state.frames
+                     if isinstance(frame, SlicerAnimationFrame))
 
     def _refresh_slicer_presets(self) -> None:
         selected_path = str(self._slicer_presets.currentData() or "")
@@ -600,13 +634,24 @@ class AnimationTabController(QtCore.QObject):
             f"Imported slicer preset '{label}' with {len(frames)} frames."
         )
 
+    def set_slicer_frames(
+        self, frames: list[AnimationFrame], snapshot_path: Path, *, interval_ms: int
+    ) -> None:
+        self._speed.setValue(interval_ms)
+        self._replace_timeline(frames)
+        self._show_timeline_state()
+        self.set_base_snapshot(snapshot_path)
+        self._list.setCurrentRow(0)
+        self._update_waiting_for_snapshot_state()
+        self._notify_state_changed()
+
     def _replace_timeline(self, frames: list[AnimationFrame]) -> None:
         self._pause()
         self._cancel_thumbnail_generation()
         self._remove_cached_rendered_thumbnails()
         self._reset_preview_cache()
         self._list.blockSignals(True)
-        self._list.clear()
+        clear_list_items(self._list)
         self._list.blockSignals(False)
         self._state.frames = []
         self._state.current_frame_id = None
@@ -650,9 +695,13 @@ class AnimationTabController(QtCore.QObject):
         if payload is None:
             self._show_status(f"Snapshot '{path.stem}' is invalid.")
             return False
+        label = str(payload.get("name") or path.stem)
+        path = self._capture_snapshot_source(path)
+        if path is None:
+            return False
         frame = SnapshotAnimationFrame(
             frame_id=uuid4().hex,
-            label=str(payload.get("name") or path.stem),
+            label=label,
             snapshot_path=str(path),
         )
         self._pause()
@@ -705,7 +754,7 @@ class AnimationTabController(QtCore.QObject):
             self.restore_size_overrides(payload.get("plot_sizes"))
             self._cancel_thumbnail_generation()
             self._reset_preview_cache()
-            self._list.clear()
+            clear_list_items(self._list)
             self._state.frames.clear()
             self._state.pending_apply_frame_ids.clear()
             base_snapshot = self._resolved_path(payload.get("base_snapshot_path"))
@@ -800,7 +849,7 @@ class AnimationTabController(QtCore.QObject):
         self._list.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
         self._list.horizontalScrollBar().rangeChanged.connect(
             lambda _minimum, _maximum: QtCore.QTimer.singleShot(
-                0, self._update_timeline_height
+                0, self._widget, self._update_timeline_height
             )
         )
 
@@ -888,6 +937,8 @@ class AnimationTabController(QtCore.QObject):
             self._notify_state_changed()
 
     def _sync_order(self) -> None:
+        if self._disposed:
+            return
         current_id = self._state.current_frame_id
         frame_ids = [
             str(self._list.item(row).data(QtCore.Qt.ItemDataRole.UserRole) or "")
@@ -1074,6 +1125,8 @@ class AnimationTabController(QtCore.QObject):
         self._update_timeline_height()
 
     def _update_timeline_height(self) -> None:
+        if self._disposed:
+            return
         horizontal_scrollbar = self._list.horizontalScrollBar()
         scrollbar_visible = horizontal_scrollbar.maximum() > horizontal_scrollbar.minimum()
         scrollbar_height = (
@@ -1288,7 +1341,7 @@ class AnimationTabController(QtCore.QObject):
             self._refreshing_all_thumbnails = False
             self._state.thumbnails_dirty = False
             self._notify_state_changed()
-            self._show_status("Updated all animation timeline thumbnails.")
+            self._show_status("Updated all animation Preview Assets.")
         if self._timeline_progress.isVisible():
             self._timeline_progress.setValue(self._thumbnail_progress_total)
             self._flush_thumbnail_progress()
@@ -1305,7 +1358,7 @@ class AnimationTabController(QtCore.QObject):
         self._timeline_progress.setVisible(self._thumbnail_progress_total > 1)
         if self._activity_manager is not None and self._thumbnail_progress_total > 0:
             self._thumbnail_activity = self._activity_manager.busy(
-                "Updating animation thumbnails…"
+                "Updating animation Preview Assets…"
             )
 
     def _sync_thumbnail_activity_total(self) -> None:
@@ -1319,7 +1372,7 @@ class AnimationTabController(QtCore.QObject):
         if self._thumbnail_activity is None:
             if total > 0 and self._activity_manager is not None:
                 self._thumbnail_activity = self._activity_manager.busy(
-                    "Updating animation thumbnails…"
+                    "Updating animation Preview Assets…"
                 )
 
     def _finish_thumbnail_activity(self) -> None:
@@ -1450,6 +1503,8 @@ class AnimationTabController(QtCore.QObject):
         apply_icon_color(self._play)
 
     def _position_apply_changes_button(self) -> None:
+        if self._disposed:
+            return
         button = self._apply_changes_to_all
         button.adjustSize()
         margin = 12
@@ -1668,7 +1723,7 @@ class AnimationTabController(QtCore.QObject):
                 str(key): copy.deepcopy(item)
                 for key, item in state.items()
                 if str(key)
-                in {"camera", "appearance", "filters", "transform", "preset_paths"}
+                in {"camera", "appearance", "filters", "slicer", "slicer_selection", "transform", "preset_paths", "component_sources", "preset_metadata"}
             }
             if normalized_state:
                 normalized["state"] = normalized_state

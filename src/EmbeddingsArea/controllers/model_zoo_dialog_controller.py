@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from collections.abc import Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -9,18 +8,13 @@ from EmbeddingsArea.controllers.model_install_coordinator import ModelInstallCoo
 from EmbeddingsArea.domain import ModelCatalogEntry
 from EmbeddingsArea.model_catalog import DiscoverableModelGroup, ModelCatalog
 from EmbeddingsArea.service import EmbeddingCatalogService
+from shared.qt.background_tasks import BackgroundTasks
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
 
 
 _MODEL_ID_ROLE = int(QtCore.Qt.ItemDataRole.UserRole)
 _MODEL_KIND_ROLE = _MODEL_ID_ROLE + 1
-
-
-class _CatalogSignals(QtCore.QObject):
-    groups_loaded = QtCore.Signal(int, object)
-    card_loaded = QtCore.Signal(int, str, object)
-    size_loaded = QtCore.Signal(int, str, object)
 
 
 class ModelZooDialogController:
@@ -43,10 +37,12 @@ class ModelZooDialogController:
         self._models_changed_callback = models_changed_callback
         self._session = None
         self._fallback_catalog = EmbeddingCatalogService(ModelCatalog())
-        self._signals = _CatalogSignals()
-        self._signals.groups_loaded.connect(self._apply_groups)
-        self._signals.card_loaded.connect(self._apply_card)
-        self._signals.size_loaded.connect(self._apply_size)
+        self._catalog_tasks = BackgroundTasks(self.dialog)
+        self._card_tasks = BackgroundTasks(self.dialog)
+        self._size_tasks = BackgroundTasks(self.dialog)
+        self._catalog_tasks.finished.connect(self._apply_groups)
+        self._card_tasks.finished.connect(self._apply_loaded_card)
+        self._size_tasks.finished.connect(self._apply_loaded_size)
         self._catalog_generation = 0
         self._card_generation = 0
         self._catalog_loading = False
@@ -56,6 +52,7 @@ class ModelZooDialogController:
         self._size_cache: dict[str, int] = {}
         self._selected_model_id = ""
         self._loading_card_key = ""
+        self._loading_size_key = ""
         self._force_card_reload = False
         self._shutdown = False
         self._initial_size_applied = False
@@ -93,8 +90,10 @@ class ModelZooDialogController:
         self._size_cache = {}
         self._selected_model_id = ""
         self._loading_card_key = ""
+        self._loading_size_key = ""
         self._catalog_generation += 1
         self._card_generation += 1
+        self._catalog_loading = False
         self._populate_status("Open the Model Zoo to load EIDORA collections.")
 
     def show(self) -> None:
@@ -121,23 +120,22 @@ class ModelZooDialogController:
             self._size_cache.clear()
             self._card_generation += 1
             self._loading_card_key = ""
+            self._loading_size_key = ""
         self._catalog_generation += 1
         generation = self._catalog_generation
         catalog = self._catalog()
         self._set_catalog_loading(True)
         if not self._groups:
             self._populate_status("Loading EIDORA collections…")
-        threading.Thread(
-            target=self._load_groups,
-            args=(generation, catalog, force),
-            name="model-zoo-catalog",
-            daemon=True,
-        ).start()
+        self._catalog_tasks.submit(generation, lambda _progress: _load_groups(catalog, force))
 
     def shutdown(self) -> None:
         self._shutdown = True
         self._catalog_generation += 1
         self._card_generation += 1
+        self._catalog_tasks.shutdown()
+        self._card_tasks.shutdown()
+        self._size_tasks.shutdown()
         self.dialog.hide()
 
     def _catalog(self):
@@ -149,17 +147,6 @@ class ModelZooDialogController:
 
     def _set_catalog_loading(self, loading: bool) -> None:
         self._catalog_loading = loading
-
-    def _load_groups(self, generation: int, catalog: object, force: bool) -> None:
-        try:
-            try:
-                groups = catalog.list_discoverable_model_groups(force_refresh=force)
-            except TypeError:
-                groups = catalog.list_discoverable_model_groups()
-        except Exception as exc:  # noqa: BLE001
-            self._signals.groups_loaded.emit(generation, exc)
-            return
-        self._signals.groups_loaded.emit(generation, groups)
 
     def _apply_groups(self, generation: int, result: object) -> None:
         if self._shutdown or generation != self._catalog_generation:
@@ -248,58 +235,42 @@ class ModelZooDialogController:
 
     def _show_entry(self, entry: ModelCatalogEntry) -> None:
         key = self._key(entry.id)
-        self._refresh_install_controls(entry)
-        cached = self._card_cache.get(key)
-        if cached is not None and not self._force_card_reload:
-            self.card.setMarkdown(cached)
-            self.status_label.setText("")
-            if key in self._size_cache:
-                return
-        if cached is None:
-            self.card.setMarkdown(f"# {entry.label}\n\n{entry.description}\n\n_Loading model card…_")
-        force = self._force_card_reload
-        if cached is None or force:
-            self.status_label.setText(f"Loading model card for {entry.label}…")
-        self._force_card_reload = False
-        if self._loading_card_key == key:
-            return
-        self._loading_card_key = key
-        self._refresh_install_controls(entry)
-        self._card_generation += 1
+        force, self._force_card_reload = self._force_card_reload, False
+        if force or key not in (self._loading_card_key, self._loading_size_key):
+            self._card_generation += 1
+            self._loading_card_key = self._loading_size_key = ""
         generation = self._card_generation
         catalog = self._catalog()
-        threading.Thread(
-            target=self._load_card,
-            args=(generation, entry, catalog, None if force else cached),
-            name="model-zoo-card",
-            daemon=True,
-        ).start()
+        cached = self._card_cache.get(key)
+        if cached is not None and not force:
+            self.card.setMarkdown(cached)
+            self.status_label.setText("")
+        if cached is None:
+            self.card.setMarkdown(f"# {entry.label}\n\n{entry.description}\n\n_Loading model card…_")
+        if cached is None or force:
+            self.status_label.setText(f"Loading model card for {entry.label}…")
+            if self._loading_card_key != key:
+                self._loading_card_key = key
+                self._card_tasks.submit(generation, lambda _progress: _load_card(catalog, entry))
+        if (force or key not in self._size_cache) and self._loading_size_key != key:
+            self._loading_size_key = key
+            self._size_tasks.submit(generation, lambda _progress: _load_size(catalog, entry))
+        self._refresh_install_controls(entry)
 
-    def _load_card(self, generation: int, entry: ModelCatalogEntry, catalog: object, cached: str | None) -> None:
-        try:
-            if cached is not None:
-                text = cached
-            else:
-                local_model_id = self._local_model_id(entry.id, catalog)
-                if local_model_id is not None:
-                    text = catalog.read_local_model_readme(local_model_id)
-                else:
-                    text = catalog.fetch_discoverable_model_readme(entry)
-        except Exception as exc:  # noqa: BLE001
-            text = exc
-        self._signals.card_loaded.emit(generation, entry.id, text)
-        try:
-            size = catalog.fetch_discoverable_model_size(entry)
-        except Exception:  # noqa: BLE001
-            size = None
-        self._signals.size_loaded.emit(generation, entry.id, size)
+    def _apply_loaded_card(self, generation, result):
+        if result is not None:
+            self._apply_card(generation, *result)
+
+    def _apply_loaded_size(self, generation, result):
+        if result is not None:
+            self._apply_size(generation, *result)
 
     def _apply_size(self, generation: int, model_id: str, size: object) -> None:
         if self._shutdown or generation != self._card_generation:
             return
         key = self._key(model_id)
-        if self._loading_card_key == key:
-            self._loading_card_key = ""
+        if self._loading_size_key == key:
+            self._loading_size_key = ""
         if type(size) is int and size >= 0:
             self._size_cache[key] = size
         entry = self._entries.get(key)
@@ -310,6 +281,8 @@ class ModelZooDialogController:
         if self._shutdown or generation != self._card_generation:
             return
         key = self._key(model_id)
+        if self._loading_card_key == key:
+            self._loading_card_key = ""
         entry = self._entries.get(key)
         if key != self._key(self._selected_model_id):
             return
@@ -336,24 +309,7 @@ class ModelZooDialogController:
         return self._local_model_id(model_id, catalog) is not None
 
     def _local_model_id(self, model_id: str, catalog: object | None = None) -> str | None:
-        source = catalog or self._catalog()
-        try:
-            model = source.get_model(model_id)
-        except AttributeError:
-            model = None
-        if model is not None:
-            return str(getattr(model, "id", model_id))
-        try:
-            installed_models = source.list_installed_models()
-        except AttributeError:
-            return None
-        key = self._key(model_id)
-        for installed in installed_models:
-            descriptor = getattr(installed, "descriptor", None)
-            installed_id = str(getattr(descriptor, "id", ""))
-            if self._key(installed_id) == key:
-                return installed_id
-        return None
+        return _local_model_id(catalog or self._catalog(), model_id)
 
     def _refresh_install_controls(self, entry: ModelCatalogEntry) -> None:
         pending = self._install_coordinator.pending(entry.id)
@@ -361,7 +317,7 @@ class ModelZooDialogController:
         size = self._size_cache.get(self._key(entry.id), entry.size_bytes)
         if size is not None:
             self.size_label.setText(f"Download: {_human_size(size)}")
-        elif self._loading_card_key == self._key(entry.id):
+        elif self._loading_size_key == self._key(entry.id):
             self.size_label.setText("Loading download size…")
         else:
             self.size_label.setText("Download size unavailable")
@@ -444,3 +400,53 @@ def _human_size(value: int) -> str:
             return f"{size:.0f} {suffix}" if size >= 10 else f"{size:.1f} {suffix}"
         size /= 1000.0
     return f"{value} B"
+
+
+def _load_groups(catalog, force):
+    try:
+        try:
+            return catalog.list_discoverable_model_groups(force_refresh=force)
+        except TypeError:
+            return catalog.list_discoverable_model_groups()
+    except Exception as exc:
+        return exc
+
+
+def _local_model_id(catalog, model_id):
+    try:
+        model = catalog.get_model(model_id)
+    except AttributeError:
+        model = None
+    if model is not None:
+        return str(getattr(model, "id", model_id))
+    try:
+        installed_models = catalog.list_installed_models()
+    except AttributeError:
+        return None
+    key = ModelZooDialogController._key(model_id)
+    for installed in installed_models:
+        descriptor = getattr(installed, "descriptor", None)
+        installed_id = str(getattr(descriptor, "id", ""))
+        if ModelZooDialogController._key(installed_id) == key:
+            return installed_id
+    return None
+
+
+def _load_card(catalog, entry):
+    """Network work owns plain values and the catalog, never a Qt controller."""
+    try:
+        local_id = _local_model_id(catalog, entry.id)
+        text = (
+            catalog.read_local_model_readme(local_id) if local_id is not None
+            else catalog.fetch_discoverable_model_readme(entry))
+    except Exception as exc:
+        text = exc
+    return entry.id, text
+
+
+def _load_size(catalog, entry):
+    try:
+        size = catalog.fetch_discoverable_model_size(entry)
+    except Exception:
+        size = None
+    return entry.id, size

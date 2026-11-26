@@ -22,10 +22,12 @@ def settings_report(label: str, *, filters: dict | None = None, slicer: dict | N
         if state is None:
             continue
         enabled = state.get("enabled", bool(state))
-        sentences.append(f"{name} {'enabled' if enabled else 'disabled'}; saved settings are reported below.")
+        if enabled:
+            sentences.append("Display filtering was applied after projection." if name == "Filters" else
+                             f"The displayed subset was selected using the slicer ({state.get('column') or 'field not recorded'}).")
         rows.extend(setting_rows(name, state) if state else [])
         if not state:
             rows.append((name, "No settings recorded"))
     return MethodsReport(f"{label} — Methods and Citations", " ".join(sentences), tuple(rows),
                          (CitationRecord.from_payload(eidora_citation_payload()),),
-                         (("Report generated with EIDORA", __version__),))
+                         (("Report generated with EIDORA", __version__),), scope=f"Display settings: {label}")

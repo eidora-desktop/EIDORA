@@ -13,13 +13,13 @@ class TourStep:
     description: str
 
 
-WORKSPACE_NAMES = ("Assets", "Metadata", "Embeddings", "Discovery", "Figures")
+WORKSPACE_NAMES = ("Media", "Metadata", "Embeddings", "Discovery", "Figures")
 
 # Text section, workspace index, panel object name. Order here owns navigation.
 TOUR_TARGETS = (
     ("workspace_bar", 0, None),
-    ("assets_media_sources", 0, "panel_media_sources_host"),
-    ("assets_thumbnails", 0, "panel_thumbnails_host"),
+    ("media_sources", 0, "panel_media_sources_host"),
+    ("media_preview_assets", 0, "panel_thumbnails_host"),
     ("metadata_items", 1, "panel_metadata_table"),
     ("metadata_groups", 1, "panel_metadata_groups"),
     ("embeddings_models", 2, "panel_local_models"),

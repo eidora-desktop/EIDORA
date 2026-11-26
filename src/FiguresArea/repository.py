@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import math
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -45,15 +46,17 @@ class FigureTabsRepository:
 
     def load(self) -> tuple[list[dict[str, Any]], int | None]:
         try:
-            payload = json_store.read_json(self._path, default={})
-        except (OSError, ValueError):
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
             return [], None
         if not isinstance(payload, dict) or payload.get("version") not in {1, 2, 3, 4, 5, 6, self._VERSION}:
-            return [], None
+            raise ValueError("Unsupported or invalid saved figure collection.")
         raw_tabs = payload.get("tabs")
         if not isinstance(raw_tabs, list):
-            return [], None
+            raise ValueError("Invalid saved figure tabs.")
         tabs = [tab for tab in (self._validated_tab(item) for item in raw_tabs) if tab is not None]
+        if len(tabs) != len(raw_tabs):
+            raise ValueError("Invalid saved figure tab; the collection was not loaded.")
         current_index = payload.get("current_index")
         valid_index = current_index if isinstance(current_index, int) and not isinstance(current_index, bool) else None
         return [self._composition_paths(tab, encode=False) for tab in tabs], valid_index
@@ -90,9 +93,24 @@ class FigureTabsRepository:
             return self.load()
         return records, index
 
+    def prepare_tab(self, record):
+        """Prepare one selected document without rewriting the saved collection."""
+        record = copy.deepcopy(record)
+        if record["kind"] == "animation":
+            return record
+        settings = self.settings_from_payload(record.get("settings"), figure_kind=record["kind"])
+        composition = self.composition_from_payload(record.get("composition"), settings=settings)
+        if composition is not None:
+            from FiguresArea.page_layout import migrate_page_dimensions
+
+            composition = migrate_page_dimensions(composition)
+            record["settings"] = self.settings_payload(composition.settings)
+            record["composition"] = self.composition_payload(composition, data=self.data)
+        return record
+
     def remove_unused_data(self) -> None:
         """Remove unreferenced owned data only after all readers/writers stop."""
-        if not self._path.exists() or not self.data.root.exists():
+        if not self._path.exists():
             return
         raw = json_store.read_json(self._path)
         if not isinstance(raw, dict) or raw.get("version") != self._VERSION or not isinstance(raw.get("tabs"), list):
@@ -103,7 +121,16 @@ class FigureTabsRepository:
         if any(record.get("composition") is not None and not isinstance(record["composition"], dict) for record in records):
             return
         referenced = set()
+        snapshot_copies = set()
         for record in records:
+            animation = record.get("settings", {}).get("animation", {})
+            sources = [animation.get("base_snapshot_path")]
+            sources.extend(frame.get("snapshot_path") for frame in animation.get("frames", []) if isinstance(frame, dict))
+            snapshot_copies.update(str(Path(self._paths.decode(source)).resolve()) for source in sources if source)
+            for frame in animation.get("frames", []):
+                reference = frame.get("plot_overrides", {}).get("state", {}).get("preset_metadata", {}).get("data_ref")
+                if reference:
+                    referenced.add(str(Path(self._paths.decode(reference)).resolve()))
             cells = (record.get("composition") or {}).get("plot_cells", [])
             if not isinstance(cells, list) or any(not isinstance(cell, dict) for cell in cells):
                 return
@@ -113,14 +140,33 @@ class FigureTabsRepository:
                     if not isinstance(reference, str) or not reference:
                         return
                     referenced.add(str(Path(reference).resolve()))
+                reference = cell.get("render_state", {}).get("preset_metadata", {}).get("data_ref")
+                if reference:
+                    referenced.add(str(Path(reference).resolve()))
+                base = cell.get("render_state", {}).get("snapshot_base", {})
+                if base.get("data_ref"):
+                    referenced.add(str(Path(base["data_ref"]).resolve()))
+        for archive in (self.data.root.parent / "figure_snapshots").glob("*.json"):
+            if str(archive.resolve()) not in snapshot_copies:
+                archive.unlink()
+                archive.with_suffix(".png").unlink(missing_ok=True)
+                continue
+            payload = json_store.read_json(archive)
+            reference = (payload.get("figure_snapshot_copy") or {}).get("data_ref") if isinstance(payload, dict) else None
+            if reference:
+                referenced.add(str(Path(self._paths.decode(reference)).resolve()))
         for path in self.data.root.glob("*.npz"):
             owned = len(path.stem) == 64 and all(c in "0123456789abcdef" for c in path.stem)
             if (owned and str(path.resolve()) not in referenced) or path.name.startswith(".figure-data-"):
                 path.unlink(missing_ok=True)
 
     def _composition_paths(self, tab: dict[str, Any], *, encode: bool) -> dict[str, Any]:
-        """Keep static figure preset references portable, like animation references."""
+        """Normalize legacy animation settings and project-local references."""
         tab = copy.deepcopy(tab)
+        settings = tab.get("settings")
+        if isinstance(settings, dict) and "snapshot_animation" in settings:
+            legacy_animation = settings.pop("snapshot_animation")
+            settings.setdefault("animation", legacy_animation)
         convert = self._paths.encode if encode else self._paths.decode
         composition = tab.get('composition')
         cells = composition.get('plot_cells', []) if isinstance(composition, dict) else []
@@ -131,13 +177,43 @@ class FigureTabsRepository:
                 cell['snapshot_path'] = convert(cell['snapshot_path'])
             if isinstance(cell.get('data_ref'), str) and cell['data_ref']:
                 cell['data_ref'] = convert(cell['data_ref'])
-            state = cell.get('render_state')
-            paths = state.get('preset_paths') if isinstance(state, dict) else None
-            if isinstance(paths, dict):
-                for key in ('snapshot', 'discovery', 'transform', 'camera', 'appearance', 'filter'):
-                    if isinstance(paths.get(key), str) and paths[key]:
-                        paths[key] = convert(paths[key])
+            self.render_state_paths(cell.get("render_state"), convert)
+        animation = tab.get("settings", {}).get("animation", {})
+        for frame in animation.get("frames", []):
+            self.render_state_paths(frame.get("plot_overrides", {}).get("state"), convert)
         return tab
+
+    @classmethod
+    def render_state_paths(cls, state, convert):
+        if not isinstance(state, dict):
+            return
+        paths = state.get("preset_paths")
+        if isinstance(paths, dict):
+            for key, value in paths.items():
+                if isinstance(value, str) and value:
+                    paths[key] = convert(value)
+        metadata = state.get("preset_metadata")
+        if isinstance(metadata, dict) and metadata.get("data_ref"):
+            metadata["data_ref"] = convert(metadata["data_ref"])
+        base = state.get("snapshot_base")
+        if isinstance(base, dict):
+            if base.get("data_ref"):
+                base["data_ref"] = convert(base["data_ref"])
+            cls.render_state_paths(base.get("state"), convert)
+
+    def save_snapshot_copy(self, source: Path, base: dict, directory: Path, *, portable=True) -> Path:
+        """Store a figure-owned animation source, separate from Discovery snapshots."""
+        import shutil
+        from uuid import uuid4
+        base = copy.deepcopy(base)
+        if portable:
+            self.render_state_paths({"snapshot_base": base}, self._paths.encode)
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / f"{uuid4().hex}.json"
+        json_store.write_json(target, {"name": base.get("name"), "figure_snapshot_copy": base})
+        if source.with_suffix(".png").exists():
+            shutil.copyfile(source.with_suffix(".png"), target.with_suffix(".png"))
+        return target
 
     @classmethod
     def settings_payload(cls, settings: FigurePlotSettings) -> dict[str, Any]:
@@ -251,6 +327,7 @@ class FigureTabsRepository:
             if name in allowed and cls._matches_setting_type(value, float(default_values[name]) if name in FONT_SIZES else default_values[name])
         }
         for name, choices in {
+            "aspect_ratio": {"snapshot", "fit"},
             "grid_mode": {"off", "lines", "map"},
             "main_title_location": {"top", "left", "right", "bottom"},
             "main_title_alignment": {"left", "center", "right"},

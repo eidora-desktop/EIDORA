@@ -1,7 +1,6 @@
 """Small, package-driven media-to-tensor preparers for ONNX inference."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +14,7 @@ def prepare_batch(
     contract: dict[str, object],
     *,
     package_directory: Path,
+    text_preparer=None,
 ) -> dict[str, np.ndarray]:
     modality = str(contract["modality"])
     inputs = list(contract["inputs"])
@@ -23,7 +23,9 @@ def prepare_batch(
         values = [_prepare_image(item.path, prep) for item in batch]
         sources = {"pixels": np.stack(values)}
     elif modality == "text":
-        sources = _prepare_text(batch, prep, package_directory)
+        from EmbeddingsArea.runtime.text import TextPreparer
+
+        sources = (text_preparer or TextPreparer(prep, package_directory)).prepare(batch)
     elif modality == "audio":
         prepared = [_prepare_audio(item.path, prep) for item in batch]
         waveforms = np.stack([item[0] for item in prepared])
@@ -117,64 +119,6 @@ def _image_array(image: Any, prep: dict[str, Any]) -> np.ndarray:
     if str(prep["layout"]) in {"NCHW", "BTCHW"}:
         value = np.transpose(value, (2, 0, 1))
     return value
-
-
-def _prepare_text(batch: list[RuntimeInput], prep: dict[str, Any], package_directory: Path) -> dict[str, np.ndarray]:
-    tokenizer_path = package_directory / str(prep["tokenizer_path"]) / "tokenizer.json"
-    try:
-        from tokenizers import Tokenizer
-    except Exception as exc:
-        raise RuntimeError("tokenizers is required for ONNX text models.") from exc
-    tokenizer = Tokenizer.from_file(str(tokenizer_path))
-    maximum = int(prep["max_length"])
-    tokenizer.enable_truncation(max_length=maximum, direction=str(prep["truncation_side"]))
-    pad_id, pad_token = _tokenizer_padding(tokenizer, tokenizer_path.parent)
-    tokenizer.enable_padding(
-        length=maximum,
-        direction=str(prep["padding_side"]),
-        pad_id=pad_id,
-        pad_token=pad_token,
-    )
-    prefix, suffix = str(prep.get("prefix") or ""), str(prep.get("suffix") or "")
-    texts = [prefix + _read_text(item) + suffix for item in batch]
-    if any(not value.strip() for value in texts):
-        raise RuntimeError("Text inputs must not be empty.")
-    encodings = tokenizer.encode_batch(texts, add_special_tokens=bool(prep["add_special_tokens"]))
-    return {
-        "token_ids": np.asarray([value.ids for value in encodings], dtype=np.int64),
-        "attention_mask": np.asarray([value.attention_mask for value in encodings], dtype=np.int64),
-        "token_type_ids": np.asarray([value.type_ids for value in encodings], dtype=np.int64),
-    }
-
-
-def _tokenizer_padding(tokenizer: Any, directory: Path) -> tuple[int, str]:
-    token = "[PAD]"
-    config = directory / "tokenizer_config.json"
-    if config.is_file():
-        try:
-            raw = json.loads(config.read_text(encoding="utf-8")).get("pad_token")
-            if isinstance(raw, str) and raw:
-                token = raw
-            elif isinstance(raw, dict) and raw.get("content"):
-                token = str(raw["content"])
-        except (OSError, ValueError):
-            pass
-    value = tokenizer.token_to_id(token)
-    return (0 if value is None else int(value), token)
-
-
-def _read_text(item: RuntimeInput) -> str:
-    if item.path.suffix.lower() in {".jsonl", ".ndjson"}:
-        with item.path.open("r", encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                try:
-                    value = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(value, dict) and str(value.get("id") or value.get("identifier") or "") == item.identifier:
-                    return str(value.get("text") or value.get("content") or value.get("body") or "")
-        return ""
-    return item.path.read_text(encoding="utf-8", errors="replace")
 
 
 def _prepare_audio(path: Path, prep: dict[str, Any]) -> tuple[np.ndarray, int]:

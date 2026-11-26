@@ -5,6 +5,7 @@ from shared.methods_report import (
     PROVENANCE_SCHEMA_VERSION, CitationRecord, MethodsReport, MethodsReportExporter,
     citation_payloads, checksum_payload, deduplicate_citations, eidora_citation_payload,
     _citation_records, _mapping, _value, _humanize, _implementation_text, setting_rows,
+    PCA_CITATION,
 )
 
 
@@ -34,24 +35,46 @@ class ProjectionProvenanceReportService:
             prose += f" and projected to two dimensions in EIDORA {provenance.get('eidora_version') or ''} using {method_name}."
         else:
             prose = f"Coordinates for {item_count:,} items were processed in EIDORA {provenance.get('eidora_version') or ''} using {method_name}."
-        salient_keys = (
-            "distance", "metric", "n_neighbors", "perplexity", "min_dist",
-            "pca_dimensions", "iterations", "random_state",
-        )
-        salient_items = [(key, parameters[key]) for key in salient_keys if key in parameters][:5]
-        salient = ", ".join(f"{_humanize(key)}={_value(value)}" for key, value in salient_items)
+        salient_keys = {
+            "umap": ("metric", "n_neighbors", "min_dist"),
+            "umap_05": ("metric", "n_neighbors", "min_dist"),
+            "tsne": ("metric", "perplexity"),
+            "opentsne": ("metric", "perplexity"),
+            "pca": ("whiten",),
+            "pacmap": ("distance", "n_neighbors", "mid_near_ratio", "further_ratio"),
+            "trimap": ("distance", "n_inliers", "n_outliers", "n_random"),
+            "mds": ("mode", "metric"),
+        }.get(str(method.get("id")), ())
+        salient_items = [(key, parameters[key]) for key in salient_keys if key in parameters]
+        parameter_labels = {"metric": "distance", "n_neighbors": "neighbors", "min_dist": "minimum distance"}
+        salient = ", ".join(f"{parameter_labels.get(key, key.replace('_', ' '))}={_value(value)}"
+                            for key, value in salient_items)
         if salient:
-            prose += f" Effective projection settings were {salient}."
+            prose += f" Projection settings were {salient}."
         repeatability = str(method.get("repeatability") or "unknown")
-        prose += f" Repeatability was classified as {repeatability.replace('_', ' ')}."
-        if normalization:
-            prose += " EIDORA linearly normalized the resulting coordinates for canvas storage."
+        from EmbeddingsArea.provenance import preprocessing_summary, postprocessing_summary
+        preparation = preprocessing_summary(embedding.get("preprocessing"))
+        processing = postprocessing_summary(embedding.get("postprocessing"))
+        if preparation or processing:
+            prose += " Before projection: " + " ".join(value for value in (preparation, processing) if value)
+        steps = method.get("derived_steps") or []
+        for step in steps:
+            if str(step).startswith("PCA pre-reduction"):
+                prose += " The projection pipeline included " + str(step).rstrip(".") + "."
+        if parameters.get("apply_pca") and not any(str(step).startswith("PCA pre-reduction") for step in steps):
+            prose += " PCA preprocessing was enabled in the projection algorithm."
+        if any(isinstance(step, dict) and step.get("id") == "pca" for step in embedding.get("postprocessing") or []):
+            citations = deduplicate_citations([*citations, CitationRecord.from_payload(PCA_CITATION)])
 
         rows: list[tuple[str, str]] = []
         if has_embedding:
             rows.append(("Embedding model", f"{model_name}{' ' + model_version if model_version else ''}"))
         rows.append(("Projection method", method_name))
         rows.extend((_humanize(key), _value(value)) for key, value in parameters.items())
+        requested = _mapping(method.get("requested_parameters"))
+        for key, value in requested.items():
+            if key not in parameters or value != parameters[key]:
+                rows.append((f"Requested / {_humanize(key)}", _value(value)))
         for step in method.get("derived_steps", []) if isinstance(method.get("derived_steps"), list) else []:
             rows.append(("Derived step", str(step)))
         if embedding.get("parameters"):
@@ -94,6 +117,7 @@ class ProjectionProvenanceReportService:
             references=citations,
             reproducibility_rows=tuple(reproducibility),
             warnings=warnings,
+            scope=f"Projection: {label} and its source embeddings" if has_embedding else f"Projection: {label}",
         )
 
     save_pair = staticmethod(MethodsReportExporter.save_pair)

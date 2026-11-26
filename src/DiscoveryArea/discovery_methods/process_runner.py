@@ -31,7 +31,35 @@ def main(argv: list[str] | None = None) -> int:
         metadata_ids = np.load(metadata_ids_path, allow_pickle=False).astype(np.int64)
         artifact_path_raw = request.get("artifact_path")
         artifact_path = Path(str(artifact_path_raw)) if artifact_path_raw else None
-        option = run_discovery_request(project, payload, metadata_ids, artifact_path)
+        progress_path = request.get("progress_path")
+        progress_value = 0
+        activity = "Loading projection inputs..."
+
+        def report() -> None:
+            if progress_path:
+                try:
+                    with Path(progress_path).open("a", encoding="utf-8") as handle:
+                        handle.write(json.dumps([progress_value, activity]) + "\n")
+                except OSError:
+                    # Progress is advisory; only the result file determines
+                    # success. A temporary file lock must not abort computation.
+                    pass
+
+        def progress(value: int) -> None:
+            nonlocal progress_value
+            progress_value = value
+            report()
+
+        def status(message: str) -> None:
+            nonlocal activity
+            activity = message
+            report()
+
+        option = run_discovery_request(
+            project, payload, metadata_ids, artifact_path,
+            progress_callback=progress, status_callback=status,
+            output_slug=request.get("output_slug"),
+        )
         result_path.write_text(json.dumps({"ok": True, "option_key": option.key}), encoding="utf-8")
         return 0
     except Exception as exc:

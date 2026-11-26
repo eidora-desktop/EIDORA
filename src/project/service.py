@@ -3,8 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from datetime import timezone
 import json
+import logging
+import os
 import re
 import shutil
+import sqlite3
+import tempfile
 import zipfile
 from pathlib import Path
 from pathlib import PurePosixPath
@@ -22,6 +26,8 @@ from project.storage import (
     write_project_manifest,
 )
 from shared.paths import default_workspace_root
+
+LOGGER = logging.getLogger(__name__)
 
 
 class ProjectService:
@@ -50,8 +56,21 @@ class ProjectService:
 
         return project is not None and is_example_collection(project.root)
 
-    def use_workspace(self, root: Path) -> None:
+    def use_workspace(self, root: Path, *, preserve_recent: bool = False) -> None:
         """Activate an explicitly selected, already prepared workspace."""
+        if preserve_recent:
+            # Changing the default destination must not lose the user's history.
+            destination = ProjectService(root)
+            records = self._read_recent_project_records()
+            known = {path for path, _ in records}
+            records.extend(record for record in destination._read_recent_project_records() if record[0] not in known)
+            destination._write_recent_project_records(records)
+            # Keep completed first-launch setup from running again merely
+            # because the user chose a new default project destination.
+            receipt = self._workspace_root / ".starter-collection.json"
+            target_receipt = destination.workspace_root / receipt.name
+            if receipt.is_file() and not target_receipt.exists():
+                shutil.copy2(receipt, target_receipt)
         self._workspace_root = Path(root)
         self._workspace_root.mkdir(parents=True, exist_ok=True)
         self._recent_projects_file = self._workspace_root / ".recent_projects.json"
@@ -87,6 +106,7 @@ class ProjectService:
         path = Path(root).expanduser().resolve()
         if not path.exists() or not path.is_dir():
             raise FileNotFoundError(path)
+        self._check_project_writable(path)
         from MetadataArea.table_deletion_service import recover_table_removals
         recover_table_removals(path)
         project = self._project_from_path(path)
@@ -96,15 +116,96 @@ class ProjectService:
         self._record_recent_project(project)
         return project
 
+    @staticmethod
+    def _check_project_writable(root: Path) -> None:
+        """Probe opening's storage locations without scanning project contents."""
+        paths = ProjectStoragePaths(root)
+        for directory in (root, paths.metadata):
+            if not directory.is_dir():
+                continue  # Normal layout validation reports missing directories.
+            try:
+                with tempfile.TemporaryFile(dir=directory):
+                    pass
+            except OSError as exc:
+                raise OSError(exc.errno, exc.strerror, str(directory)) from exc
+        if paths.metadata_database.is_file():
+            # Opening without truncation checks file access without changing data.
+            with paths.metadata_database.open("r+b"):
+                pass
+
+    def copy_project_to_workspace(self, root: Path | str) -> Project:
+        """Create a writable copy without inheriting source permission metadata."""
+        from project.storage import validate_project_layout
+
+        source = Path(root).expanduser().resolve()
+        validate_project_layout(ProjectStoragePaths(source))
+        manifest = source / PROJECT_MANIFEST_FILENAME
+        name = read_project_manifest(manifest).name if manifest.exists() else source.name
+        target = self.available_project_path(name).resolve()
+        if target.is_relative_to(source):
+            raise ValueError("Choose a project storage folder outside the source project before copying.")
+        target.mkdir(exist_ok=False)
+        try:
+            def raise_walk_error(error):
+                raise error
+
+            for directory, directories, files in os.walk(source, onerror=raise_walk_error):
+                current = Path(directory)
+                destination = target / current.relative_to(source)
+                for entry in directories + files:
+                    if (current / entry).is_symlink():
+                        raise ValueError(f"Cannot copy a project containing a symbolic link: {current / entry}")
+                for name in directories:
+                    (destination / name).mkdir()
+                for name in files:
+                    shutil.copyfile(current / name, destination / name)
+            return self.open_project(target)
+        except Exception:
+            self._remove_project_folder(target)
+            raise
+
     def load_last_project(self) -> Project | None:
         recent_projects = self.list_recent_projects()
         if recent_projects:
             try:
                 return self.open_project(recent_projects[0].root)
-            except (FileNotFoundError, ValueError):
+            except (OSError, ValueError, sqlite3.Error):
+                LOGGER.warning("Could not reopen the last project; keeping it available for retry", exc_info=True)
                 return None
 
         return None
+
+    @staticmethod
+    def inspect_project(root: Path | str) -> Project:
+        """Read an existing project without opening, migrating, or recording it."""
+        from project.storage import validate_project_layout
+
+        root = Path(root).expanduser().resolve()
+        manifest = read_project_manifest(root / PROJECT_MANIFEST_FILENAME)
+        validate_project_layout(ProjectStoragePaths(root))
+        return Project(manifest.name, root, manifest.schema_version)
+
+    def list_known_projects(self, *, recent_first: bool = False) -> list[Project]:
+        """Inspect recent and default-folder projects without changing history."""
+        records = self._read_recent_project_records()
+        candidates = [path for path, _ in records]
+        candidates.extend(path.parent for path in self._workspace_root.glob("*/project.json"))
+        projects = {}
+        for path in candidates:
+            try:
+                project = self.inspect_project(path)
+            except (OSError, ValueError):
+                continue
+            projects[project.root] = project
+        ordered = sorted(projects.values(), key=lambda project: (project.name.casefold(), str(project.root)))
+        if recent_first:
+            last_opened = {
+                path: opened if opened.tzinfo is not None else opened.replace(tzinfo=timezone.utc)
+                for path, opened in records if opened is not None
+            }
+            unknown = datetime.min.replace(tzinfo=timezone.utc)
+            ordered.sort(key=lambda project: last_opened.get(project.root, unknown), reverse=True)
+        return ordered
 
     def list_recent_projects(self) -> list[Project]:
         return [entry.project for entry in self.list_recent_project_entries()]
@@ -116,10 +217,14 @@ class ProjectService:
         for path, last_opened_at in records:
             try:
                 project = self._project_from_path(path)
-                if not MetadataRepository.contains_metadata(project.paths.metadata_database):
-                    continue
             except (FileNotFoundError, ValueError, OSError):
                 continue
+            try:
+                if not MetadataRepository.contains_metadata(project.paths.metadata_database):
+                    continue
+            except (sqlite3.Error, OSError):
+                # An unreadable database is not evidence that the project vanished.
+                LOGGER.warning("Could not inspect recent project %s; keeping its entry", path, exc_info=True)
             projects.append(project)
             kept_records.append((project.root.resolve(), last_opened_at))
         if [str(path) for path, _last_opened_at in kept_records] != [str(path) for path, _last_opened_at in records]:

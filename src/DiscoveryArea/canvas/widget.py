@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict, deque
+from collections.abc import Iterator
 import datetime as dt
 import math
 import os
@@ -12,6 +13,8 @@ import numpy as np
 from PySide6 import QtCore, QtGui, QtQml, QtQuick, QtQuickWidgets, QtWidgets
 
 from DiscoveryArea.canvas.indexing import UniformGridIndex, Viewport, points_in_polygon
+from DiscoveryArea.canvas.pin_media import PinMediaLayer
+from DiscoveryArea.canvas.pin_text import layout_pin_text, paint_pin_text
 from DiscoveryArea.canvas.lod import AdaptiveRenderBudget, LodDecision, marker_coverage_ratio
 from DiscoveryArea.canvas.native.runtime import detect_native_renderer_runtime
 from DiscoveryArea.canvas.scene import (
@@ -48,6 +51,7 @@ from DiscoveryArea.canvas.render_backend import (
     ThumbnailSourceEntry,
 )
 from shared.cursors import (
+    CLICKABLE,
     LASSO_ADD_POINT,
     LASSO_ADD_ANCHOR,
     LASSO_CLOSE_POINT,
@@ -66,6 +70,7 @@ from shared.cursors import (
     CanvasCursorController,
 )
 from shared.env import env_flag, get_env
+from shared.qt.background_tasks import BackgroundTasks
 
 
 ENABLE_SCENEGRAPH_PYTHON_ENV_VAR = "EIDORA_ENABLE_SCENEGRAPH_PYTHON"
@@ -76,44 +81,24 @@ ALLOW_PAINTED_DISCOVERY_FALLBACK_ENV_VAR = "EIDORA_ALLOW_PAINTED_DISCOVERY_FALLB
 DISCOVERY_QUICK_HOST_ENV_VAR = "EIDORA_DISCOVERY_QUICK_HOST"
 
 
-class _SceneBuildSignals(QtCore.QObject):
-    finished = QtCore.Signal(int, object, float)
-    failed = QtCore.Signal(int, str)
-    cancelled = QtCore.Signal(int)
-
-
-class _SceneBuildTask(QtCore.QRunnable):
+class _SceneBuildTask:
     def __init__(self, request: CanvasSceneRequest, cancelled: threading.Event) -> None:
-        super().__init__()
-        self.setAutoDelete(False)
         self.request = request
         self.cancelled = cancelled
-        self.signals = _SceneBuildSignals()
 
-    @QtCore.Slot()
-    def run(self) -> None:
+    def run(self, _progress):
+        if self.cancelled.is_set():
+            return None
         started = time.perf_counter()
         try:
             scene = build_canvas_scene(self.request, cancelled=self.cancelled.is_set)
         except SceneBuildCancelled:
-            self.signals.cancelled.emit(int(self.request.revision))
-            return
-        except Exception as exc:
-            self.signals.failed.emit(int(self.request.revision), f"{type(exc).__name__}: {exc}")
-            return
+            return None
         elapsed_ms = (time.perf_counter() - started) * 1000.0
-        if self.cancelled.is_set():
-            self.signals.cancelled.emit(int(self.request.revision))
-        else:
-            self.signals.finished.emit(int(self.request.revision), scene, float(elapsed_ms))
+        return None if self.cancelled.is_set() else (scene, elapsed_ms)
 
 
-class _LassoSelectionSignals(QtCore.QObject):
-    finished = QtCore.Signal(int, int, int, object, object)
-    cancelled = QtCore.Signal(int)
-
-
-class _LassoSelectionTask(QtCore.QRunnable):
+class _LassoSelectionTask:
     def __init__(
         self,
         *,
@@ -127,8 +112,6 @@ class _LassoSelectionTask(QtCore.QRunnable):
         spatial_index: UniformGridIndex | None,
         cancelled: threading.Event,
     ) -> None:
-        super().__init__()
-        self.setAutoDelete(False)
         self.scene_revision = int(scene_revision)
         self.query_revision = int(query_revision)
         self.polygon_index = int(polygon_index)
@@ -138,28 +121,23 @@ class _LassoSelectionTask(QtCore.QRunnable):
         self.visibility = visibility
         self.spatial_index = spatial_index
         self.cancelled = cancelled
-        self.signals = _LassoSelectionSignals()
 
-    @QtCore.Slot()
-    def run(self) -> None:
+    def run(self, _progress):
         if self.cancelled.is_set():
-            self.signals.cancelled.emit(self.query_revision)
             return
         if self.spatial_index is None:
             candidates = np.arange(self.points.shape[0], dtype=np.int64)
         else:
             candidates = self.spatial_index.indices_in_polygon_bounds(self.polygon)
         if self.cancelled.is_set():
-            self.signals.cancelled.emit(self.query_revision)
             return
         if self.visibility.shape[0] == self.points.shape[0]:
             candidates = candidates[self.visibility[candidates] >= 0.5]
         inside = points_in_polygon(self.points[candidates], self.polygon) if candidates.size else np.empty((0,), dtype=bool)
         selected = self.metadata_ids[candidates[inside]] if candidates.size else np.empty((0,), dtype=np.int64)
         if self.cancelled.is_set():
-            self.signals.cancelled.emit(self.query_revision)
             return
-        self.signals.finished.emit(
+        return (
             self.scene_revision,
             self.query_revision,
             self.polygon_index,
@@ -1601,6 +1579,8 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
     point_context_requested = QtCore.Signal(int, object)
     point_selection_requested = QtCore.Signal(int, object)
     pin_context_requested = QtCore.Signal(str, object)
+    pin_media_requested = QtCore.Signal(str, str, float)
+    pin_media_visibility_changed = QtCore.Signal(object)
     point_clicked = QtCore.Signal(int)
     point_hovered = QtCore.Signal(object)
     lasso_selection_changed = QtCore.Signal(object)
@@ -1657,7 +1637,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._backend_placeholder = placeholder
         self._thumbnail_loading_label = QtWidgets.QLabel(self)
         self._thumbnail_loading_label.setObjectName("label_thumbnail_loading_indicator")
-        self._thumbnail_loading_label.setText("Preparing thumbnails")
+        self._thumbnail_loading_label.setText("Preparing Preview Assets")
         self._thumbnail_loading_label.setAlignment(
             QtCore.Qt.AlignmentFlag.AlignVCenter | QtCore.Qt.AlignmentFlag.AlignLeft
         )
@@ -1684,6 +1664,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._pin_overlay = _PinOverlay(self)
         self._pin_overlay.setObjectName("overlay_pinned_annotations")
         self._pin_overlay.setGeometry(self.rect())
+        self._pin_media_layer = PinMediaLayer()
+        self._pin_media_kind = "image"
+        self._pin_media_visible_ids = frozenset()
         self._find_item_timer = QtCore.QTimer(self)
         self._find_item_timer.setInterval(45)
         self._find_item_timer.timeout.connect(self._on_find_item_blink_tick)
@@ -1704,8 +1687,12 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._representative_pick_limit = -1
         self._scene_revision = 0
         self._active_scene_revision = 0
-        self._scene_thread_pool = QtCore.QThreadPool.globalInstance()
-        self._scene_tasks: dict[int, _SceneBuildTask] = {}
+        self._scene_runner = BackgroundTasks(self)
+        self._scene_runner.finished.connect(self._on_scene_task_completed)
+        self._scene_runner.failed.connect(self._on_scene_build_failed)
+        self._lasso_runner = BackgroundTasks(self)
+        self._lasso_runner.finished.connect(self._on_lasso_task_completed)
+        self._lasso_runner.failed.connect(self._on_lasso_task_failed)
         self._scene_cancel_events: dict[int, threading.Event] = {}
         self._scene_preserve_view: dict[int, bool] = {}
         self._scene_source_tokens: dict[int, tuple[int, int | None]] = {}
@@ -1824,8 +1811,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._lasso_polygon_labels: list[str] = []
         self._lasso_polygon_colors: list[str] = []
         self._lasso_fill_opacity = 0.2
-        self._lasso_polygon_area_visible: list[bool] = []
-        self._lasso_polygon_points_visible: list[bool] = []
         self._lasso_current_vertices: list[np.ndarray] = []
         self._lasso_selected_polygon_index: int | None = None
         self._lasso_dragging_anchor: tuple[int, int, bool] | None = None
@@ -1841,7 +1826,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._last_lasso_status_hint = ""
         self._lasso_selection_callback = None
         self._lasso_query_revision = 0
-        self._lasso_query_tasks: dict[int, _LassoSelectionTask] = {}
         self._lasso_query_cancel_events: dict[int, threading.Event] = {}
         self._space_pan_active = False
         self._space_pan_previous_mode: str | None = None
@@ -1959,6 +1943,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return platform not in {"offscreen", "minimal"}
 
     def _load_qml(self) -> None:
+        self._pin_media_layer.clear()
         engine = self._quick_engine()
         if engine is None:
             return
@@ -2180,10 +2165,27 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._crop_bars_visible and self._viewport_aspect_preset != "free",
         )
 
+    def event(self, event: QtCore.QEvent) -> bool:
+        if event.type() in {
+            QtCore.QEvent.Type.PaletteChange, QtCore.QEvent.Type.ApplicationFontChange,
+        } and hasattr(self, "_pinned_annotations"):
+            self._sync_pin_overlay_state()
+        if event.type() in {
+            QtCore.QEvent.Type.WindowDeactivate, QtCore.QEvent.Type.FocusOut,
+            QtCore.QEvent.Type.UngrabMouse,
+        }:
+            self.eventFilter(self, event)
+        return super().event(event)
+
     def eventFilter(self, _obj: QtCore.QObject, event: QtCore.QEvent) -> bool:
-        if event.type() == QtCore.QEvent.Type.WindowDeactivate:
-            self._commit_camera_interaction()
+        if event.type() in {
+            QtCore.QEvent.Type.WindowDeactivate, QtCore.QEvent.Type.FocusOut,
+            QtCore.QEvent.Type.UngrabMouse, QtCore.QEvent.Type.Hide,
+        }:
+            self._finish_camera_drag()
+            self.end_temporary_pan()
             self._reset_zoom_drag()
+            self._pin_media_layer.cancel_press()
         if event.type() == QtCore.QEvent.Type.Enter:
             self._update_keyboard_modifier_state(QtWidgets.QApplication.keyboardModifiers())
             self._zoom_out_mouse_held = bool(
@@ -2200,8 +2202,12 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             return False
         if event.type() == QtCore.QEvent.Type.MouseButtonPress:
             mouse_event = event
-            self._click_press_pos = mouse_event.position()
             self._update_cursor_from_pointer_event(mouse_event)
+            if (mouse_event.button() == QtCore.Qt.MouseButton.LeftButton
+                    and self._interaction_mode in {"selection", "pin"}
+                    and not self._option_modifier_held()
+                    and self._pin_media_layer.press(mouse_event.position())):
+                return True
             if self._quick is not None:
                 self._quick.setFocus()
             elif self._quick_container is not None:
@@ -2210,6 +2216,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                     self._quick_view.requestActivate()
             else:
                 self.setFocus()
+            self._click_press_pos = mouse_event.position()
             if self._interaction_mode == "lasso":
                 handled = self._handle_lasso_press(mouse_event)
                 self._update_cursor_from_pointer_event(mouse_event)
@@ -2258,12 +2265,15 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             return False
         if event.type() == QtCore.QEvent.Type.MouseMove:
             mouse_event = event
+            if self._pin_media_layer.pressed:
+                self._update_cursor_from_pointer_event(mouse_event)
+                return True
             previous_lasso_hover = self._lasso_hover_state_key()
             self._update_cursor_from_pointer_event(mouse_event)
             next_lasso_hover = self._lasso_hover_state_key()
             if self._interaction_mode == "lasso" and previous_lasso_hover != next_lasso_hover:
                 self._refresh()
-            if self._interaction_mode == "pan" and self._drag_start_pos is not None and self._drag_start_viewport is not None:
+            if self._drag_start_pos is not None and self._drag_start_viewport is not None:
                 self._pan_from_drag(mouse_event.position())
                 return True
             if self._interaction_mode == "lasso" and self._lasso_dragging_anchor is not None:
@@ -2327,6 +2337,13 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             return False
         if event.type() == QtCore.QEvent.Type.MouseButtonRelease:
             mouse_event = event
+            if mouse_event.button() == QtCore.Qt.MouseButton.LeftButton:
+                handled, action = self._pin_media_layer.release(mouse_event.position())
+                if handled:
+                    if action is not None:
+                        self.pin_media_requested.emit(*action)
+                    self._update_cursor_from_pointer_event(mouse_event)
+                    return True
             release_pos = mouse_event.position()
             if (
                 self._interaction_mode in {"selection", "pin"}
@@ -2337,11 +2354,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 self._click_press_pos = None
                 self._update_cursor_from_pointer_event(mouse_event)
                 return True
-            if self._interaction_mode == "pan":
-                self._drag_start_pos = None
-                self._drag_start_viewport = None
-                self._commit_camera_interaction()
+            if mouse_event.button() == QtCore.Qt.MouseButton.LeftButton and self._drag_start_pos is not None:
+                self._finish_camera_drag()
                 self._update_cursor()
+                return True
             if self._interaction_mode == "lasso":
                 handled = self._handle_lasso_release(mouse_event)
                 self._update_cursor_from_pointer_event(mouse_event)
@@ -2357,10 +2373,12 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                     self._update_cursor_from_pointer_event(mouse_event)
                     return True
             if (
-                self._interaction_mode in {"selection", "pin"}
+                self._interaction_mode in {"pan", "selection", "pin"}
                 and mouse_event.button() == QtCore.Qt.MouseButton.RightButton
             ):
-                target = self._hit_test_pin(release_pos) or self._pinned_annotation_id_at_point(release_pos)
+                target = self._hit_test_pin(release_pos)
+                if target is None and self._interaction_mode == "pin":
+                    target = self._pinned_annotation_id_at_point(release_pos)
                 if target is not None:
                     self._click_press_pos = None
                     self.pin_context_requested.emit(target, self.mapToGlobal(release_pos.toPoint()))
@@ -2393,6 +2411,8 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             ):
                 self._click_press_pos = None
                 return False
+            if self._click_press_pos is None:
+                return False
             metadata_id = self._pick_metadata_id(release_pos.x(), release_pos.y())
             self._click_press_pos = None
             if metadata_id is None:
@@ -2408,7 +2428,8 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                     self._toggle_or_create_pin(metadata_id)
                     return True
                 self.point_clicked.emit(metadata_id)
-            elif mouse_event.button() == QtCore.Qt.MouseButton.RightButton:
+            elif (mouse_event.button() == QtCore.Qt.MouseButton.RightButton
+                    and self._interaction_mode in {"pan", "selection"}):
                 self.point_context_requested.emit(metadata_id, self.mapToGlobal(release_pos.toPoint()))
             return True
         if event.type() == QtCore.QEvent.Type.Wheel:
@@ -2567,6 +2588,13 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 setter(viewport_payload)
         self._pin_overlay.update()
         self._interaction_viewport_payload = viewport
+        self._sync_pin_media_geometry()
+
+    def _finish_camera_drag(self) -> None:
+        self._drag_start_pos = None
+        self._drag_start_viewport = None
+        self._click_press_pos = None
+        self._commit_camera_interaction()
 
     def _commit_camera_interaction(self) -> None:
         self._interaction_settle_timer.stop()
@@ -2608,6 +2636,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._update_lod_decision()
         if self._render_backend is None or not self._quick_available:
             self._update_pin_overlay()
+            self._sync_pin_media_geometry()
             self._debug_trace(
                 "refresh_skip_no_backend",
                 quick_available=self._quick_available,
@@ -2997,6 +3026,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             ):
                 continue
             entry = dict(item)
+            if "preview_text" in entry:
+                foreground, background = self._pin_preview_text_colors()
+                entry["preview_text_layout"] = self._pin_preview_text_layout(entry).payload(foreground, background)
             rgba = entry.get("thumbnail_rgba")
             if rgba:
                 entry["thumbnail_rgba"] = QtCore.QByteArray(bytes(rgba))
@@ -3020,6 +3052,50 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             )
             self._debug_trace("refresh_set_pin_data_done")
         self._update_pin_overlay()
+
+        self._sync_pin_media_geometry()
+
+    def configure_pin_media(self, kind: str) -> None:
+        self._pin_media_kind = str(kind)
+        self._sync_pin_media_geometry()
+
+    def visible_pin_media_ids(self) -> frozenset[str]:
+        return self._pin_media_visible_ids
+
+    def update_pin_media(self, annotation_id: str, **state) -> None:
+        """Transient playback updates never touch pin data or scene revisions."""
+        item = self._pin_media_layer.items.get(annotation_id)
+        previous_state = item.visual.state if item is not None else None
+        self._pin_media_layer.update(annotation_id, **state)
+        if item is not None and item.visual.state != previous_state:
+            self._update_cursor()
+
+    def _sync_pin_media_geometry(self) -> None:
+        layouts = {}
+        if (self._pin_media_kind in {"audio_clip", "video_clip", "animated_gif", "text_excerpt"}
+                and self._pins_enabled and self._pins_visible
+                and self._pin_style.get("thumbnail_visible", False)):
+            covered = QtGui.QRegion()
+            viewport = QtGui.QRegion(self.rect())
+            for entry in reversed(self._pinned_annotations):
+                box = self._pin_box_rect_for_entry(entry)
+                if box is None:
+                    continue
+                rect = self._pin_thumbnail_rect_for_entry(entry, box).toAlignedRect()
+                region = (QtGui.QRegion(rect) & viewport) - covered
+                key = str(entry.get("annotation_id") or "")
+                if key and not region.isEmpty():
+                    layouts[key] = (rect, region.translated(-rect.topLeft()))
+                covered |= QtGui.QRegion(box.toAlignedRect())
+        root = self._qml_root_object if self._has_native_pin_overlay() else self._pin_overlay
+        self._pin_media_layer.sync(
+            root, {} if self._pin_media_kind == "text_excerpt" else layouts, audio=self._pin_media_kind == "audio_clip",
+            enabled=self._interaction_mode in {"selection", "pin"},
+        )
+        visible = frozenset(layouts)
+        if visible != self._pin_media_visible_ids:
+            self._pin_media_visible_ids = visible
+            self.pin_media_visibility_changed.emit(visible)
 
     def set_thumbnail_layer_config(
         self,
@@ -3394,7 +3470,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._render_backend.set_thumbnail_batch(payload)
 
     def set_thumbnail_loading_indicator(self, active: bool, message: str | None = None) -> None:
-        text = str(message or "Preparing thumbnails").strip() or "Preparing thumbnails"
+        text = str(message or "Preparing Preview Assets").strip() or "Preparing Preview Assets"
         self._thumbnail_loading_label.setText(text)
         self._thumbnail_loading_label.adjustSize()
         self._position_thumbnail_loading_label()
@@ -3535,17 +3611,38 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._update_selection_overlay_position()
         self._refresh()
 
+    def hideEvent(self, event: QtGui.QHideEvent) -> None:
+        self._pin_media_layer.cancel_press()
+        if self._pin_media_visible_ids:
+            self._pin_media_visible_ids = frozenset()
+            self.pin_media_visibility_changed.emit(self._pin_media_visible_ids)
+        self._finish_camera_drag()
+        self.end_temporary_pan()
+        self._reset_zoom_drag()
+        super().hideEvent(event)
+
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
+        self._interaction_settle_timer.stop()
+        self._camera_interaction_active = False
+        self._drag_start_pos = self._drag_start_viewport = None
+        self._click_press_pos = None
+        self._space_pan_active = False
+        self._space_pan_previous_mode = None
         for cancel_event in self._scene_cancel_events.values():
             cancel_event.set()
         for cancel_event in self._lasso_query_cancel_events.values():
             cancel_event.set()
+        self._scene_runner.shutdown()
+        self._lasso_runner.shutdown()
+        self._scene_cancel_events.clear()
+        self._lasso_query_cancel_events.clear()
         self._shutdown_quick_host()
         super().closeEvent(event)
 
     def _shutdown_quick_host(self) -> None:
         if self._quick_shutdown:
             return
+        self._pin_media_layer.clear()
         self._quick_shutdown = True
         self._render_backend = None
         self._native_lasso_fill_item = None
@@ -3572,6 +3669,7 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     def showEvent(self, event: QtGui.QShowEvent) -> None:
         super().showEvent(event)
+        self._sync_pin_media_geometry()
         QtCore.QTimer.singleShot(0, self._refresh_after_show)
 
     def _refresh_after_show(self) -> None:
@@ -3806,16 +3904,17 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
         cancelled = threading.Event()
         task = _SceneBuildTask(request, cancelled)
-        task.signals.finished.connect(self._on_scene_build_finished)
-        task.signals.failed.connect(self._on_scene_build_failed)
-        task.signals.cancelled.connect(self._on_scene_build_cancelled)
         self._scene_cancel_events[revision] = cancelled
-        self._scene_tasks[revision] = task
-        self._scene_thread_pool.start(task)
+        self._scene_runner.submit(revision, task.run)
+
+    def _on_scene_task_completed(self, revision: int, result: object) -> None:
+        if result is None:
+            self._on_scene_build_cancelled(revision)
+        else:
+            self._on_scene_build_finished(revision, *result)
 
     @QtCore.Slot(int, object, float)
     def _on_scene_build_finished(self, revision: int, scene: object, elapsed_ms: float) -> None:
-        self._scene_tasks.pop(int(revision), None)
         self._scene_cancel_events.pop(int(revision), None)
         if int(revision) != self._scene_revision or not isinstance(scene, CanvasScene):
             return
@@ -3858,7 +3957,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int, str)
     def _on_scene_build_failed(self, revision: int, message: str) -> None:
-        self._scene_tasks.pop(int(revision), None)
         self._scene_cancel_events.pop(int(revision), None)
         self._scene_preserve_view.pop(int(revision), None)
         self._scene_source_tokens.pop(int(revision), None)
@@ -3869,7 +3967,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int)
     def _on_scene_build_cancelled(self, revision: int) -> None:
-        self._scene_tasks.pop(int(revision), None)
         self._scene_cancel_events.pop(int(revision), None)
         self._scene_preserve_view.pop(int(revision), None)
         self._scene_source_tokens.pop(int(revision), None)
@@ -4113,6 +4210,13 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return True
 
     def _grab_canvas_pixmap(self) -> QtGui.QPixmap:
+        self._pin_media_layer.set_visible(False)
+        try:
+            return self._grab_canvas_poster_pixmap()
+        finally:
+            self._pin_media_layer.set_visible(True)
+
+    def _grab_canvas_poster_pixmap(self) -> QtGui.QPixmap:
         pixmap = QtGui.QPixmap()
         captured_quick_window = False
         # A QQuickView hosted through createWindowContainer is a native child
@@ -4439,8 +4543,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._lasso_polygon_ids = ["" for _ in self._lasso_polygons]
         self._lasso_polygon_labels = ["" for _ in self._lasso_polygons]
         self._lasso_polygon_colors = ["#3b82f6" for _ in self._lasso_polygons]
-        self._lasso_polygon_area_visible = [True for _ in self._lasso_polygons]
-        self._lasso_polygon_points_visible = [True for _ in self._lasso_polygons]
         self._lasso_selected_polygon_index = None
         self._lasso_pending_draw_start = False
         self._refresh()
@@ -4464,8 +4566,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         ids: list[str] = []
         labels: list[str] = []
         colors: list[str] = []
-        area_visible: list[bool] = []
-        points_visible: list[bool] = []
         for payload in payloads:
             polygon_raw = payload.get("polygon") if isinstance(payload, dict) else None
             if not isinstance(polygon_raw, (list, tuple)):
@@ -4477,14 +4577,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             ids.append(str(payload.get("area_id") or ""))
             labels.append(str(payload.get("label") or ""))
             colors.append(str(payload.get("color_hex") or "#3b82f6"))
-            area_visible.append(bool(payload.get("area_visible", True)))
-            points_visible.append(bool(payload.get("points_visible", True)))
         self._lasso_polygons = polygons
         self._lasso_polygon_ids = ids
         self._lasso_polygon_labels = labels
         self._lasso_polygon_colors = colors
-        self._lasso_polygon_area_visible = area_visible
-        self._lasso_polygon_points_visible = points_visible
         self._lasso_selected_polygon_index = None
         self._lasso_pending_draw_start = keep_pending_draw_start
         self._lasso_dragging_anchor = None
@@ -4503,8 +4599,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                     "area_id": self._lasso_polygon_ids[index] if index < len(self._lasso_polygon_ids) else "",
                     "label": self._lasso_polygon_labels[index] if index < len(self._lasso_polygon_labels) else "",
                     "color_hex": self._lasso_polygon_colors[index] if index < len(self._lasso_polygon_colors) else "#3b82f6",
-                    "area_visible": self._lasso_polygon_area_visible[index] if index < len(self._lasso_polygon_area_visible) else True,
-                    "points_visible": self._lasso_polygon_points_visible[index] if index < len(self._lasso_polygon_points_visible) else True,
                     "polygon": np.asarray(polygon, dtype=np.float32).tolist(),
                 }
             )
@@ -4522,12 +4616,13 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._refresh()
 
     def clear_lasso_polygons(self) -> None:
+        self._lasso_query_revision += 1
+        for event in self._lasso_query_cancel_events.values():
+            event.set()
         self._lasso_polygons.clear()
         self._lasso_polygon_ids.clear()
         self._lasso_polygon_labels.clear()
         self._lasso_polygon_colors.clear()
-        self._lasso_polygon_area_visible.clear()
-        self._lasso_polygon_points_visible.clear()
         self._lasso_current_vertices.clear()
         self._lasso_selected_polygon_index = None
         self._lasso_dragging_anchor = None
@@ -4649,6 +4744,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     def set_interaction_mode(self, mode: str) -> None:
         if mode in {"pan", "zoom", "lasso", "selection", "pin"}:
+            if mode != self._interaction_mode:
+                self._finish_camera_drag()
+                self.end_temporary_pan()
             if mode != "selection":
                 if not self._hover_enabled and self._last_hover_metadata_id is not None:
                     self._last_hover_metadata_id = None
@@ -4973,8 +5071,10 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return bool(self._lasso_alt_held or self._lasso_shift_held or self._lasso_ctrl_held)
 
     def _cursor_name(self) -> str:
+        if self._drag_start_pos is not None:
+            return PAN_CLOSED
         if self._interaction_mode == "pan":
-            return PAN_CLOSED if self._drag_start_pos is not None else PAN_OPEN
+            return PAN_OPEN
         if self._interaction_mode == "zoom":
             return ZOOM_OUT if self._zoom_shift_held or self._zoom_out_mouse_held else ZOOM_IN
         if self._interaction_mode == "lasso":
@@ -4995,20 +5095,25 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             if self._lasso_hover_polygon_index is not None:
                 return LASSO_SELECT_AREA
             return LASSO_ADD_POINT
-        if self._interaction_mode == "selection":
-            return SELECTION_MODE
-        if self._interaction_mode == "pin":
+        if self._interaction_mode in {"selection", "pin"}:
+            if self._pin_drag_annotation_id is not None:
+                return PIN_MOVE
             position = self._cursor_canvas_position
             if position is not None:
                 hit_pin = self._hit_test_pin(position)
                 hit_pinned_point = self._pinned_annotation_id_at_point(position)
                 if self._option_modifier_held() and (hit_pin is not None or hit_pinned_point is not None):
                     return PIN_REMOVE
+                media_hit = self._pin_media_layer.hit(position)
+                if media_hit is not None:
+                    if media_hit[1] != "busy":
+                        return CLICKABLE
+                    return PIN_MODE if self._interaction_mode == "pin" else SELECTION_MODE
                 if hit_pin is not None:
                     return PIN_MOVE
                 if self._pick_metadata_id(position.x(), position.y()) is not None:
-                    return PIN_ADD
-            return PIN_MODE
+                    return PIN_ADD if self._interaction_mode == "pin" else CLICKABLE
+            return PIN_MODE if self._interaction_mode == "pin" else SELECTION_MODE
         return PAN_OPEN
 
     def _update_cursor_from_pointer_event(self, event: QtGui.QSinglePointEvent) -> None:
@@ -5277,6 +5382,9 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return QtGui.QImage(data, width, height, width * 4, QtGui.QImage.Format.Format_RGBA8888).copy()
 
     def _draw_pin_thumbnail(self, painter: QtGui.QPainter, entry: dict, rect: QtCore.QRectF) -> None:
+        if "preview_text" in entry:
+            paint_pin_text(painter, rect, self._pin_preview_text_layout(entry), *self._pin_preview_text_colors())
+            return
         image = self._pin_thumbnail_image(entry)
         if image is None or image.isNull():
             painter.setPen(QtCore.Qt.PenStyle.NoPen)
@@ -5422,8 +5530,22 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         value.setUnderline(bool(self._pin_style.get("text_value_underline", False)))
         return label, value
 
-    @staticmethod
-    def _pin_thumbnail_display_size(entry: dict, max_size: int) -> tuple[float, float]:
+    def _pin_preview_text_layout(self, entry: dict):
+        return layout_pin_text(
+            str(entry["preview_text"]), int(self._pin_style.get("thumbnail_size", 96)),
+            str(entry.get("preview_text_font") or QtWidgets.QApplication.font().family()),
+            int(entry.get("preview_text_size", 12)),
+        )
+
+    def _pin_preview_text_colors(self):
+        palette = QtWidgets.QApplication.palette()
+        return (palette.color(QtGui.QPalette.ColorRole.WindowText).name(),
+                palette.color(QtGui.QPalette.ColorRole.Window).name())
+
+    def _pin_thumbnail_display_size(self, entry: dict, max_size: int) -> tuple[float, float]:
+        if "preview_text" in entry:
+            layout = self._pin_preview_text_layout(entry)
+            return float(layout.width), float(layout.height)
         fallback = float(max(1, int(max_size)))
         try:
             source_width = float(entry.get("thumbnail_width", 0))
@@ -5620,19 +5742,25 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 return True
             anchor_hit = self._anchor_hit_at_canvas(mouse_event.position())
             hit_polygon = anchor_hit[0] if anchor_hit is not None and not anchor_hit[2] else None
+            hits = list(self._polygon_indices_at_world_point(world_point)) if world_point is not None else []
             if hit_polygon is None:
-                hit_polygon = self._polygon_index_at_world_point(world_point) if world_point is not None else None
+                hit_polygon = (
+                    self._lasso_selected_polygon_index
+                    if self._lasso_selected_polygon_index in hits
+                    else next(iter(hits), None)
+                )
             if hit_polygon is not None:
                 self._lasso_selected_polygon_index = hit_polygon
                 payload = self._lasso_polygon_payload(hit_polygon)
                 if anchor_hit is not None and not anchor_hit[2]:
                     payload["anchor_index"] = int(anchor_hit[1])
+                payload["overlapping_areas"] = [self._lasso_polygon_payload(index) for index in hits]
                 self.lasso_polygon_context.emit(payload)
                 self._emit_lasso_polygon_selected(hit_polygon)
                 self._emit_lasso_selection_for_polygon(hit_polygon)
                 self._refresh()
                 return True
-            self._lasso_current_vertices.clear()
+            self.lasso_polygon_context.emit({})
             self._refresh()
             return True
         if mouse_event.button() != QtCore.Qt.MouseButton.LeftButton:
@@ -5721,8 +5849,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         self._lasso_polygon_ids.append("")
         self._lasso_polygon_labels.append("")
         self._lasso_polygon_colors.append("#3b82f6")
-        self._lasso_polygon_area_visible.append(True)
-        self._lasso_polygon_points_visible.append(True)
         created_index = len(self._lasso_polygons) - 1
         self._lasso_selected_polygon_index = created_index
         self._lasso_pending_draw_start = False
@@ -5759,17 +5885,14 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         return x, y
 
     def _polygon_index_at_world_point(self, world_point: np.ndarray) -> int | None:
-        if not self._lasso_polygons:
-            return None
+        return next(self._polygon_indices_at_world_point(world_point), None)
+
+    def _polygon_indices_at_world_point(self, world_point: np.ndarray) -> Iterator[int]:
         points = np.asarray([world_point], dtype=np.float32)
         for index in range(len(self._lasso_polygons) - 1, -1, -1):
             polygon = self._lasso_polygons[index]
-            if polygon.shape[0] < 3:
-                continue
-            mask = points_in_polygon(points, polygon)
-            if mask.size and bool(mask[0]):
-                return index
-        return None
+            if polygon.shape[0] >= 3 and bool(points_in_polygon(points, polygon)[0]):
+                yield index
 
     def _anchor_hit_at_canvas(self, canvas_pos: QtCore.QPointF) -> tuple[int, int, bool] | None:
         if self._lasso_current_vertices:
@@ -5937,14 +6060,23 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
                 spatial_index=self._grid_index,
                 cancelled=cancelled,
             )
-            task.signals.finished.connect(self._on_lasso_selection_ready)
-            task.signals.cancelled.connect(self._on_lasso_selection_cancelled)
-            self._lasso_query_tasks[query_revision] = task
             self._lasso_query_cancel_events[query_revision] = cancelled
-            self._scene_thread_pool.start(task)
+            self._lasso_runner.submit(query_revision, task.run)
             return
         selected_ids = self.select_metadata_ids_in_polygon(polygon, visible_threshold=0.5)
         self._deliver_lasso_selection(polygon_index, polygon, selected_ids)
+
+    def _on_lasso_task_completed(self, revision: int, result: object) -> None:
+        if result is None:
+            self._on_lasso_selection_cancelled(revision)
+        else:
+            self._on_lasso_selection_ready(*result)
+
+    def _on_lasso_task_failed(self, revision: int, message: str) -> None:
+        from shared.diagnostics.service import LOGGER
+
+        self._on_lasso_selection_cancelled(revision)
+        LOGGER.warning("Discovery lasso selection failed: %s", message)
 
     @QtCore.Slot(int, int, int, object, object)
     def _on_lasso_selection_ready(
@@ -5955,7 +6087,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
         polygon: object,
         selected_ids: object,
     ) -> None:
-        self._lasso_query_tasks.pop(int(query_revision), None)
         self._lasso_query_cancel_events.pop(int(query_revision), None)
         if int(query_revision) != self._lasso_query_revision or int(scene_revision) != self._active_scene_revision:
             return
@@ -5972,7 +6103,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
 
     @QtCore.Slot(int)
     def _on_lasso_selection_cancelled(self, query_revision: int) -> None:
-        self._lasso_query_tasks.pop(int(query_revision), None)
         self._lasso_query_cancel_events.pop(int(query_revision), None)
 
     def _deliver_lasso_selection(
@@ -6002,8 +6132,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             self._lasso_polygon_ids,
             self._lasso_polygon_labels,
             self._lasso_polygon_colors,
-            self._lasso_polygon_area_visible,
-            self._lasso_polygon_points_visible,
         ):
             if index < len(values):
                 del values[index]
@@ -6038,8 +6166,6 @@ class DiscoveryCanvasWidget(QtWidgets.QWidget):
             "area_id": self._lasso_polygon_ids[polygon_index] if polygon_index < len(self._lasso_polygon_ids) else "",
             "label": self._lasso_polygon_labels[polygon_index] if polygon_index < len(self._lasso_polygon_labels) else "",
             "color_hex": self._lasso_polygon_colors[polygon_index] if polygon_index < len(self._lasso_polygon_colors) else "#3b82f6",
-            "area_visible": self._lasso_polygon_area_visible[polygon_index] if polygon_index < len(self._lasso_polygon_area_visible) else True,
-            "points_visible": self._lasso_polygon_points_visible[polygon_index] if polygon_index < len(self._lasso_polygon_points_visible) else True,
             "polygon": np.asarray(self._lasso_polygons[polygon_index], dtype=np.float32).tolist(),
         }
 

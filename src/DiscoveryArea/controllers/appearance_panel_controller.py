@@ -8,9 +8,11 @@ from typing import TYPE_CHECKING
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
+from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from DiscoveryArea.color_rules import analyze_rule_overlaps, ordered_rules, overlap_key, overlap_labels
 from DiscoveryArea.palettes import MAX_CATEGORICAL_VALUES, distinct_palette, next_unused_color, palette_options
 from shared.qt.panel_controller import UiPanelController
+from shared.qt.preset_menu import append_manage_presets_action
 from shared.qt.icons import apply_icon_color
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
@@ -75,13 +77,11 @@ class AppearancePanelController(UiPanelController):
     _CONDITION_KEY_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 3
 
     def _wire(self) -> None:
+        self._metadata_options = MetadataOptions(self._widget, self._show_status)
         self._style_changed_callback = None
         self._save_project_preset_callback: Callable[[str, dict], bool] | None = None
         self._load_project_preset_callback: Callable[[str], dict | None] | None = None
-        self._save_global_template_callback: Callable[[str, dict], bool] | None = None
-        self._load_global_template_callback: Callable[[str], dict | None] | None = None
         self._project_preset_labels: list[str] = []
-        self._global_template_labels: list[str] = []
         self._project: Project | None = None
         self._metadata_access: DiscoveryMetadataAccess | None = None
         self._metadata_column_names: set[str] = set()
@@ -137,6 +137,7 @@ class AppearancePanelController(UiPanelController):
         self._conditional_names = {"point": "Conditional", "border": "Conditional"}
         self._conditional_value_columns: dict[str, str] = {}
         self._property_button_groups: list[QtWidgets.QButtonGroup] = []
+        self._projection_color_counts: dict[str, tuple[str, dict[str, int]]] = {}
         self._distribution_scope = self._DISTRIBUTION_TOTAL
         self._distribution_menu: QtWidgets.QMenu | None = None
         self._wire_dynamic_combo_tooltips()
@@ -176,28 +177,6 @@ class AppearancePanelController(UiPanelController):
         self._set_uniform_swatch("point", "#000000")
         self._set_uniform_swatch("border", "#111111")
         apply_icon_color(self._widget)
-        self._lock_horizontal_content_minimum()
-
-    def _lock_horizontal_content_minimum(self) -> None:
-        """Protect the content minimum without reserving its preferred width."""
-        scroll = require_child(
-            self._widget,
-            QtWidgets.QScrollArea,
-            "scroll_appearance_controls",
-        )
-        stack = require_child(
-            self._widget,
-            QtWidgets.QStackedWidget,
-            "stack_appearance_pages",
-        )
-        self._widget.ensurePolished()
-        # Hidden nested layouts can retain the larger Designer SVG fallback
-        # sizes after semantic icons are applied. Refresh from the inside out
-        # before turning their measured width into a persistent minimum.
-        for layout in reversed(stack.findChildren(QtWidgets.QLayout)):
-            layout.invalidate()
-            layout.activate()
-        scroll.setMinimumWidth(stack.minimumSizeHint().width())
 
     def _wire_dynamic_combo_tooltips(self) -> None:
         for name in self._DYNAMIC_COMBO_NAMES:
@@ -223,6 +202,7 @@ class AppearancePanelController(UiPanelController):
         self._update_dynamic_combo_tooltip(combo)
 
     def set_project(self, project) -> None:
+        self._metadata_options.reset()
         super().set_project(project)
         self._project = project
         enabled = project is not None
@@ -361,7 +341,7 @@ class AppearancePanelController(UiPanelController):
         if scroll is not None:
             scroll.verticalScrollBar().setValue(0)
         stack.updateGeometry()
-        QtCore.QTimer.singleShot(0, self._sync_scroll_content_height_deferred)
+        QtCore.QTimer.singleShot(0, self._widget, self._sync_scroll_content_height_deferred)
 
     def _select_property_page(
         self,
@@ -383,7 +363,7 @@ class AppearancePanelController(UiPanelController):
             )
             page.setSizePolicy(policy)
         stack.updateGeometry()
-        QtCore.QTimer.singleShot(0, self._sync_scroll_content_height_deferred)
+        QtCore.QTimer.singleShot(0, self._widget, self._sync_scroll_content_height_deferred)
         if stack.objectName() == "stack_border_width":
             self._update_border_color_enabled()
         if index == 2 and stack.objectName() in {"stack_fill_color", "stack_border_color"}:
@@ -393,7 +373,7 @@ class AppearancePanelController(UiPanelController):
 
     def _sync_scroll_content_height_deferred(self) -> None:
         self._sync_scroll_content_height()
-        QtCore.QTimer.singleShot(0, self._sync_scroll_content_height)
+        QtCore.QTimer.singleShot(0, self._widget, self._sync_scroll_content_height)
 
     def _sync_scroll_content_height(self) -> None:
         scroll = self._widget.findChild(QtWidgets.QScrollArea, "scroll_appearance_controls")
@@ -437,6 +417,8 @@ class AppearancePanelController(UiPanelController):
         metadata_access: DiscoveryMetadataAccess | None,
     ) -> None:
         self._metadata_access = metadata_access
+        self._projection_color_counts.clear()
+        self._metadata_options.reset()
         for target in ("point", "border"):
             self._queue_conflict_warnings(target)
 
@@ -456,6 +438,7 @@ class AppearancePanelController(UiPanelController):
         self._metadata_field_labels = {}
         self._categorical_color_columns = []
         self._continuous_color_columns = []
+        pending_columns = set()
         if project is not None:
             access = self._metadata_access or DiscoveryMetadataAccess(project)
             self._metadata_access = access
@@ -501,15 +484,19 @@ class AppearancePanelController(UiPanelController):
                         # Hand-authored and older projects may not have column
                         # summaries yet. Aggregate just this column in SQLite
                         # rather than materializing complete metadata rows.
-                        counts = [
-                            (value if value else "(missing)", int(count))
-                            for value, count in access.value_counts(name)
-                        ]
-                        self._metadata_column_counts[name] = counts
-                        unique_count = len(counts)
-                        is_numeric = self._is_numeric_column(
-                            [value for value, _count in counts if value != "(missing)"]
-                        )
+                        def describe(access=access, name=name):
+                            counts = access.value_counts(name)
+                            return len(counts), AppearancePanelController._is_numeric_column(
+                                [value for value, _ in counts if value])
+                        summary = self._metadata_options.get(('catalog', name), (id(access), name),
+                            describe, lambda: self._load_metadata_columns(project))
+                        if summary is None:
+                            # Unknown eligibility must not erase a saved field
+                            # or mode. Retain it as a disabled loading choice.
+                            pending_columns.add(name)
+                            unique_count, is_numeric, is_categorical = 0, True, True
+                        else:
+                            unique_count, is_numeric = summary
                     else:
                         unique_count = max(0, int(column.unique_values))
                     self._metadata_numeric_columns[name] = is_numeric
@@ -523,6 +510,13 @@ class AppearancePanelController(UiPanelController):
         self._repopulate_color_combo("point")
         self._repopulate_color_combo("border")
         self._populate_numeric_mapping_combos()
+        for name in ('combo_point_color_column', 'combo_border_color_column',
+                     'combo_point_size_column', 'combo_border_width_column'):
+            combo = self._widget.findChild(QtWidgets.QComboBox, name)
+            for index in range(combo.count()):
+                combo.model().item(index).setEnabled(combo.itemData(index) not in pending_columns)
+            if self._combo_value(combo) in pending_columns:
+                combo.setEnabled(False)
         self._populate_conditional_fields()
         for target, style in conditional_styles.items():
             # Stable field IDs survive renames; migrate displayed rule labels
@@ -711,7 +705,15 @@ class AppearancePanelController(UiPanelController):
         if self._conditional_value_columns.get(ui_target) == column:
             return
         current = str(values.currentText() or "")
-        options = [value for value, _count in self._metadata_value_counts(column)] if column else []
+        counts = self._metadata_value_counts(column, owner=values,
+            ready=lambda: self._populate_conditional_values(ui_target)) if column else []
+        values.setEnabled(counts is not None)
+        if counts is None:
+            self._conditional_value_columns.pop(ui_target, None)
+            with QtCore.QSignalBlocker(values):
+                values.model().setStringList([])
+            return
+        options = [value for value, _count in counts]
         values.blockSignals(True)
         values.model().setStringList(options)
         if current in options:
@@ -1139,6 +1141,7 @@ class AppearancePanelController(UiPanelController):
         return {"type": "rule", "winner": combo.currentText()}
 
     def shutdown(self) -> None:
+        self._metadata_options.shutdown()
         self._conflict_timer.stop()
         self._conflict_jobs.clear()
         self._conflict_executor.shutdown(wait=False, cancel_futures=True)
@@ -1148,8 +1151,14 @@ class AppearancePanelController(UiPanelController):
         column: str,
         visible_counts: dict[str, int],
         visible_total: int,
+        *,
+        total_counts: dict[str, int],
+        total: int,
     ) -> None:
-        self.set_mapped_color_view_counts("point", column, visible_counts, visible_total)
+        self.set_mapped_color_view_counts(
+            "point", column, visible_counts, visible_total,
+            total_counts=total_counts, total=total,
+        )
 
     def set_mapped_color_view_counts(
         self,
@@ -1157,13 +1166,21 @@ class AppearancePanelController(UiPanelController):
         column: str,
         visible_counts: dict[str, int],
         visible_total: int,
+        *,
+        total_counts: dict[str, int],
+        total: int,
     ) -> None:
         combo_name = "combo_point_color_column" if target == "point" else "combo_border_color_column"
         table_name = "table_point_colors" if target == "point" else "table_border_colors"
         if self._current_combo_text(combo_name) != str(column):
             return
-        total_counts = dict(self._metadata_value_counts(str(column)))
-        total = max(1, sum(total_counts.values()))
+        projection_counts = (str(column), dict(total_counts))
+        if self._projection_color_counts.get(target) != projection_counts:
+            self._projection_color_counts[target] = projection_counts
+            if target == "point":
+                self._refresh_point_color_table_from_selection()
+            else:
+                self._refresh_border_color_table_from_selection()
         self._set_table_percentages(
             table_name,
             total_counts,
@@ -1425,10 +1442,8 @@ class AppearancePanelController(UiPanelController):
 
     def _build_preset_menu(self, parent: QtWidgets.QWidget) -> QtWidgets.QMenu:
         menu = QtWidgets.QMenu(parent)
-        self._load_project_menu = menu.addMenu("Load Project Recent")
-        self._load_global_menu = menu.addMenu("Load Global Template")
-        menu.addAction("Save Project Preset…").triggered.connect(self._save_project_preset)
-        menu.addAction("Save Global Template…").triggered.connect(self._save_global_template)
+        self._load_project_menu = menu.addMenu("Apply Preset")
+        menu.addAction("Save as Preset…").triggered.connect(self._save_project_preset)
         self._refresh_preset_menus()
         return menu
 
@@ -1449,6 +1464,7 @@ class AppearancePanelController(UiPanelController):
             table.horizontalHeader().sectionClicked.connect(
                 lambda column, table_name=name: self._on_color_table_header_clicked(table_name, column)
             )
+            self._install_palette_header_button(table, name)
             table.setProperty("appearance_header_connected", True)
         conditional_target = {"table_fill_color_conditions": "point", "table_border_color_conditions": "border"}.get(name)
         table.setColumnCount(3)
@@ -1465,7 +1481,7 @@ class AppearancePanelController(UiPanelController):
             table.setProperty("conditional_connected", True)
         distribution_header = table.horizontalHeaderItem(1)
         if distribution_header is not None:
-            distribution_header.setToolTip("Choose whether percentages use the entire dataset or visible filtered items")
+            distribution_header.setToolTip("Choose whether percentages use the selected Discovery projection or its visible filtered items")
         logical_row_count = len(rows)
         # Qt's macOS accessibility adapter can retain cell indexes after a
         # model resize. Never shrink this backing model; spare rows stay
@@ -1527,7 +1543,6 @@ class AppearancePanelController(UiPanelController):
                     label_item.setToolTip(warning)
 
         self._adjust_color_columns(table)
-        self._install_palette_header_button(table, name)
 
     def _wire_style_controls(self) -> None:
         for name in (
@@ -1786,7 +1801,17 @@ class AppearancePanelController(UiPanelController):
         if not column or column == self._NO_VALID_FIELDS_LABEL:
             self._setup_color_table("table_point_colors", [])
             return
-        counts = self._metadata_value_counts(column)
+        table = self._widget.findChild(QtWidgets.QTableWidget, "table_point_colors")
+        projection_counts = self._projection_color_counts.get("point")
+        if projection_counts is not None and projection_counts[0] == column:
+            counts = sorted(projection_counts[1].items(), key=lambda item: (-item[1], item[0]))
+        else:
+            counts = self._metadata_value_counts(column, owner=table,
+                ready=lambda: self._metadata_table_ready("point"))
+        table.setEnabled(counts is not None)
+        if counts is None:
+            self._setup_color_table("table_point_colors", [])
+            return
         if not counts:
             self._setup_color_table("table_point_colors", self._GLOBAL_POINT_ROWS)
             return
@@ -1813,7 +1838,17 @@ class AppearancePanelController(UiPanelController):
         if not column or column == self._NO_VALID_FIELDS_LABEL:
             self._setup_color_table("table_border_colors", [])
             return
-        counts = self._metadata_value_counts(column)
+        table = self._widget.findChild(QtWidgets.QTableWidget, "table_border_colors")
+        projection_counts = self._projection_color_counts.get("border")
+        if projection_counts is not None and projection_counts[0] == column:
+            counts = sorted(projection_counts[1].items(), key=lambda item: (-item[1], item[0]))
+        else:
+            counts = self._metadata_value_counts(column, owner=table,
+                ready=lambda: self._metadata_table_ready("border"))
+        table.setEnabled(counts is not None)
+        if counts is None:
+            self._setup_color_table("table_border_colors", [])
+            return
         if not counts:
             self._setup_color_table("table_border_colors", self._GLOBAL_BORDER_ROWS)
             return
@@ -1829,7 +1864,14 @@ class AppearancePanelController(UiPanelController):
             rows.append((color, share, label))
         self._setup_color_table("table_border_colors", rows)
 
-    def _metadata_value_counts(self, column: str) -> list[tuple[str, int]]:
+    def _metadata_table_ready(self, target):
+        if target == "point":
+            self._refresh_point_color_table_from_selection()
+        else:
+            self._refresh_border_color_table_from_selection()
+        self._emit_style_changed()
+
+    def _metadata_value_counts(self, column: str, *, owner=None, ready=lambda: None):
         cached = self._metadata_column_counts.get(column)
         if cached is not None:
             return list(cached)
@@ -1841,16 +1883,13 @@ class AppearancePanelController(UiPanelController):
                 counts[key] = counts.get(key, 0) + 1
             loaded = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
         elif self._metadata_access is not None:
-            try:
-                loaded = [
-                    (value if value else "(missing)", int(count))
-                    for value, count in self._metadata_access.value_counts(column)
-                ]
-            except Exception:
-                loaded = []
+            access = self._metadata_access
+            return self._metadata_options.get(owner if owner is not None else column,
+                (id(access), column),
+                lambda: [(value if value else "(missing)", int(count))
+                         for value, count in access.value_counts(column)], ready)
         else:
             loaded = []
-        self._metadata_column_counts[column] = loaded
         return list(loaded)
 
     def _color_table_mapping(self, table_name: str) -> dict[str, str]:
@@ -2024,16 +2063,17 @@ class AppearancePanelController(UiPanelController):
 
     def _install_palette_header_button(self, table: QtWidgets.QTableWidget, table_name: str) -> None:
         header = table.horizontalHeader()
-        for existing in header.findChildren(QtWidgets.QToolButton, f"button_{table_name}_palette"):
-            existing.deleteLater()
         button = QtWidgets.QToolButton(header)
         button.setObjectName(f"button_{table_name}_palette")
         button.setAutoRaise(True)
         button.setProperty("iconName", "color_swatch")
-        button.setIconSize(QtCore.QSize(14, 14))
+        button.setIconSize(QtCore.QSize(18, 18))
         button.setFixedSize(18, 18)
         button.setToolTip("Set color palette")
-        button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
+        button.setStyleSheet(
+            "QToolButton { padding: 0px; }"
+            "QToolButton::menu-indicator { image: none; width: 0px; }"
+        )
         menu = QtWidgets.QMenu(button)
         for label, palette in palette_options():
             action = menu.addAction(label)
@@ -2129,18 +2169,8 @@ class AppearancePanelController(UiPanelController):
     def set_load_project_preset_callback(self, callback: Callable[[str], dict | None] | None) -> None:
         self._load_project_preset_callback = callback
 
-    def set_save_global_template_callback(self, callback: Callable[[str, dict], bool] | None) -> None:
-        self._save_global_template_callback = callback
-
-    def set_load_global_template_callback(self, callback: Callable[[str], dict | None] | None) -> None:
-        self._load_global_template_callback = callback
-
     def set_recent_project_preset_labels(self, labels: list[str]) -> None:
         self._project_preset_labels = list(labels)
-        self._refresh_preset_menus()
-
-    def set_global_template_labels(self, labels: list[str]) -> None:
-        self._global_template_labels = list(labels)
         self._refresh_preset_menus()
 
     def _refresh_preset_menus(self) -> None:
@@ -2151,23 +2181,12 @@ class AppearancePanelController(UiPanelController):
                 empty = project_menu.addAction("No Presets Saved")
                 empty.setEnabled(False)
             else:
-                for label in self._project_preset_labels[:10]:
+                for label in self._project_preset_labels:
                     action = project_menu.addAction(label)
                     action.triggered.connect(
                         lambda _checked=False, value=label: self._load_project_preset_by_label(value)
                     )
-        global_menu = getattr(self, "_load_global_menu", None)
-        if global_menu is not None:
-            global_menu.clear()
-            if not self._global_template_labels:
-                empty = global_menu.addAction("No Templates Saved")
-                empty.setEnabled(False)
-            else:
-                for label in self._global_template_labels[:10]:
-                    action = global_menu.addAction(label)
-                    action.triggered.connect(
-                        lambda _checked=False, value=label: self._load_global_template_by_label(value)
-                    )
+            append_manage_presets_action(project_menu, self._open_settings)
 
     def _save_project_preset(self) -> None:
         if self._save_project_preset_callback is None:
@@ -2183,19 +2202,6 @@ class AppearancePanelController(UiPanelController):
         if self._save_project_preset_callback(preset_name, self.appearance_state_payload()):
             self._show_status(f"Saved appearance preset: {preset_name}")
 
-    def _save_global_template(self) -> None:
-        if self._save_global_template_callback is None:
-            return
-        name, ok = QtWidgets.QInputDialog.getText(self._widget, "Save Global Appearance Template", "Template name:")
-        if not ok:
-            return
-        template_name = name.strip()
-        if not template_name:
-            self._show_status("Template name cannot be empty.")
-            return
-        if self._save_global_template_callback(template_name, self.appearance_state_payload()):
-            self._show_status(f"Saved global appearance template: {template_name}")
-
     def _load_project_preset_by_label(self, label: str) -> None:
         if self._load_project_preset_callback is None:
             return
@@ -2203,20 +2209,6 @@ class AppearancePanelController(UiPanelController):
         if isinstance(payload, dict):
             self.apply_preset_payload(payload)
             self._show_status(f"Loaded appearance preset: {label}")
-
-    def _load_global_template_by_label(self, label: str) -> None:
-        if self._load_global_template_callback is None:
-            return
-        payload = self._load_global_template_callback(label)
-        if isinstance(payload, dict):
-            skipped = self._apply_global_template_payload(payload)
-            if skipped:
-                self._show_status(
-                    "Loaded global appearance template; skipped unavailable metadata columns: "
-                    + ", ".join(skipped)
-                )
-            else:
-                self._show_status(f"Loaded global appearance template: {label}")
 
     def load_preset_path(self, path: Path) -> bool:
         from DiscoveryArea.presets_repository import PresetRepository
@@ -2435,29 +2427,6 @@ class AppearancePanelController(UiPanelController):
         if isinstance(border_mapping, dict):
             self._border_color_mappings[border_column] = self._normalized_str_mapping(border_mapping)
 
-    def _apply_global_template_payload(self, payload: dict) -> list[str]:
-        if not isinstance(payload, dict):
-            return []
-        adjusted = dict(payload)
-        skipped: list[str] = []
-        for key in ("point_colors", "border"):
-            section = payload.get(key)
-            if not isinstance(section, dict):
-                continue
-            column = str(section.get("column") or self._GLOBAL_LABEL).strip() or self._GLOBAL_LABEL
-            if (
-                column in {self._GLOBAL_LABEL, "All items"}
-                or column in self._metadata_column_names
-                or column in self._metadata_column_values
-            ):
-                continue
-            next_section = dict(section)
-            next_section["column"] = self._GLOBAL_LABEL
-            adjusted[key] = next_section
-            skipped.append(column)
-        self._apply_preset_payload(adjusted)
-        return sorted(set(skipped))
-
     @staticmethod
     def _normalized_str_mapping(mapping: dict) -> dict[str, str]:
         normalized: dict[str, str] = {}
@@ -2486,7 +2455,7 @@ class AppearancePanelController(UiPanelController):
             )
             page.setSizePolicy(policy)
         stack.updateGeometry()
-        QtCore.QTimer.singleShot(0, self._sync_scroll_content_height_deferred)
+        QtCore.QTimer.singleShot(0, self._widget, self._sync_scroll_content_height_deferred)
 
     def _apply_color_mapping(self, table_name: str, mapping: dict) -> None:
         table = self._widget.findChild(QtWidgets.QTableWidget, table_name)
@@ -2612,7 +2581,8 @@ class AppearancePanelController(UiPanelController):
         self._set_property_page_available(
             f"stack_{ui_target}_color", f"button_{ui_target}_color_mapped", 1, bool(options)
         )
-        self._select_default_color_mode_for_column(target)
+        if self._combo_value(combo) != current:
+            self._select_default_color_mode_for_column(target)
         self._enforce_color_mode_constraints(target)
 
     def _select_default_color_mode_for_column(self, target: str) -> None:

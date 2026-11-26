@@ -61,7 +61,7 @@ class ClusteringMethod(Protocol):
     def fit_predict(self, embeddings: np.ndarray, parameters: dict[str, object]) -> np.ndarray:
         """Return one cluster label per embedding row."""
 
-    def fit(self, embeddings: np.ndarray, parameters: dict[str, object]) -> ClusteringOutput:
+    def fit(self, embeddings: np.ndarray, parameters: dict[str, object], *, cpu_budget: int | None = None) -> ClusteringOutput:
         """Return labels, optional strengths, and bounded diagnostics."""
 
     def validate(self, parameters: dict[str, object], row_count: int) -> dict[str, object]:

@@ -6,7 +6,7 @@ import json
 import math
 
 SCHEMA_VERSION = 3
-PREPARATION_VERSION = 2
+PREPARATION_VERSION = 3
 PROVIDERS = ("CPUExecutionProvider", "CUDAExecutionProvider", "CoreMLExecutionProvider")
 CROP_POSITIONS = ("top_left", "top", "top_right", "left", "center", "right", "bottom_left", "bottom", "bottom_right")
 
@@ -29,7 +29,7 @@ OPTIONS = {
 }
 OPERATIONS = {
     "image": ["first_page", "exif_orientation", "rgb_alpha_composite", "resize_crop_pad", "rescale_normalize", "layout", "batch"],
-    "text": ["read_utf8", "prefix_suffix", "packaged_tokenizer", "truncate", "fixed_padding", "tensor_binding"],
+    "text": ["read_unicode_text", "prefix_suffix", "packaged_tokenizer", "truncate", "fixed_padding", "tensor_binding"],
     "audio": ["decode_first_stream", "channel_selection", "pyav_resample", "sample_accurate_excerpt", "right_zero_pad", "tensor_binding"],
     "video": ["decode_first_stream", "uniform_timestamp_sampling", "rgb", "resize_crop_pad", "rescale_normalize", "repeat_last_frame", "layout", "batch"],
 }

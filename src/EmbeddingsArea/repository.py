@@ -108,6 +108,7 @@ class EmbeddingRunRepository:
     def delete_run(self, run_id: str) -> None:
         with closing(self._connect()) as connection, connection:
             connection.execute("DELETE FROM embedding_run_input_components WHERE run_id = ?", (run_id,))
+            connection.execute("DELETE FROM embedding_run_text_records WHERE run_id = ?", (run_id,))
             connection.execute("DELETE FROM embedding_run_parameters WHERE run_id = ?", (run_id,))
             connection.execute("DELETE FROM embedding_run_input_bindings WHERE run_id = ?", (run_id,))
             connection.execute("DELETE FROM embedding_run_inputs WHERE run_id = ?", (run_id,))
@@ -118,6 +119,30 @@ class EmbeddingRunRepository:
         with closing(self._connect()) as connection, connection:
             self._replace_run_inputs(connection, run_id, inputs)
             connection.commit()
+
+    def publish_reduced_run(self, source: EmbeddingRun, output: EmbeddingRun) -> None:
+        """Keep identity bindings intact and reject a deleted or changed source."""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM embedding_runs WHERE id = ?", (source.id,)).fetchone()
+            if row is None or self._run_from_row(row) != source:
+                raise ValueError("Source vector data changed during reduction. Try again.")
+            self._upsert_run(connection, output)
+            if output.id != source.id:
+                for table in ("embedding_run_inputs", "embedding_run_input_bindings", "embedding_run_parameters", "embedding_run_text_records"):
+                    columns = [row[1] for row in connection.execute(f"PRAGMA table_info({table})") if row[1] != "run_id"]
+                    names = ", ".join(columns)
+                    connection.execute(f"INSERT INTO {table} (run_id, {names}) SELECT ?, {names} FROM {table} WHERE run_id = ?",
+                                       (output.id, source.id))
+                components = connection.execute(
+                    "SELECT ordinal, payload FROM embedding_run_input_components WHERE run_id = ?", (source.id,)
+                )
+                connection.executemany(
+                    "INSERT INTO embedding_run_input_components VALUES (?, ?, ?)",
+                    ((output.id, row["ordinal"], json.dumps([
+                        {**part, "run_id": output.id} for part in json.loads(row["payload"])
+                    ])) for row in components),
+                )
 
     def save_prepared_run(self, run: EmbeddingRun, inputs: list[EmbeddingRunInput]) -> None:
         with closing(self._connect()) as connection, connection:
@@ -339,10 +364,12 @@ class EmbeddingRunRepository:
         with closing(self._connect()) as connection, connection:
             rows = connection.execute(
                 """
-                SELECT i.*, c.payload AS components_json
+                SELECT i.*, c.payload AS components_json, t.record_key AS text_record_key
                 FROM embedding_run_inputs AS i
                 LEFT JOIN embedding_run_input_components AS c
                   ON c.run_id = i.run_id AND c.ordinal = i.ordinal
+                LEFT JOIN embedding_run_text_records AS t
+                  ON t.run_id = i.run_id AND t.ordinal = i.ordinal
                 WHERE i.run_id = ?
                 ORDER BY i.ordinal
                 LIMIT ? OFFSET ?
@@ -473,6 +500,13 @@ class EmbeddingRunRepository:
                   PRIMARY KEY (run_id, ordinal)
                 );
 
+                CREATE TABLE IF NOT EXISTS embedding_run_text_records (
+                  run_id TEXT NOT NULL,
+                  ordinal INTEGER NOT NULL,
+                  record_key TEXT NOT NULL,
+                  PRIMARY KEY (run_id, ordinal)
+                );
+
                 CREATE TABLE IF NOT EXISTS embedding_run_input_bindings (
                   run_id TEXT NOT NULL,
                   input_id TEXT NOT NULL,
@@ -575,9 +609,13 @@ class EmbeddingRunRepository:
     ) -> None:
         connection.execute("DELETE FROM embedding_run_inputs WHERE run_id = ?", (run_id,))
         connection.execute("DELETE FROM embedding_run_input_components WHERE run_id = ?", (run_id,))
+        connection.execute("DELETE FROM embedding_run_text_records WHERE run_id = ?", (run_id,))
 
         def with_components():
             for item in inputs:
+                if item.text_record_key:
+                    connection.execute("INSERT INTO embedding_run_text_records VALUES (?, ?, ?)",
+                                       (run_id, item.ordinal, item.text_record_key))
                 if item.components:
                     connection.execute(
                         "INSERT INTO embedding_run_input_components VALUES (?, ?, ?)",
@@ -655,6 +693,7 @@ class EmbeddingRunRepository:
             mtime_ns=int(row["mtime_ns"]) if row["mtime_ns"] is not None else None,
             link_revision=int(row["link_revision"] or 0),
             components=components,
+            text_record_key=str(row["text_record_key"] or ""),
         )
 
 
@@ -1217,9 +1256,14 @@ class MediaRepository:
             if _table_exists(connection, "schema_meta"):
                 row = connection.execute("SELECT value FROM schema_meta WHERE key='schema_version'").fetchone()
                 version = int(row[0]) if row else 0
+            link_settings_info = "PRAGMA table_info(media_link_settings)"
             if version == MEDIA_SCHEMA_VERSION:
-                return
-            if version or _table_exists(connection, "media_sources"):
+                # Published v5 projects predate multi-column and related-table
+                # matching. They remain readable by older EIDORA versions.
+                columns = {row[1] for row in connection.execute(link_settings_info)}
+                if {"metadata_columns_json", "table_id"}.issubset(columns):
+                    return
+            elif version or _table_exists(connection, "media_sources"):
                 raise ValueError("Unsupported media database schema; automatic migration is not supported.")
             connection.execute("BEGIN IMMEDIATE")
             _execute_statements(connection,
@@ -1313,9 +1357,11 @@ class MediaRepository:
                 );
                 """
             )
-            if "metadata_columns_json" not in {row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")}:
+            # Recheck under the write lock in case another opener upgraded first.
+            columns = {row[1] for row in connection.execute(link_settings_info)}
+            if "metadata_columns_json" not in columns:
                 connection.execute("ALTER TABLE media_link_settings ADD COLUMN metadata_columns_json TEXT NOT NULL DEFAULT '[]'")
-            if "table_id" not in {row[1] for row in connection.execute("PRAGMA table_info(media_link_settings)")}:
+            if "table_id" not in columns:
                 connection.execute("ALTER TABLE media_link_settings ADD COLUMN table_id TEXT NOT NULL DEFAULT 'metadata'")
             _execute_statements(connection,
                 """

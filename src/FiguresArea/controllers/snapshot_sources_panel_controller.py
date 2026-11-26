@@ -6,7 +6,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.presets_repository import PresetEntry, PresetRepository
-from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, configure_panel_item_view
+from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, clear_list_items, configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.widgets import require_child
 
@@ -96,7 +96,7 @@ class SnapshotSourcesPanelController(UiPanelController):
 
     def set_snapshot_entries(self, entries: list[PresetEntry]) -> None:
         self._entries = list(entries)
-        self._list.clear()
+        clear_list_items(self._list)
         icon_size = self._list.iconSize()
         if not self._entries:
             return
@@ -144,7 +144,7 @@ class SnapshotSourcesPanelController(UiPanelController):
 
         layout.addWidget(icon_label)
         layout.addWidget(text_label)
-        button = QtWidgets.QPushButton("cite", row)
+        button = QtWidgets.QPushButton("Methods…", row)
         button.setObjectName("button_cite_snapshot")
         button.setToolTip("Methods, parameters, citations and caption text")
         button.clicked.connect(lambda: self._cite_snapshot(entry.path))
@@ -163,11 +163,11 @@ class SnapshotSourcesPanelController(UiPanelController):
 
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._options_button)
-        cite = menu.addAction("Citations…")
-        cite.triggered.connect(self._cite_selected_snapshot)
-        menu.aboutToShow.connect(lambda: cite.setEnabled(self._list.currentItem() is not None))
         action_refresh = menu.addAction("Refresh")
         action_refresh.triggered.connect(self.refresh_snapshots)
+        cite = menu.addAction("Methods && Citations…")
+        cite.triggered.connect(self._cite_selected_snapshot)
+        menu.aboutToShow.connect(lambda: cite.setEnabled(self._list.currentItem() is not None))
         self._options_button.setMenu(menu)
         self._options_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._options_button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")

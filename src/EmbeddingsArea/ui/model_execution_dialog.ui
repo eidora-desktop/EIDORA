@@ -5,6 +5,7 @@
   <property name="geometry">
    <rect><x>0</x><y>0</y><width>560</width><height>450</height></rect>
   </property>
+  <property name="minimumSize"><size><width>420</width><height>0</height></size></property>
   <property name="windowTitle"><string>Run Embedding Model</string></property>
   <property name="surfaceRole" stdset="0"><string>panel</string></property>
   <layout class="QVBoxLayout" name="layout_root" stretch="1,0">
@@ -59,8 +60,9 @@
           <item>
            <layout class="QFormLayout" name="form_inputs">
             <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
-            <property name="rowWrapPolicy"><enum>QFormLayout::RowWrapPolicy::WrapAllRows</enum></property>
-            <property name="verticalSpacing"><number>6</number></property>
+            <property name="rowWrapPolicy"><enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum></property>
+            <property name="horizontalSpacing"><number>12</number></property>
+            <property name="verticalSpacing"><number>8</number></property>
            </layout>
           </item>
           <item>
@@ -76,15 +78,17 @@
         </widget>
        </item>
        <item>
-        <layout class="QVBoxLayout" name="layout_output_name">
-         <property name="spacing"><number>6</number></property>
-         <item>
+        <layout class="QFormLayout" name="layout_output_name">
+         <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
+         <property name="horizontalSpacing"><number>12</number></property>
+         <property name="verticalSpacing"><number>8</number></property>
+         <item row="0" column="0">
           <widget class="QLabel" name="label_output_name">
-           <property name="text"><string>Output name</string></property>
+           <property name="text"><string>Output name:</string></property>
            <property name="buddy"><cstring>edit_output_name</cstring></property>
           </widget>
          </item>
-         <item><widget class="QLineEdit" name="edit_output_name"/></item>
+         <item row="0" column="1"><widget class="QLineEdit" name="edit_output_name"/></item>
         </layout>
        </item>
        <item>
@@ -98,14 +102,14 @@
           <item>
            <layout class="QFormLayout" name="form_execution">
             <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
-            <property name="rowWrapPolicy"><enum>QFormLayout::RowWrapPolicy::WrapAllRows</enum></property>
-            <property name="verticalSpacing"><number>6</number></property>
+            <property name="rowWrapPolicy"><enum>QFormLayout::RowWrapPolicy::DontWrapRows</enum></property>
+            <property name="horizontalSpacing"><number>12</number></property>
+            <property name="verticalSpacing"><number>8</number></property>
            </layout>
           </item>
           <item alignment="Qt::AlignmentFlag::AlignLeft">
            <widget class="QPushButton" name="button_enable_cuda">
             <property name="text"><string>Enable NVIDIA GPU…</string></property>
-            <property name="visible"><bool>false</bool></property>
             <property name="autoDefault"><bool>false</bool></property>
            </widget>
           </item>
@@ -122,8 +126,8 @@
           <property name="bottomMargin"><number>0</number></property>
           <item>
            <widget class="QCheckBox" name="check_create_thumbnails">
-            <property name="text"><string>Create thumbnails (with default settings)</string></property>
-            <property name="toolTip"><string>Create default thumbnails after the embedding run completes.</string></property>
+            <property name="text"><string>Create Preview Assets (with default settings)</string></property>
+            <property name="toolTip"><string>Create Preview Assets after the embedding run completes.</string></property>
            </widget>
           </item>
           <item>
@@ -138,25 +142,29 @@
         </widget>
        </item>
        <item>
-        <widget class="QFrame" name="line_advanced_settings">
-         <property name="frameShape"><enum>QFrame::Shape::HLine</enum></property>
-         <property name="frameShadow"><enum>QFrame::Shadow::Sunken</enum></property>
-         <property name="separatorRole" stdset="0"><string>inset</string></property>
-        </widget>
-       </item>
-       <item alignment="Qt::AlignmentFlag::AlignLeft">
-        <widget class="QToolButton" name="button_advanced_settings">
-         <property name="text"><string>Advanced settings &amp;&amp; parameters</string></property>
-         <property name="accessibleName"><string>Advanced settings &amp; parameters</string></property>
-         <property name="checkable"><bool>true</bool></property>
-         <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonTextBesideIcon</enum></property>
-         <property name="autoRaise"><bool>true</bool></property>
-         <property name="arrowType"><enum>Qt::ArrowType::RightArrow</enum></property>
-        </widget>
+        <layout class="QHBoxLayout" name="layout_parameter_actions">
+         <item>
+          <widget class="QToolButton" name="button_advanced_settings">
+           <property name="text"><string>Advanced settings &amp;&amp; parameters</string></property>
+           <property name="accessibleName"><string>Advanced settings &amp; parameters</string></property>
+           <property name="checkable"><bool>true</bool></property>
+           <property name="toolButtonStyle"><enum>Qt::ToolButtonStyle::ToolButtonTextBesideIcon</enum></property>
+           <property name="autoRaise"><bool>true</bool></property>
+           <property name="arrowType"><enum>Qt::ArrowType::RightArrow</enum></property>
+          </widget>
+         </item>
+         <item><spacer name="spacer_parameter_actions"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+         <item>
+          <widget class="QPushButton" name="button_reset_preparation">
+           <property name="text"><string>Reset defaults</string></property>
+           <property name="toolTip"><string>Restore model preparation defaults.</string></property>
+           <property name="autoDefault"><bool>false</bool></property>
+          </widget>
+         </item>
+        </layout>
        </item>
        <item>
         <widget class="QWidget" name="panel_advanced_settings">
-         <property name="visible"><bool>false</bool></property>
          <layout class="QVBoxLayout" name="layout_advanced_settings">
           <property name="spacing"><number>12</number></property>
           <property name="leftMargin"><number>0</number></property>
@@ -164,54 +172,52 @@
           <property name="rightMargin"><number>0</number></property>
           <property name="bottomMargin"><number>0</number></property>
           <item>
-           <layout class="QFormLayout" name="form_batch_settings">
-            <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
-            <property name="horizontalSpacing"><number>12</number></property>
-            <item row="0" column="0">
-             <widget class="QLabel" name="label_batch_size">
-              <property name="text"><string>Batch performance</string></property>
-              <property name="buddy"><cstring>combo_batch_mode</cstring></property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QWidget" name="panel_batch_size">
-              <layout class="QHBoxLayout" name="layout_batch_size">
-               <property name="leftMargin"><number>0</number></property>
-               <property name="topMargin"><number>0</number></property>
-               <property name="rightMargin"><number>0</number></property>
-               <property name="bottomMargin"><number>0</number></property>
-               <property name="spacing"><number>8</number></property>
-               <item>
-                <widget class="QComboBox" name="combo_batch_mode">
-                 <property name="toolTip"><string>Auto balances speed and headroom. Low uses smaller batches and more conservative memory limits. High tests larger batches and uses more available memory. Short runs use a starting size. All policies retain critical memory, temperature and disk limits.</string></property>
-                 <property name="accessibleName"><string>Batch performance</string></property>
-                 <item><property name="text"><string>Auto</string></property></item>
-                 <item><property name="text"><string>High</string></property></item>
-                 <item><property name="text"><string>Low</string></property></item>
-                 <item><property name="text"><string>4</string></property></item>
-                 <item><property name="text"><string>8</string></property></item>
-                 <item><property name="text"><string>16</string></property></item>
-                 <item><property name="text"><string>32</string></property></item>
-                 <item><property name="text"><string>64</string></property></item>
-                </widget>
-               </item>
-              </layout>
-             </widget>
-            </item>
-           </layout>
+           <widget class="QLabel" name="label_preparation_summary">
+            <property name="wordWrap"><bool>true</bool></property>
+            <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+            <property name="textInteractionFlags"><set>Qt::TextInteractionFlag::TextSelectableByMouse</set></property>
+            <property name="textRole" stdset="0"><string>secondary</string></property>
+           </widget>
           </item>
           <item>
-           <layout class="QFormLayout" name="form_parameters">
-            <property name="fieldGrowthPolicy"><enum>QFormLayout::FieldGrowthPolicy::AllNonFixedFieldsGrow</enum></property>
-            <property name="horizontalSpacing"><number>12</number></property>
-            <property name="verticalSpacing"><number>8</number></property>
-           </layout>
-          </item>
-          <item alignment="Qt::AlignmentFlag::AlignLeft">
-           <widget class="QPushButton" name="button_reset_preparation">
-            <property name="text"><string>Reset to Model Defaults</string></property>
-            <property name="autoDefault"><bool>false</bool></property>
+           <widget class="QTableWidget" name="table_advanced_parameters">
+            <property name="columnCount"><number>2</number></property>
+            <property name="wordWrap"><bool>false</bool></property>
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="verticalScrollBarPolicy">
+             <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+            </property>
+            <property name="horizontalScrollBarPolicy">
+             <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+            </property>
+            <property name="sizeAdjustPolicy">
+             <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustIgnored</enum>
+            </property>
+            <property name="alternatingRowColors">
+             <bool>true</bool>
+            </property>
+            <property name="showGrid">
+             <bool>false</bool>
+            </property>
+            <property name="gridRole" stdset="0">
+             <string>subtle</string>
+            </property>
+            <attribute name="horizontalHeaderVisible">
+             <bool>false</bool>
+            </attribute>
+            <attribute name="verticalHeaderVisible">
+             <bool>false</bool>
+            </attribute>
+            <property name="focusPolicy"><enum>Qt::FocusPolicy::NoFocus</enum></property>
+            <property name="selectionMode"><enum>QAbstractItemView::SelectionMode::NoSelection</enum></property>
+            <property name="editTriggers"><set>QAbstractItemView::EditTrigger::NoEditTriggers</set></property>
            </widget>
+
           </item>
          </layout>
         </widget>
@@ -232,7 +238,6 @@
       <item>
        <widget class="QLabel" name="label_error">
         <property name="text"><string/></property>
-        <property name="visible"><bool>false</bool></property>
         <property name="wordWrap"><bool>true</bool></property>
         <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
         <property name="textRole" stdset="0"><string>error</string></property>
@@ -251,7 +256,7 @@
    </item>
   </layout>
  </widget>
- <tabstops><tabstop>edit_output_name</tabstop><tabstop>check_create_thumbnails</tabstop><tabstop>button_advanced_settings</tabstop><tabstop>combo_batch_mode</tabstop><tabstop>button_reset_preparation</tabstop><tabstop>button_cancel</tabstop><tabstop>button_run</tabstop></tabstops>
+ <tabstops><tabstop>edit_output_name</tabstop><tabstop>check_create_thumbnails</tabstop><tabstop>button_advanced_settings</tabstop><tabstop>button_reset_preparation</tabstop><tabstop>button_cancel</tabstop><tabstop>button_run</tabstop></tabstops>
  <resources/>
  <connections/>
 </ui>

@@ -104,7 +104,11 @@ QPushButton[appearance="settingsArrow"]:pressed:enabled {{
 QPushButton[appearance="settingsArrow"][keyboardFocus="true"]:focus:enabled {{
     border-color: {text};
 }}
-QAbstractItemView::item:selected:enabled, QAbstractItemView::item:hover:enabled {{
+QAbstractItemView::item:selected:enabled,
+QAbstractItemView[selectionMode="SingleSelection"]::item:hover:enabled,
+QAbstractItemView[selectionMode="MultiSelection"]::item:hover:enabled,
+QAbstractItemView[selectionMode="ExtendedSelection"]::item:hover:enabled,
+QAbstractItemView[selectionMode="ContiguousSelection"]::item:hover:enabled {{
     background-color: {selection_background};
     color: {text};
 }}
@@ -134,6 +138,7 @@ class ThemeController(QtCore.QObject):
     def __init__(self, app: QtWidgets.QApplication) -> None:
         super().__init__(app)
         self._app = app
+        self.preference = "system"
         self._platform_palette = QtGui.QPalette(app.palette())
         self._setting_palette = False
         platform_window = app.palette().color(QtGui.QPalette.ColorRole.Window)
@@ -151,7 +156,19 @@ class ThemeController(QtCore.QObject):
     def _system_changed(self, scheme: QtCore.Qt.ColorScheme) -> None:
         self._color_scheme = scheme
         mode = {QtCore.Qt.ColorScheme.Dark: "dark", QtCore.Qt.ColorScheme.Light: "light"}.get(scheme, self._fallback)
-        self.apply(mode)
+        self.apply(mode if self.preference == "system" else self.preference)
+
+    def set_preference(self, preference: str) -> None:
+        if preference not in {"system", "light", "dark"}:
+            raise ValueError(f"Unknown appearance preference: {preference}")
+        self.preference = preference
+        hints = self._app.styleHints()
+        # Native macOS controls follow the platform appearance, not just our
+        # palette. Unknown releases the override when returning to System.
+        hints.setColorScheme({"system": QtCore.Qt.ColorScheme.Unknown,
+                              "light": QtCore.Qt.ColorScheme.Light,
+                              "dark": QtCore.Qt.ColorScheme.Dark}[preference])
+        self._system_changed(hints.colorScheme())
 
     def _application_palette_changed(self, palette: QtGui.QPalette) -> None:
         if self._setting_palette:
@@ -165,7 +182,9 @@ class ThemeController(QtCore.QObject):
         self._palette_refresh.start(0)
 
     def _refresh_palette(self) -> None:
-        if sys.platform == "linux" and self._color_scheme == QtCore.Qt.ColorScheme.Unknown:
+        if self.preference != "system":
+            self.apply(self.preference)
+        elif sys.platform == "linux" and self._color_scheme == QtCore.Qt.ColorScheme.Unknown:
             self.apply(self._fallback)
         else:
             self.apply(self.mode or self._fallback)
@@ -174,17 +193,19 @@ class ThemeController(QtCore.QObject):
         if mode not in THEMES:
             raise ValueError(f"Unknown theme mode: {mode}")
         self.mode = mode
-        if sys.platform == "linux":
+        if sys.platform == "linux" or self.preference != "system":
             # Linux can report a dark preference while still supplying a light
             # widget palette. Keep the native palette separately so returning
             # to light mode restores it instead of reusing our dark override.
-            palette = _linux_palette(self._platform_palette, mode)
-            if self._app.palette() != palette:
-                self._setting_palette = True
-                try:
-                    self._app.setPalette(palette)
-                finally:
-                    self._setting_palette = False
+            palette = _appearance_palette(self._platform_palette, mode)
+        else:
+            palette = self._platform_palette
+        if self._app.palette() != palette:
+            self._setting_palette = True
+            try:
+                self._app.setPalette(palette)
+            finally:
+                self._setting_palette = False
         _apply_interaction_style(self._app, THEMES[mode])
         for root in self._app.topLevelWidgets():
             self.apply_to(root)
@@ -248,8 +269,8 @@ class ThemeController(QtCore.QObject):
             widget.update()
 
 
-def _linux_palette(native: QtGui.QPalette, mode: str) -> QtGui.QPalette:
-    """Fill the Linux appearance/palette gap without replacing matching themes."""
+def _appearance_palette(native: QtGui.QPalette, mode: str) -> QtGui.QPalette:
+    """Supply explicit appearance or fill the Linux system-palette gap."""
     role = QtGui.QPalette.ColorRole
     dark = mode == "dark"
     backgrounds_match = all(

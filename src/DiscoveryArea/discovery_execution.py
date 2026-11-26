@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import threading
+import uuid
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -13,7 +14,7 @@ from PySide6 import QtCore
 
 from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
 from DiscoveryArea.service import DiscoveryService
-from shared.internal_workers import internal_worker_command
+from shared.internal_workers import internal_worker_command, read_worker_result
 
 if TYPE_CHECKING:
     from project.domain import Project
@@ -47,8 +48,10 @@ class DiscoveryRunBridge(QtCore.QObject):
         self.thread_finished.emit()
 
 
-class DiscoveryRunWorker(QtCore.QObject):
-    finished = QtCore.Signal(str)
+class DiscoveryRunWorker(QtCore.QThread):
+    """GUI-owned runner; Qt releases it only after the entire job has returned."""
+
+    result_ready = QtCore.Signal(str)
     failed = QtCore.Signal(str)
     cancelled = QtCore.Signal()
     progress = QtCore.Signal(int, str)
@@ -60,8 +63,9 @@ class DiscoveryRunWorker(QtCore.QObject):
         metadata_ids: np.ndarray,
         artifact_path: Path | None,
         method_catalog: DiscoveryMethodCatalog | None = None,
+        parent=None,
     ) -> None:
-        super().__init__()
+        super().__init__(parent)
         self._project = project
         self._payload = dict(payload)
         self._metadata_ids = np.asarray(metadata_ids, dtype=np.int64)
@@ -74,6 +78,7 @@ class DiscoveryRunWorker(QtCore.QObject):
         self._process_lock = threading.Lock()
         self._active_process: subprocess.Popen[str] | None = None
         self._output_slug = self._planned_output_slug()
+        self.prepared_dataset = None
 
     def request_cancel(self) -> None:
         """Request cancellation from the GUI thread without blocking it."""
@@ -98,7 +103,8 @@ class DiscoveryRunWorker(QtCore.QObject):
                 self._raise_if_cancelled()
                 self._emit_progress(94, f"Saved {definition.name} projection. Preparing display...")
                 self._raise_if_cancelled()
-                self.finished.emit(option_key)
+                self._prepare_display(option_key)
+                self.result_ready.emit(option_key)
                 return
             option = run_discovery_request(
                 self._project,
@@ -107,27 +113,52 @@ class DiscoveryRunWorker(QtCore.QObject):
                 self._artifact_path,
                 progress_callback=self._on_service_progress,
                 status_callback=self._on_service_status,
+                output_slug=self._output_slug,
             )
             option_key = option.key
             self._raise_if_cancelled()
             self._emit_progress(94, f"Saved projection: {option.label}. Preparing display...")
             self._raise_if_cancelled()
-            self.finished.emit(option.key)
+            self._prepare_display(option.key)
+            self.result_ready.emit(option.key)
         except DiscoveryRunCancelled:
-            if option_key:
-                DiscoveryService().discard_discovery_result(self._project, option_key)
-            self._cleanup_planned_output()
-            self.cancelled.emit()
+            try:
+                if option_key:
+                    DiscoveryService().discard_discovery_result(self._project, option_key)
+                self._cleanup_planned_output()
+            except Exception as exc:
+                self.failed.emit(f"Projection stopped, but cleanup failed: {exc}")
+            else:
+                self.cancelled.emit()
         except Exception as exc:
             self.failed.emit(str(exc))
 
+    def _prepare_display(self, option_key: str) -> None:
+        self._raise_if_cancelled()
+        service = DiscoveryService()
+        try:
+            option = next(option for option in service.load_project_discovery_options(
+                self._project, self._metadata_ids
+            ) if option.key == option_key)
+            self.prepared_dataset = service.load_discovery_dataset_for_option(
+                self._project, option, self._metadata_ids
+            )
+            if self.prepared_dataset.metadata_ids.size < 2:
+                raise ValueError("Saved projection contains fewer than two readable points.")
+        except Exception as exc:
+            raise RuntimeError(f"Projection was saved but could not be loaded: {exc}") from exc
+        self._raise_if_cancelled()
+
     def _run_isolated_discovery_process(self, method_id: str) -> str:
+        import psutil
+
         with tempfile.TemporaryDirectory(prefix=f"eidora_discovery_{method_id}_") as tmp_dir_raw:
             self._emit_progress(5, "Preparing isolated projection process...")
             tmp_dir = Path(tmp_dir_raw)
             request_path = tmp_dir / "request.json"
             metadata_ids_path = tmp_dir / "metadata_ids.npy"
             result_path = tmp_dir / "result.json"
+            progress_path = tmp_dir / "progress.jsonl"
             request_path.write_text(
                 json.dumps(
                     {
@@ -136,19 +167,23 @@ class DiscoveryRunWorker(QtCore.QObject):
                         "project_schema_version": int(self._project.schema_version),
                         "artifact_path": str(self._artifact_path) if self._artifact_path is not None else "",
                         "payload": self._payload,
+                        "progress_path": str(progress_path),
+                        "output_slug": self._output_slug,
                     }
                 ),
                 encoding="utf-8",
             )
             np.save(metadata_ids_path, self._metadata_ids)
             env = _projection_process_environment()
-            self._emit_progress(35, f"Running {method_id} in isolated process...")
+            self._emit_progress(8, f"Starting isolated {method_id} process...")
+            parent = psutil.Process()
             process = subprocess.Popen(
                 internal_worker_command(
                     "discovery",
                     str(request_path),
                     str(metadata_ids_path),
                     str(result_path),
+                    f"--parent={parent.pid}:{parent.create_time()}",
                 ),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -164,7 +199,9 @@ class DiscoveryRunWorker(QtCore.QObject):
                         break
                     except subprocess.TimeoutExpired:
                         self._raise_if_cancelled()
+                        self._read_process_progress(progress_path)
                 self._raise_if_cancelled()
+                self._read_process_progress(progress_path)
             finally:
                 with self._process_lock:
                     self._active_process = None
@@ -181,11 +218,11 @@ class DiscoveryRunWorker(QtCore.QObject):
                         except OSError:
                             pass
                         process.wait(timeout=2.0)
-            if result_path.exists():
+            if result_path.exists() and process.returncode == 0:
                 self._emit_progress(92, "Reading saved projection result...")
-                payload = json.loads(result_path.read_text(encoding="utf-8"))
-                if payload.get("ok") is True:
-                    return str(payload.get("option_key") or "")
+                payload = read_worker_result(result_path)
+                if payload.get("ok") is True and payload.get("option_key"):
+                    return str(payload["option_key"])
                 error = str(payload.get("error") or "").strip()
                 if error:
                     raise RuntimeError(error)
@@ -193,7 +230,25 @@ class DiscoveryRunWorker(QtCore.QObject):
             if process.returncode is not None and process.returncode < 0:
                 signal_hint = f" (terminated by signal {-process.returncode})"
             detail = (stderr or stdout or "").strip()
+            if result_path.exists():
+                payload = read_worker_result(result_path)
+                detail = str(payload.get("error") or detail)
             raise RuntimeError(f"Discovery worker failed{signal_hint}: {detail or 'no diagnostic output'}")
+
+    def _read_process_progress(self, path: Path) -> None:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return
+        # A final line may still be being written. Previous complete records
+        # remain valid; the worker emits only a few stage changes per run.
+        for line in reversed(lines):
+            try:
+                value, message = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+            self._emit_progress(value, message)
+            return
 
     def _on_service_progress(self, value: int) -> None:
         self._raise_if_cancelled()
@@ -226,7 +281,7 @@ class DiscoveryRunWorker(QtCore.QObject):
         ):
             destination = directory / f"{slug}{suffix}"
             destination.unlink(missing_ok=True)
-            for temporary in directory.glob(f".{slug}.*.tmp"):
+            for temporary in directory.glob(f".{slug}.*.tmp*"):
                 temporary.unlink(missing_ok=True)
 
     def _planned_output_slug(self) -> str:
@@ -236,15 +291,9 @@ class DiscoveryRunWorker(QtCore.QObject):
             for part in "".join(character.lower() if character.isalnum() else "_" for character in label).split("_")
             if part
         ) or "discovery"
-        presets_dir = self._project.paths.discovery_presets
-        slug = base_slug
-        index = 2
-        while (presets_dir / f"{slug}.json").exists() or (
-            self._project.paths.discovery / f"{slug}.sqlite"
-        ).exists():
-            slug = f"{base_slug}_{index}"
-            index += 1
-        return slug
+        # The job owns this identity before publication. A name-based guess can
+        # belong to another writer by the time cancellation cleans up files.
+        return f"{base_slug}_{uuid.uuid4().hex}"
 
 
 class DiscoveryRunCancelled(Exception):
@@ -257,9 +306,9 @@ def _projection_process_environment() -> dict[str, str]:
     available = max(1, int(os.cpu_count() or 1))
     raw_thread_count = str(env.get("EIDORA_PROJECTION_THREADS") or "").strip()
     try:
-        requested = int(raw_thread_count) if raw_thread_count else min(available, 8)
+        requested = int(raw_thread_count) if raw_thread_count else min(max(1, available - 1), 8)
     except ValueError:
-        requested = min(available, 8)
+        requested = min(max(1, available - 1), 8)
     thread_count = max(1, min(requested, available))
     for name in (
         "OMP_NUM_THREADS",
@@ -282,6 +331,7 @@ def run_discovery_request(
     *,
     progress_callback=None,
     status_callback=None,
+    output_slug: str | None = None,
 ):
     service = DiscoveryService()
     method_id = str(payload.get("method") or "random").strip().lower()
@@ -299,6 +349,7 @@ def run_discovery_request(
             label=label,
             progress_callback=progress_callback,
             status_callback=status_callback,
+            output_slug=output_slug,
         )
     if method_id != "random" and artifact_path is None:
         raise ValueError("Select a completed embeddings source.")
@@ -319,6 +370,7 @@ def run_discovery_request(
         ),
         progress_callback=progress_callback,
         status_callback=status_callback,
+        output_slug=output_slug,
     )
 
 

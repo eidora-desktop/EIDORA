@@ -11,30 +11,58 @@ Source checkouts retain their `workspace_projects` default. An
 Existing installations continue using a nonempty legacy workspace until the user
 explicitly relocates it. Existing projects are never moved on startup.
 
+## Save failures
+
+Projects are edited directly in their selected folder. Keep project files available
+locally; simultaneous editing through cloud synchronization is unsupported.
+
+If Discovery settings, Appearance, Pins, or Figures cannot be saved, a persistent
+warning offers **Retry Save**. Restore access to the folder, then retry. Pending
+changes stay in memory. Closing, quitting, switching projects, or relocating the
+open project waits for pending saves and offers Retry, Cancel, or explicit discard
+if saving fails. Cancel keeps the project and its changes open. These pending
+changes do not survive a crash or forced quit.
+
+An unreadable settings file or collection must be loaded successfully before its
+autosave can replace existing contents. A successful local save does not confirm
+that a cloud provider has synchronized the project.
+
 ## Storage controls
 
-Open **Storage…** in the starting project chooser to see locations and sizes for
-the current workspace, installed models, and application caches.
+**Settings... → Storage** in the application menu or project chooser shows the
+project, model, and cache locations and measures their sizes in the background.
+Use the trash icon beside the model size to remove downloaded models, then
+confirm the action. This removes EIDORA-managed model downloads; projects,
+manually installed models, and application caches are preserved. Cache location
+and size remain visible for inspection. A progress bar
+appears only when relocation or deletion lasts longer than half a second; size
+measurement uses the size labels without a progress bar.
+Finish background processes before changing folders or removing resources.
 
-- **Relocate Projects…** copies the entire current workspace into a new or empty
-  folder, checks each file's SHA-256 digest, updates recent-project paths, and saves
-  the new default. It preserves the original workspace for review and manual
-  removal. Projects opened from other folders retain their existing locations.
-- **Relocate Models…** performs the same verified copy for installed models and
-  updates their storage preference. Originals remain in the previous folder.
-  Storage lists the previous locations for manual review; their sizes are
-  excluded from the current-folder totals.
-- **Remove Selected Resources…** asks for confirmation and removes only selected
-  EIDORA-downloaded model packages, unfinished model downloads, and the rebuildable
-  Matplotlib font cache. Models are identified by their EIDORA download receipts.
-  Manually supplied packages without receipts are preserved. The dialog shows
-  folder sizes before confirmation and actual reclaimed bytes after cleanup.
+The trash icon beside the project size removes all projects directly inside the
+displayed Project Location. Confirmation shows the count and folder, with project
+names available in the details. This permanently deletes those projects and all
+their stored work, including the MET example. Projects elsewhere, external media,
+and unrelated files are kept. The open project closes and pending saves finish
+before deletion runs in the background. Closing Settings afterward returns to the
+Project Chooser. Partial failures report the removed count and remaining errors.
 
-Relocation and cleanup are available before a project is opened. When reached
-from an open project's chooser, Storage permits inspection only. Close other
-EIDORA instances before maintenance. Measurement, copying, verification, and
-cleanup run outside the GUI thread. Cancellation waits for the current file
-operation; cleanup already completed is not undone.
+Changing a nonempty project or model folder offers **Relocate** or **Keep Current
+Folder**. Relocate closes the open project and Main Window, waits for pending
+saves, copies and verifies the contents into a new or empty destination, updates
+the location, and removes the originals. Settings stays open during the move;
+closing it returns to the Project Chooser. If the old folder is empty, the new
+location is saved directly. A failed copy or preference write preserves the old
+location and files. If removing originals fails after the new location is saved,
+the new location stays active and Settings identifies the previous folder for
+review. External media keeps its existing location.
+
+Reset on the General tab restores appearance and startup preferences, preserving
+storage paths and saved work.
+
+In the Project Chooser, **More Options → Settings...** opens directly on the
+Storage tab. Measurement, copying, verification, and deletion run outside the
+GUI thread. Close other EIDORA instances before maintenance.
 
 Projects, model storage, and caches must occupy separate locations. Maintenance
 rejects symbolic links/junctions and cleanup refuses folders containing project
@@ -97,8 +125,8 @@ sessions retained until the oldest-session cleanup is necessary.
 
 ## Uninstalling
 
-Projects are always preserved. Before removing EIDORA, use Storage to remove
-downloads and caches if you want to reclaim that space. Removing the macOS app,
+Removing the application preserves projects. Before uninstalling EIDORA, use
+Settings → Storage to remove downloaded models if you want to reclaim that space. Removing the macOS app,
 Windows EXE installation, Linux DEB, or AppImage does not invoke this in-app
 cleanup automatically. There is no new installer hook that deletes user folders.
 

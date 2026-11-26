@@ -31,7 +31,7 @@ class _AboutPaletteFilter(QtCore.QObject):
 class HelpPanelController:
     """Shared Help actions and a short-lived About/update dialog."""
 
-    def __init__(self, window: QtWidgets.QMainWindow) -> None:
+    def __init__(self, window: QtWidgets.QMainWindow, *, open_settings=None) -> None:
         self._window = window
         self._dialog = None
         self._palette_filter = None
@@ -48,18 +48,23 @@ class HelpPanelController:
         self._updates = QtGui.QAction(update_label, window)
         self._updates.setMenuRole(QtGui.QAction.MenuRole.ApplicationSpecificRole)
         self._updates.triggered.connect(self.check_updates)
-        self._reports = QtGui.QAction("Diagnostics...", window)
+        self._reports = QtGui.QAction("Diagnostics…", window)
         self._reports.setMenuRole(QtGui.QAction.MenuRole.NoRole)
         self._reports.triggered.connect(show_diagnostics)
-        button = window.findChild(QtWidgets.QPushButton, "button_help")
+        button = window.findChild(QtWidgets.QPushButton, "button_settings")
         if button is None:
-            raise RuntimeError("main_window.ui is missing button_help")
+            raise RuntimeError("main_window.ui is missing button_settings")
         menu = QtWidgets.QMenu(button)
         menu.setToolTipsVisible(True)
-        menu.addAction(self._about)
+        self.settings_action = menu.addAction("Settings…")
+        self.settings_action.setMenuRole(QtGui.QAction.MenuRole.NoRole)
+        self.settings_action.setEnabled(open_settings is not None)
+        if open_settings is not None:
+            self.settings_action.triggered.connect(open_settings)
         menu.addSeparator()
         menu.addAction(self.tour_action)
         menu.addAction(self._reports)
+        menu.addAction(self._about)
         button.setMenu(menu)
         if sys.platform == "darwin":
             # A parentless native menu supplies application-menu actions without

@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>931</width>
+    <width>656</width>
     <height>38</height>
    </rect>
   </property>
@@ -180,66 +180,6 @@
        </layout>
       </item>
       <item>
-       <layout class="QHBoxLayout" name="layout_areas_controls">
-        <property name="spacing">
-         <number>3</number>
-        </property>
-        <item>
-         <widget class="QCheckBox" name="checkbox_show_marked_areas">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="toolTip">
-           <string>Show or hide marked areas</string>
-          </property>
-          <property name="accessibleDescription">
-           <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
-          </property>
-          <property name="text">
-           <string>Areas</string>
-          </property>
-          <property name="checked">
-           <bool>false</bool>
-          </property>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="button_areas_settings">
-          <property name="minimumSize">
-           <size>
-            <width>20</width>
-            <height>20</height>
-           </size>
-          </property>
-          <property name="maximumSize">
-           <size>
-            <width>20</width>
-            <height>20</height>
-           </size>
-          </property>
-          <property name="toolTip">
-           <string>Areas settings</string>
-          </property>
-          <property name="accessibleName">
-           <string>Areas settings</string>
-          </property>
-          <property name="text">
-           <string notr="true">▾</string>
-          </property>
-          <property name="flat">
-           <bool>true</bool>
-          </property>
-          <property name="appearance" stdset="0">
-           <string>settingsArrow</string>
-          </property>
-         </widget>
-        </item>
-       </layout>
-      </item>
-      <item>
        <layout class="QHBoxLayout" name="layout_previews_controls">
         <property name="spacing">
          <number>3</number>
@@ -253,7 +193,7 @@
            </sizepolicy>
           </property>
           <property name="toolTip">
-           <string>Show or hide image previews</string>
+           <string>Show or hide Preview Assets</string>
           </property>
           <property name="accessibleDescription">
            <string>Space toggles visibility. Enter opens settings; Escape closes settings. Right-click also opens the settings menu.</string>
@@ -281,10 +221,10 @@
            </size>
           </property>
           <property name="toolTip">
-           <string>Previews settings</string>
+           <string>Preview Assets settings</string>
           </property>
           <property name="accessibleName">
-           <string>Previews settings</string>
+           <string>Preview Assets settings</string>
           </property>
           <property name="text">
            <string notr="true">▾</string>
@@ -441,20 +381,13 @@
             </size>
            </property>
            <property name="toolTip">
-            <string>add camera preset</string>
+            <string>Camera presets</string>
            </property>
            <property name="accessibleName">
-            <string>Save camera preset</string>
+            <string>Camera presets</string>
            </property>
            <property name="text">
-            <string/>
-           </property>
-           <property name="icon">
-            <iconset>
-             <normaloff>../../shared/icons/material/add.svg</normaloff>../../shared/icons/material/add.svg</iconset>
-           </property>
-           <property name="iconName" stdset="0">
-            <string>add</string>
+            <string>...</string>
            </property>
           </widget>
          </item>
@@ -621,8 +554,6 @@
   <tabstop>button_tooltip_settings</tabstop>
   <tabstop>checkbox_show_pins</tabstop>
   <tabstop>button_pins_settings</tabstop>
-  <tabstop>checkbox_show_marked_areas</tabstop>
-  <tabstop>button_areas_settings</tabstop>
   <tabstop>checkbox_show_thumbnails</tabstop>
   <tabstop>button_previews_settings</tabstop>
   <tabstop>combo_camera_preset</tabstop>

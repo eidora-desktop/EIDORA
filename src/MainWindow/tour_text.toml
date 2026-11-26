@@ -2,7 +2,7 @@
 # Keep the [section_names], title/description keys, and quote marks intact.
 # Descriptions can span multiple lines between the triple quotes.
 # Keep text short so the card fits beside its highlighted panel.
-# Save, then close and reopen Help → Take a Tour… to preview your edits.
+# Save, then close and reopen Settings → Take a Tour… to preview your edits.
 # Step order and panel targets are defined separately in tour_steps.py.
 
 [workspace_bar]
@@ -11,16 +11,16 @@ description = """
 EIDORA’s interface follows your workflow across five connected workspaces. Move between them in the main navigation bar.
 """
 
-[assets_media_sources]
+[media_sources]
 title = "Media Sources"
 description = """
-Add the folders and files containing your media, and manage them here.
+In Media, add files or folders containing images, video, audio, or text. Link the source to Items using matching metadata.
 """
 
-[assets_thumbnails]
-title = "Thumbnails"
+[media_preview_assets]
+title = "Preview Assets"
 description = """
-Create small previews of your media for fast visual browsing in Discovery.
+Create and manage Preview Assets for browsing in Discovery. Use images or extract a still frame from each video.
 """
 
 [metadata_items]

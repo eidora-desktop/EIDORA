@@ -30,7 +30,7 @@
     <number>6</number>
    </property>
    <item>
-    <widget class="QWidget" name="widget" native="true">
+    <widget class="QWidget" name="panel_vector_data_header" native="true">
      <layout class="QHBoxLayout" name="layout_vector_data_header">
       <property name="spacing">
        <number>6</number>
@@ -50,7 +50,7 @@
       <item>
        <widget class="QLabel" name="label_vector_data_icon">
         <property name="text">
-         <string/>
+         <string />
         </property>
         <property name="pixmap">
          <pixmap>../../shared/icons/material/vector_data.svg</pixmap>
@@ -104,8 +104,8 @@
     </widget>
    </item>
    <item>
-    <widget class="QWidget" name="widget" native="true">
-     <layout class="QVBoxLayout" name="verticalLayout">
+    <widget class="QWidget" name="panel_vector_data_tree" native="true">
+     <layout class="QVBoxLayout" name="layout_vector_data_tree">
       <property name="spacing">
        <number>0</number>
       </property>
@@ -122,18 +122,60 @@
        <number>0</number>
       </property>
       <item>
-       <widget class="QListWidget" name="list_vector_data_runs">
+       <widget class="QTreeWidget" name="tree_vector_data_runs">
         <property name="horizontalScrollBarPolicy">
          <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
         </property>
+        <property name="selectionBehavior">
+         <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+        </property>
+        <property name="uniformRowHeights">
+         <bool>false</bool>
+        </property>
+        <property name="itemsExpandable">
+         <bool>true</bool>
+        </property>
+        <column>
+         <property name="text">
+          <string>Vector Data</string>
+         </property>
+        </column>
         <property name="selectionMode">
          <enum>QAbstractItemView::SelectionMode::NoSelection</enum>
         </property>
-        <property name="spacing">
-         <number>6</number>
+        <property name="focusPolicy">
+         <enum>Qt::FocusPolicy::NoFocus</enum>
         </property>
-        <property name="uniformItemSizes">
+        <property name="alternatingRowColors">
          <bool>false</bool>
+        </property>
+        <property name="tabKeyNavigation">
+         <bool>false</bool>
+        </property>
+        <property name="dragEnabled">
+         <bool>false</bool>
+        </property>
+        <property name="dragDropMode">
+         <enum>QAbstractItemView::DragDropMode::NoDragDrop</enum>
+        </property>
+        <property name="editTriggers">
+         <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+        </property>
+        <property name="styleSheet">
+         <string>QTreeWidget::item { padding: 0; }
+QTreeWidget::item:hover, QTreeWidget::item:selected { background: transparent; }</string>
+        </property>
+        <property name="expandsOnDoubleClick">
+         <bool>false</bool>
+        </property>
+        <property name="rootIsDecorated">
+         <bool>false</bool>
+        </property>
+        <property name="headerHidden">
+         <bool>true</bool>
+        </property>
+        <property name="indentation">
+         <number>0</number>
         </property>
        </widget>
       </item>
@@ -142,6 +184,6 @@
    </item>
   </layout>
  </widget>
- <resources/>
- <connections/>
+ <resources />
+ <connections />
 </ui>

@@ -11,6 +11,7 @@ from EmbeddingsArea.domain import (
 from DiscoveryArea.thumbnails.repository import ThumbnailVariantRepository
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
+from shared.qt.item_views import configure_parameter_checkbox, fit_parameter_table_rows
 
 
 class ModelExecutionDialogController:
@@ -35,13 +36,18 @@ class ModelExecutionDialogController:
         self._model_label = require_child(self.dialog, QtWidgets.QLabel, "label_model_value")
         self._inputs = require_child(self.dialog, QtWidgets.QFormLayout, "form_inputs")
         self._execution = require_child(self.dialog, QtWidgets.QFormLayout, "form_execution")
-        self._parameters = require_child(self.dialog, QtWidgets.QFormLayout, "form_parameters")
-        self._batch_mode = require_child(self.dialog, QtWidgets.QComboBox, "combo_batch_mode")
+        self._parameters = require_child(self.dialog, QtWidgets.QTableWidget, "table_advanced_parameters")
+        self._parameters.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        self._parameters.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self._batch_mode = None
+        self._preparation_summary = require_child(self.dialog, QtWidgets.QLabel, "label_preparation_summary")
         self._advanced_button = require_child(self.dialog, QtWidgets.QToolButton, "button_advanced_settings")
         self._advanced_panel = require_child(self.dialog, QtWidgets.QWidget, "panel_advanced_settings")
+        self._advanced_panel.hide()
         self._advanced_button.toggled.connect(self._toggle_advanced_settings)
         self._thumbnails = require_child(self.dialog, QtWidgets.QCheckBox, "check_create_thumbnails")
         self._error = require_child(self.dialog, QtWidgets.QLabel, "label_error")
+        self._error.hide()
         self._run = require_child(self.dialog, QtWidgets.QPushButton, "button_run")
         self._input_combos: dict[str, QtWidgets.QComboBox] = {}
         self._required_input_ids: set[str] = set()
@@ -124,7 +130,8 @@ class ModelExecutionDialogController:
         subtitle.setText(" · ".join(details))
         subtitle.setVisible(bool(details))
         self._rebuild(configuration)
-        variants = ThumbnailVariantRepository(self._project.paths.root).list_variants()
+        variants = [variant for variant in ThumbnailVariantRepository(self._project.paths.root).list_variants()
+                    if variant.preview_kind == "image"]
         saved = {
             (value.scope, value.parameter_id): value.value
             for value in configuration.parameter_values
@@ -144,7 +151,8 @@ class ModelExecutionDialogController:
     def _rebuild(self, configuration) -> None:
         self._clear_form(self._inputs)
         self._clear_form(self._execution)
-        self._clear_form(self._parameters)
+        self._parameters.setRowCount(0)
+        self._preparation_summary.hide()
         self._input_combos = {}
         self._required_input_ids = set()
         self._parameter_readers = {}
@@ -206,7 +214,7 @@ class ModelExecutionDialogController:
             combo.setCurrentIndex(index if index >= 0 else 0)
             label = "Media Source" if len(requirements) == 1 else requirement.label
             combo.setAccessibleName(label)
-            self._inputs.addRow(label, combo)
+            self._inputs.addRow(f"{label.rstrip(':')}:", combo)
             self._input_combos[requirement.id] = combo
             combo.currentIndexChanged.connect(self._update_availability)
         saved = {(value.scope, value.parameter_id): value.value for value in configuration.parameter_values}
@@ -225,37 +233,52 @@ class ModelExecutionDialogController:
                     item.setEnabled(enabled)
                     item.setToolTip(unavailable_device_reason(key) if not enabled else "")
             device.setCurrentIndex(max(0, device.findData(saved.get(("run", "device"), "auto"))))
-            self._execution.addRow("Execution device", device)
+            self._execution.addRow("Execution device:", device)
             self._parameter_readers[("run", "device")] = lambda widget=device: str(widget.currentData())
         batch_value = saved.get(("run", "batch_size"), "auto").strip().casefold()
         options = ('auto', 'high', 'low', '4', '8', '16', '32', '64')
-        for index, value in enumerate(options):
-            self._batch_mode.setItemData(index, value)
+        self._batch_mode = QtWidgets.QComboBox(self.dialog)
+        self._batch_mode.setObjectName("combo_batch_mode")
+        for value in options:
+            self._batch_mode.addItem(value.title(), value)
+        self._add_parameter_row("Batch performance", self._batch_mode,
+            "Auto balances speed and headroom. Low uses smaller batches and more conservative memory limits. "
+            "High tests larger batches and uses more available memory. Short runs use a starting size. "
+            "All policies retain critical memory, temperature and disk limits.")
         # Preserve saved sizes outside today's choices (for example batch one).
         if batch_value not in options:
             self._batch_mode.addItem(batch_value, batch_value)
         self._batch_mode.setCurrentIndex(self._batch_mode.findData(batch_value))
         self._parameter_readers[("run", "batch_size")] = lambda: str(self._batch_mode.currentData())
         if model.runtime_contract:
-            preparation = QtWidgets.QLabel(self.dialog)
-            preparation.setWordWrap(True)
-            preparation.setText(_preparation_summary(model.runtime_contract))
-            preparation.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.TextSelectableByMouse)
-            self._parameters.addRow("Model preparation", preparation)
+            self._preparation_summary.setText(_preparation_summary(model.runtime_contract))
+            self._preparation_summary.show()
         for parameter in _editable_model_parameters(model):
             widget, read = self._parameter_editor(parameter, saved.get((parameter.scope, parameter.id), parameter.default))
-            self._parameters.addRow(parameter.label, widget)
-            widget.setToolTip(parameter.description)
+            self._add_parameter_row(parameter.label, widget, parameter.description)
             self._parameter_widgets[parameter.id] = widget
             self._parameter_readers[(parameter.scope, parameter.id)] = read
             signal = (widget.currentIndexChanged if isinstance(widget, QtWidgets.QComboBox)
                       else widget.valueChanged if isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox))
                       else widget.textChanged if isinstance(widget, QtWidgets.QLineEdit) else widget.toggled)
             signal.connect(self._update_parameter_conditions)
+        fit_parameter_table_rows(self._parameters)
         self._update_parameter_conditions()
         require_child(self.dialog, QtWidgets.QPushButton, "button_reset_preparation").setVisible(bool(self._parameter_widgets))
         self._update_source_summary()
         self._set_tab_order()
+
+    def _add_parameter_row(self, label, widget, description):
+        table = self._parameters
+        row = table.rowCount()
+        table.insertRow(row)
+        item = QtWidgets.QTableWidgetItem(f"{label.rstrip(':')}:")
+        item.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled)
+        item.setToolTip(description)
+        table.setItem(row, 0, item)
+        widget.setAccessibleName(label.rstrip(':'))
+        widget.setToolTip(description)
+        table.setCellWidget(row, 1, widget)
 
     def _update_source_summary(self) -> None:
         lines = []
@@ -278,15 +301,14 @@ class ModelExecutionDialogController:
             controls.append(self._device_combo)
         controls.extend(require_child(self.dialog, QtWidgets.QWidget, name) for name in (
             "button_enable_cuda", "check_create_thumbnails", "button_advanced_settings",
-            "combo_batch_mode",
+            "button_reset_preparation",
         ))
         for row in range(self._parameters.rowCount()):
-            field = self._parameters.itemAt(row, QtWidgets.QFormLayout.ItemRole.FieldRole)
-            widget = field.widget() if field else None
+            widget = self._parameters.cellWidget(row, 1)
             if widget is not None and widget.focusPolicy() & QtCore.Qt.FocusPolicy.TabFocus:
                 controls.append(widget)
         controls.extend(require_child(self.dialog, QtWidgets.QWidget, name) for name in (
-            "button_reset_preparation", "button_cancel", "button_run",
+            "button_cancel", "button_run",
         ))
         for previous, following in zip(controls, controls[1:]):
             QtWidgets.QWidget.setTabOrder(previous, following)
@@ -318,6 +340,8 @@ class ModelExecutionDialogController:
                 widget.setValue(float(value))
             elif isinstance(widget, QtWidgets.QLineEdit):
                 widget.setText(value)
+            elif isinstance(widget, QtWidgets.QCheckBox):
+                widget.setChecked(str(value).lower() in {"1", "true", "yes"})
         self._update_parameter_conditions()
 
     def _update_availability(self, *_args) -> None:
@@ -365,6 +389,7 @@ class ModelExecutionDialogController:
             return widget, lambda: "mono" if widget.value() == -1 else str(widget.value())
         if parameter.kind in {"bool", "boolean"}:
             widget = QtWidgets.QCheckBox(self.dialog)
+            configure_parameter_checkbox(widget)
             widget.setChecked(str(selected).lower() in {"1", "true", "yes"})
             return widget, lambda: "true" if widget.isChecked() else "false"
         widget = QtWidgets.QLineEdit(str(selected), self.dialog)

@@ -46,24 +46,32 @@ class KeyboardFocusController(QtCore.QObject):
                 | QtCore.Qt.KeyboardModifier.AltModifier
                 | QtCore.Qt.KeyboardModifier.MetaModifier
             ):
-                if event.key() in (QtCore.Qt.Key.Key_Tab, QtCore.Qt.Key.Key_Backtab):
+                key = event.key()
+                if key in (QtCore.Qt.Key.Key_Tab, QtCore.Qt.Key.Key_Backtab):
                     self._set_keyboard_navigation(True)
-                elif isinstance(watched, QtWidgets.QAbstractButton) and event.key() in (
+                elif isinstance(watched, (
+                    QtWidgets.QAbstractButton, QtWidgets.QAbstractItemView,
+                    QtWidgets.QComboBox, QtWidgets.QTabBar,
+                )) and key in (
                     QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Right,
                     QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Down,
+                ):
+                    self._set_keyboard_navigation(True)
+                elif isinstance(watched, QtWidgets.QAbstractButton) and key in (
                     QtCore.Qt.Key.Key_Space, QtCore.Qt.Key.Key_Return,
                     QtCore.Qt.Key.Key_Enter,
                 ):
                     self._set_keyboard_navigation(True)
-        elif kind == QtCore.QEvent.Type.FocusIn and event.reason() in (
-            QtCore.Qt.FocusReason.TabFocusReason,
-            QtCore.Qt.FocusReason.BacktabFocusReason,
-            QtCore.Qt.FocusReason.ShortcutFocusReason,
-        ):
+        elif kind == QtCore.QEvent.Type.Shortcut and isinstance(watched, QtWidgets.QLabel):
+            # A label mnemonic moves focus to its buddy without a KeyPress.
             self._set_keyboard_navigation(True)
         return False
 
     def _set_keyboard_navigation(self, enabled: bool) -> None:
+        # Qt can assign Tab or Shortcut focus when showing a window or restoring
+        # a control programmatically. Input determines whether the cue is enabled.
+        if self._keyboard_navigation == enabled:
+            return
         self._keyboard_navigation = enabled
         self._set_cue(self._app.focusWidget(), enabled)
 

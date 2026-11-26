@@ -118,10 +118,10 @@
               <string/>
              </property>
              <property name="pixmap">
-              <pixmap>../../shared/icons/material/scatter_plot.svg</pixmap>
+              <pixmap>../../shared/icons/material/2d.svg</pixmap>
              </property>
              <property name="iconName" stdset="0">
-              <string>scatter_plot</string>
+              <string>2d</string>
              </property>
              <property name="iconSize" stdset="0">
               <number>20</number>
@@ -146,9 +146,6 @@
            </item>
            <item>
             <widget class="QToolButton" name="button_discovery_options">
-             <property name="toolTip">
-              <string>Projection options</string>
-             </property>
              <property name="minimumSize">
               <size>
                <width>22</width>
@@ -160,6 +157,9 @@
                <width>22</width>
                <height>22</height>
               </size>
+             </property>
+             <property name="toolTip">
+              <string>Projection options</string>
              </property>
              <property name="text">
               <string>...</string>

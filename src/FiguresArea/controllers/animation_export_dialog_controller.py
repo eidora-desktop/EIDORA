@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from shared.qt import file_dialogs
+
 from FiguresArea.animation_export_service import (
     AnimationExportService,
     AnimationExportWorkspace,
@@ -122,7 +124,7 @@ class AnimationExportDialogController(QtCore.QObject):
             QtCore.QStandardPaths.StandardLocation.DocumentsLocation
         ) or QtCore.QDir.homePath()
         self._edit("edit_animation_export_destination").setText(
-            str(Path(documents) / f"{suggested_stem}.gif")
+            file_dialogs.suggested_path("export", str(Path(documents) / f"{suggested_stem}.gif"))
         )
 
         self._spin("spin_animation_export_width").valueChanged.connect(
@@ -180,11 +182,12 @@ class AnimationExportDialogController(QtCore.QObject):
         ).isChecked()
 
     def _browse(self) -> None:
-        path, _selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        path, _selected_filter = file_dialogs.get_save_file_name(
             self._required_dialog(),
             "Export Animated GIF",
             self._edit("edit_animation_export_destination").text().strip(),
             "Animated GIF (*.gif)",
+            use_saved_directory=False,
         )
         if path:
             self._edit("edit_animation_export_destination").setText(
@@ -208,6 +211,7 @@ class AnimationExportDialogController(QtCore.QObject):
             self._show_configuration_error(str(error))
             return
         self._save_preferences(settings)
+        file_dialogs.remember_path("export", str(settings.destination))
         self._running = True
         self._stopping = False
         self._render_index = 0

@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1090</width>
-    <height>732</height>
+    <width>1021</width>
+    <height>614</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -36,12 +36,12 @@
     <item>
      <widget class="QWidget" name="panel_main_navigation" native="true">
       <property name="sizePolicy">
-       <sizepolicy hsizetype="Minimum" vsizetype="Minimum">
+       <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
         <horstretch>0</horstretch>
         <verstretch>0</verstretch>
        </sizepolicy>
       </property>
-      <layout class="QHBoxLayout" name="layout_horizontal_layout_2">
+      <layout class="QHBoxLayout" name="layout_horizontal_layout_2" stretch="0,0,0,0,0,0,0">
        <property name="spacing">
         <number>0</number>
        </property>
@@ -58,13 +58,16 @@
         <number>0</number>
        </property>
        <item>
-        <widget class="QPushButton" name="button_assets_area">
+        <widget class="QPushButton" name="button_media_area">
+         <property name="toolTip">
+          <string>Link images, video, audio, and text to Items and create Preview Assets from images and video.</string>
+         </property>
          <property name="text">
-          <string>Assets</string>
+          <string>Media</string>
          </property>
          <property name="icon">
           <iconset>
-           <normaloff>../../shared/icons/material/assets.svg</normaloff>../../shared/icons/material/assets.svg</iconset>
+           <normaloff>../../shared/icons/material/media.svg</normaloff>../../shared/icons/material/media.svg</iconset>
          </property>
          <property name="iconSize">
           <size>
@@ -82,7 +85,7 @@
           <bool>true</bool>
          </property>
          <property name="iconName" stdset="0">
-          <string>assets</string>
+          <string>media</string>
          </property>
          <attribute name="buttonGroup">
           <string notr="true">btngroup_components</string>
@@ -209,53 +212,161 @@
         </widget>
        </item>
        <item>
-        <spacer name="horizontalSpacer">
-         <property name="orientation">
-          <enum>Qt::Orientation::Horizontal</enum>
-         </property>
-         <property name="sizeHint" stdset="0">
-          <size>
-           <width>40</width>
-           <height>20</height>
-          </size>
-         </property>
-        </spacer>
-       </item>
-       <item>
         <widget class="QWidget" name="widget" native="true">
-         <layout class="QHBoxLayout" name="horizontalLayout">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout_2">
           <property name="spacing">
            <number>0</number>
           </property>
           <property name="leftMargin">
-           <number>6</number>
+           <number>0</number>
           </property>
           <property name="topMargin">
            <number>0</number>
           </property>
           <property name="rightMargin">
-           <number>6</number>
+           <number>0</number>
           </property>
           <property name="bottomMargin">
            <number>0</number>
           </property>
           <item>
-           <widget class="QLabel" name="project_label">
+           <widget class="QWidget" name="strecher_left" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>6</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <layout class="QHBoxLayout" name="horizontalLayout">
+             <property name="spacing">
+              <number>0</number>
+             </property>
+             <property name="leftMargin">
+              <number>6</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <spacer name="horizontalSpacer">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeType">
+                <enum>QSizePolicy::Policy::Expanding</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="project_label">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>120</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="focusPolicy">
+             <enum>Qt::FocusPolicy::StrongFocus</enum>
+            </property>
             <property name="styleSheet">
-             <string notr="true">font-style: italic</string>
+             <string notr="true">QPushButton#project_label { padding-right: 22px; }
+QPushButton#project_label::menu-indicator { width: 6px; height: 4px; subcontrol-position: right center; right: 5px; }</string>
             </property>
             <property name="text">
              <string>no project selected</string>
             </property>
+            <property name="iconSize">
+             <size>
+              <width>22</width>
+              <height>22</height>
+             </size>
+            </property>
+            <property name="flat">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="button_retry_project_save">
+            <property name="text">
+             <string>Retry Save</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QWidget" name="strecher_right" native="true">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+              <horstretch>1</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <layout class="QHBoxLayout" name="horizontalLayout_3">
+             <property name="spacing">
+              <number>0</number>
+             </property>
+             <property name="leftMargin">
+              <number>0</number>
+             </property>
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="rightMargin">
+              <number>6</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <spacer name="horizontalSpacer_2">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
            </widget>
           </item>
          </layout>
         </widget>
        </item>
        <item>
-        <widget class="QPushButton" name="button_project">
+        <widget class="QPushButton" name="button_settings">
          <property name="sizePolicy">
-          <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+          <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
            <horstretch>0</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
@@ -268,87 +379,37 @@
          </property>
          <property name="maximumSize">
           <size>
-           <width>32</width>
-           <height>32</height>
+           <width>16777215</width>
+           <height>16777215</height>
           </size>
          </property>
          <property name="toolTip">
-          <string>Project actions</string>
+          <string>EIDORA</string>
          </property>
          <property name="accessibleName">
-          <string>Project actions</string>
+          <string>EIDORA Settings</string>
          </property>
          <property name="styleSheet">
-          <string notr="true">QPushButton#button_project::menu-indicator { image: none; width: 0px; height: 0px; }</string>
+          <string notr="true">QPushButton#button_settings::menu-indicator { image: none; width: 0px; height: 0px; }</string>
          </property>
          <property name="text">
           <string/>
          </property>
          <property name="icon">
           <iconset>
-           <normaloff>../../shared/icons/material/project_open.svg</normaloff>../../shared/icons/material/project_open.svg</iconset>
+           <normaloff>../../shared/icons/material/eidora_wordmark.svg</normaloff>../../shared/icons/material/eidora_wordmark.svg</iconset>
          </property>
          <property name="iconSize">
           <size>
-           <width>22</width>
-           <height>22</height>
+           <width>90</width>
+           <height>16</height>
           </size>
          </property>
          <property name="flat">
           <bool>true</bool>
          </property>
          <property name="iconName" stdset="0">
-          <string>project_open</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="button_help">
-         <property name="sizePolicy">
-          <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
-           <horstretch>0</horstretch>
-           <verstretch>0</verstretch>
-          </sizepolicy>
-         </property>
-         <property name="minimumSize">
-          <size>
-           <width>0</width>
-           <height>0</height>
-          </size>
-         </property>
-         <property name="maximumSize">
-          <size>
-           <width>32</width>
-           <height>32</height>
-          </size>
-         </property>
-         <property name="toolTip">
-          <string>Help</string>
-         </property>
-         <property name="accessibleName">
-          <string>Help</string>
-         </property>
-         <property name="styleSheet">
-          <string notr="true">QPushButton#button_help::menu-indicator { image: none; width: 0px; height: 0px; }</string>
-         </property>
-         <property name="text">
-          <string/>
-         </property>
-         <property name="icon">
-          <iconset>
-           <normaloff>../../shared/icons/material/help.svg</normaloff>../../shared/icons/material/help.svg</iconset>
-         </property>
-         <property name="iconSize">
-          <size>
-           <width>22</width>
-           <height>22</height>
-          </size>
-         </property>
-         <property name="flat">
-          <bool>true</bool>
-         </property>
-         <property name="iconName" stdset="0">
-          <string>help</string>
+          <string>eidora_wordmark</string>
          </property>
         </widget>
        </item>

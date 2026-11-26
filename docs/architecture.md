@@ -1,7 +1,7 @@
 # Architecture
 
 EIDORA Desktop is a PySide desktop application organized around product areas.
-Assets, metadata, embeddings, Discovery, and Figures workflows are implemented.
+Media, metadata, embeddings, Discovery, and Figures workflows are implemented.
 See the public [source guide](../src/README.md) for concise contributor rules.
 
 The goal of this structure is to keep the project readable as it grows. UI wiring, application behavior, persistence, and computation should stay separate so each part can be tested and changed without pulling the whole application into the change.
@@ -12,7 +12,7 @@ Implemented now:
 
 - Application startup through `app`.
 - Main window navigation between area pages.
-- Feature-sliced area packages for assets, metadata, embeddings, discovery, and figures.
+- Feature-sliced area packages for media, metadata, embeddings, discovery, and figures.
 - Designer-owned `.ui` files loaded at runtime.
 - Area-level and panel-level controllers for UI composition.
 - Shared Qt helpers for loading UI files, wiring panels, icons, deferred calls, worker signals, and cross-area activity feedback.
@@ -38,7 +38,7 @@ Top-level package:
 src/
   app.py                  Application entry point
   MainWindow/             Main shell and navigation
-  AssetsArea/            Active-project media sources and thumbnail preparation
+  MediaArea/              Media source linking and preview preparation
   MetadataArea/           Metadata import, table, and metadata workflows
   EmbeddingsArea/         Embedding runs, models, and clustering
   DiscoveryArea/         Discovery generation, canvas, filters, snapshots
@@ -178,7 +178,7 @@ Source-file provenance remains independent of editable tab names.
 
 ## Computation And Long-Running Work
 
-Thumbnail creation uses `AssetsArea/thumbnail_service.py` to resolve linked
+Thumbnail creation uses `MediaArea/thumbnail_service.py` to resolve linked
 image or video media to canonical metadata IDs. `thumbnail_generator.py` resizes
 images with a bounded worker pool and launches at most two isolated video workers
 to decode first, middle, last, or deterministic-random stills through PyAV.
@@ -192,7 +192,7 @@ project reopening.
 
 Cancellation is cooperative until publication begins. Once publication commits,
 the result is complete. A forced process exit may leave unlisted staging/orphan
-files, but must not expose a partially generated variant. New variants contain
+files, but must not expose a partially generated variant. New image/still-frame variants contain
 individual WebP thumbnails only; Discovery builds its own runtime atlases. Older
 atlas and tile storage remains readable for project compatibility.
 
@@ -275,7 +275,9 @@ Capture recurring architectural issues in this document so contributors can foll
 
 ## UI surfaces and system themes
 
-`shared.qt.theme` owns the light/dark tokens and follows the system color scheme.
+`shared.qt.theme` owns the light/dark tokens and follows the system color scheme
+unless the user selects Light or Dark in Settings. `application_settings` owns
+ordinary application preferences; storage paths remain owned by `application_storage`.
 Install it before constructing windows; the shared UI loader prepares new forms.
 The theme owns named surface, text, selection, secondary/error text, and control
 border tokens. A single application stylesheet paints named surface backgrounds, row hover/selection,
@@ -305,12 +307,28 @@ Surface palettes also expose the current background to custom painters. Native
 palette changes alone must not own surface painting: stylesheet-backed panels
 and detached settings windows need the shared rules to repaint live.
 
-## Simplified Assets and metadata workflows
+## Simplified Media and metadata workflows
 
-Assets composes Media Sources and Thumbnails in one horizontal splitter. The
-Artifacts UI is removed; internal thumbnail/embedding artifacts remain. Assets
-matching reads resolved Item fields and previews explicit path/identifier rules,
-with separate Match Items and source-scoped Relink actions. Registration is usable
+The Media workspace contains Media Sources and Preview Assets in one horizontal
+splitter. Create and manage Preview Assets from linked images, video stills,
+audio/video clips, animated GIFs, and text excerpts. Text generation uses cancellable
+bounded source reads and saves literal excerpts plus per-Item provenance in the
+existing preview database. Its plain-text inspector reads one saved Item at a time
+in a background worker. Discovery tooltips load saved excerpts through the existing
+latest-only preview worker. Designer-owned font and size controls persist as
+tooltip settings; bounded plain-text layout and theme colors remain separate
+from asset creation. Clip generation uses isolated workers and
+the existing preview repository, with an explicit output kind and per-Item clip
+metadata. Media can inspect generated clips; Discovery tooltips can autoplay
+clips and GIFs through a separate, lazily created playback controller and a
+bounded preview worker. Pins also offer explicit playback of generated assets,
+owned by `pin_playback_controller.py`. One active player feeds a small transient
+surface over its pin; frame updates never rewrite annotations or the point scene.
+Poster loading and GIF/video frame preparation use bounded background workers.
+Canvas thumbnail atlases and exported pins remain static.
+Media source matching reads resolved Item fields and
+previews explicit path/identifier rules, with separate Match Items and
+source-scoped Relink actions. Registration is usable
 without matching. Scanning and matching never create rows. Source relocation
 publishes the new path with its indexed assets while preserving IDs.
 
@@ -339,3 +357,11 @@ associations; the dialog offers no scope or metadata-key pairing choices. Saved
 legacy run snapshots remain supported. Only successful vector publication creates
 items and commits run/media bindings. Missing or ambiguous inputs never manufacture
 metadata rows. Saved input provenance is independent of later media relocation.
+
+Settings preset management uses `application_settings/presets_service.py` and its
+repository for read-only project inspection and checked removal of reusable
+preset JSON files. `MainWindow/controllers/presets_panel_controller.py` owns the
+project selector and grouped tree, and uses `BackgroundTasks` for filesystem
+work. Browsing does not open/migrate projects or change recent history. Snapshot
+and projection ownership remains in Discovery; live legacy and animation
+references are checked before deleting reusable presets.

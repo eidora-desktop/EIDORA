@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from EmbeddingsArea.preparation_contract import catalog_document
 
 SOURCES = ("src/EmbeddingsArea/preparation_contract.py", "src/EmbeddingsArea/model_package.py",
-           "src/EmbeddingsArea/runtime/preparers.py", "src/EmbeddingsArea/runtime/adapters/onnx.py",
+           "src/EmbeddingsArea/runtime/preparers.py", "src/EmbeddingsArea/runtime/text.py", "src/shared/text.py", "src/EmbeddingsArea/runtime/adapters/onnx.py",
            "src/EmbeddingsArea/runtime/adapters/base.py", "src/EmbeddingsArea/runtime/contracts.py",
            "src/EmbeddingsArea/runtime/cuda.py", "src/EmbeddingsArea/runtime/coreml.py",
            "src/EmbeddingsArea/runtime/cuda_install.py", "src/EmbeddingsArea/runtime/cuda-downloads.json",

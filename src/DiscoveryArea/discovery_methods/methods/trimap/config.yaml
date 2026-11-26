@@ -4,54 +4,62 @@ class: TriMAPDiscoveryMethod
 status: available
 execution: subprocess
 supports_transform: false
-supports_arrangement_transform: true
 output_dimensions:
-  - 2
-description: Scalable triplet-based dimensionality reduction that preserves global structure.
+- 2
+description: Scalable triplet-based dimensionality reduction that preserves global
+  structure.
 implementation:
   distribution: trimap
 citations:
-  - id: amid2019trimap
-    role: method
-    title: "TriMap: Large-scale Dimensionality Reduction Using Triplets"
-    authors:
-      - Amid, Ehsan
-      - Warmuth, Manfred K.
-    year: 2019
-    doi: 10.48550/arXiv.1910.00204
+- id: amid2019trimap
+  role: method
+  title: 'TriMap: Large-scale Dimensionality Reduction Using Triplets'
+  authors:
+  - Amid, Ehsan
+  - Warmuth, Manfred K.
+  year: 2019
+  doi: 10.48550/arXiv.1910.00204
 parameters:
   n_inliers:
     ui: spin_box
     type: int
-    default: 6
+    default: 12
     min: 1
     max: 500
     info: Nearest neighbors used to form local triplet constraints.
+    advanced: false
+    label: Inliers
   n_outliers:
     ui: spin_box
     type: int
-    default: 1
+    default: 4
     min: 1
     max: 500
     info: Outliers sampled for each nearest-neighbor triplet.
+    advanced: true
+    label: Outliers
   n_random:
     ui: spin_box
     type: int
-    default: 1
+    default: 3
     min: 0
     max: 100
     info: Additional random triplets sampled per item.
+    advanced: true
+    label: Random triplets
   distance:
     ui: combo_box
     type: str
-    default: cosine
+    default: euclidean
     choices:
-      - cosine
-      - euclidean
-      - manhattan
-      - angular
-      - hamming
-    info: Distance measure; cosine is recommended for neural embeddings.
+    - cosine
+    - euclidean
+    - manhattan
+    - angular
+    - hamming
+    info: Distance between input vectors; Euclidean is the library default.
+    advanced: false
+    label: Distance
   weight_temp:
     ui: double_spin_box
     type: float
@@ -60,6 +68,8 @@ parameters:
     max: 10.0
     decimals: 3
     info: Triplet-weight temperature; larger values create more compact layouts.
+    advanced: true
+    label: Weight temperature
   learning_rate:
     ui: double_spin_box
     type: float
@@ -68,44 +78,73 @@ parameters:
     max: 100.0
     decimals: 4
     info: Optimizer learning rate.
+    advanced: true
+    label: Learning rate
   iterations:
     ui: spin_box
     type: int
-    default: 200
+    default: 400
     min: 10
     max: 10000
     info: Number of optimization iterations.
+    advanced: true
+    label: Iterations
   apply_pca:
     ui: check_box
     type: bool
     default: true
     info: Reduce wide embeddings before neighbor search and optimization.
+    advanced: true
+    label: Apply PCA
   pca_dimensions:
     ui: spin_box
     type: int
-    default: 50
+    default: 100
     min: 2
     max: 100
-    info: Dimensions retained when PCA preprocessing is enabled.
+    info: EIDORA preprocessing dimension limit, matching the library default of 100.
+    advanced: true
+    label: PCA dimensions
   optimizer:
     ui: combo_box
     type: str
     default: dbd
     choices:
-      - dbd
-      - momentum
-      - sd
+    - dbd
+    - momentum
+    - sd
     info: TriMAP gradient optimization method.
+    advanced: true
+    label: Optimizer
   random_state:
-    ui: spin_box
+    ui: number_optional
     type: int
-    default: 42
+    default: null
+    label: Random seed
+    advanced: true
+    info: None uses unseeded library randomness. Set an integer for repeatable results.
+    nullable: true
     min: 0
     max: 2147483647
-    info: Seed for PCA, neighbor construction, and stochastic sampling.
   neighbor_trees:
-    ui: hidden
+    ui: spin_box
     type: int
     default: 10
     min: 1
     max: 100
+    advanced: true
+    label: Neighbor trees
+    info: Tree count for EIDORA’s PyNNDescent neighbor search (which replaces the
+      library’s Annoy backend).
+  initialization:
+    ui: combo_box
+    type: str
+    default: null
+    label: Initialization
+    advanced: true
+    info: None uses the library default (PCA initialization).
+    nullable: true
+    choices:
+    - null
+    - pca
+    - random

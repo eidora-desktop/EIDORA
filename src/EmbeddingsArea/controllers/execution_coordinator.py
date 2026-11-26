@@ -3,12 +3,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 import threading
+import re
+from pathlib import Path
+from datetime import datetime, timezone
+from uuid import uuid4
 from typing import Callable
 
 from PySide6 import QtCore
 
 from EmbeddingsArea.controllers.embedding_job_workers import _EmbeddingRunThread
-from EmbeddingsArea.domain import EmbeddingRunState
+from EmbeddingsArea.domain import EmbeddingRun, EmbeddingRunState
 from shared.diagnostics.service import LOGGER, record_failure
 
 
@@ -31,6 +35,11 @@ class ExecutionState:
     pending_error: str = ""
     report: list[str] = field(default_factory=list)
     report_offset: int = 0
+    operation: dict = field(default_factory=dict)
+    source_run_id: str = ""
+    display_run: EmbeddingRun | None = None
+    output_id: str = ""
+    result_detail: str = ""
     create_thumbnails: bool = False
 
 
@@ -81,11 +90,11 @@ class _ClusteringThread(QtCore.QThread):
         return 2
 
 
-class _InitializationWorker(QtCore.QObject):
-    finished = QtCore.Signal(object)
+class _InitializationThread(QtCore.QThread):
+    result_ready = QtCore.Signal(object)
 
-    def __init__(self, service) -> None:
-        super().__init__()
+    def __init__(self, service, parent=None) -> None:
+        super().__init__(parent)
         self._service = service
 
     @QtCore.Slot()
@@ -93,9 +102,9 @@ class _InitializationWorker(QtCore.QObject):
         try:
             self._service.initialize()
         except Exception as exc:  # noqa: BLE001
-            self.finished.emit(exc)
+            self.result_ready.emit(exc)
         else:
-            self.finished.emit(None)
+            self.result_ready.emit(None)
 
 
 class ExecutionCoordinator(QtCore.QObject):
@@ -104,6 +113,7 @@ class ExecutionCoordinator(QtCore.QObject):
     changed = QtCore.Signal()
     progress = QtCore.Signal(str, str, int, str)
     output_ready = QtCore.Signal(str, str)
+    reduction_started = QtCore.Signal(str)
     groups_changed = QtCore.Signal()
     thumbnails_requested = QtCore.Signal(str)
 
@@ -121,7 +131,6 @@ class ExecutionCoordinator(QtCore.QObject):
         self.initialization_error = ""
         self.active_id: str | None = None
         self._initialization_thread: QtCore.QThread | None = None
-        self._initialization_worker: _InitializationWorker | None = None
         self._initialization_admission = None
         self._initialization_generation = 0
         self._thread_keys: dict[QtCore.QThread, tuple[str, str]] = {}
@@ -153,7 +162,7 @@ class ExecutionCoordinator(QtCore.QObject):
         key = ("embedding", run_id)
         if key in self._jobs and self._jobs[key].state in {"queued", "running", "cancelling"}:
             raise ValueError("This embedding run is already active.")
-        run = self._session.service.get_embedding_run_configuration(run_id).run
+        run = self._session.runs.require_unpublished_run(run_id)
         media_busy = getattr(self, "media_source_busy", None)
         if media_busy and any(media_busy(source_id) for source_id in run.selected_source_ids):
             raise ValueError("Wait for media loading or linking to finish before starting this run.")
@@ -165,7 +174,7 @@ class ExecutionCoordinator(QtCore.QObject):
             )
         state = ExecutionState("embedding", run_id, run.label, generation=self._generation,
                                create_thumbnails=create_thumbnails)
-        state.report.append("Queued · Waiting for background capacity…")
+        state.report.append("Queued: Waiting for background capacity…")
         self._jobs[key] = state
         generation = self._generation
 
@@ -184,6 +193,9 @@ class ExecutionCoordinator(QtCore.QObject):
         key = ("clustering", result_id)
         if key in self._jobs and self._jobs[key].state in {"queued", "running", "cancelling"}:
             raise ValueError("This clustering run is already active.")
+        source = self.service.repository.get(result_id)
+        if source and self.active_reduction(str(source["run_id"])) is not None:
+            raise ValueError("Wait for vector reduction to finish before clustering.")
         record = self.service.repository.enqueue(result_id)
         state = ExecutionState("clustering", result_id, str(record["label"]), generation=self._generation)
         self._jobs[key] = state
@@ -196,6 +208,132 @@ class ExecutionCoordinator(QtCore.QObject):
 
         state.admission = self._submit(state.title, start, lambda: self._cancel_worker(state))
         self.changed.emit()
+
+    def reduction_source_busy(self, run_id: str) -> bool:
+        if self.active_reduction(run_id) is not None:
+            return True
+        for state in self.states():
+            if state.state not in {"queued", "running", "cancelling"}:
+                continue
+            if state.kind in {"embedding", "reduction"} and state.id == run_id:
+                return True
+            if state.kind == "clustering" and self.service is not None:
+                record = self.service.repository.get(state.id)
+                if record and str(record["run_id"]) == run_id:
+                    return True
+        return False
+
+    def reduction_state(self, run_id):
+        direct = self.state("reduction", run_id)
+        if direct is not None and direct.generation == self._generation:
+            return direct
+        return None
+
+    def active_reduction(self, run_id):
+        return next((state for state in self.states()
+                     if state.kind == "reduction" and run_id in {state.id, state.source_run_id}
+                     and state.generation == self._generation
+                     and state.state in {"queued", "running", "cancelling"}), None)
+
+    def reduction_card_runs(self):
+        """Unpublished destination cards; the saved run takes over on publication."""
+        return [replace(state.display_run,
+                        state=EmbeddingRunState.RUNNING if state.state == "cancelling" else EmbeddingRunState(state.state),
+                        error_message=state.pending_error)
+                for state in self.states() if state.kind == "reduction"
+                and state.generation == self._generation and state.display_run is not None
+                and state.state != "completed"]
+
+    def dismiss_reduction(self, run_id):
+        state = self.reduction_state(run_id)
+        if state is not None and state.display_run is not None and state.state in {"failed", "cancelled"}:
+            self._jobs.pop(("reduction", run_id))
+            self.changed.emit()
+
+    def submit_reduction(self, run_id, request) -> str:
+        if self._shutting_down or self._session is None or self._project is None:
+            raise ValueError("Open a project before reducing vector data.")
+        if self.reduction_source_busy(run_id):
+            raise ValueError("Wait for the active vector-data job to finish before reducing.")
+        run = self._session.runs.require_run(run_id)
+        if not run.artifact_path:
+            raise ValueError("Select published vector data to reduce.")
+        self._session.run_repository.validate_run_label(
+            request.label, exclude_run_id=run_id if request.replace_original else "",
+        )
+        from EmbeddingsArea.runtime.readers import load_embedding_summary
+        summary = load_embedding_summary(Path(run.artifact_path))
+        destination_id = run_id if request.replace_original else f"run_{uuid4().hex}"
+        now = datetime.now(timezone.utc).isoformat()
+        display_run = None if request.replace_original else EmbeddingRun(
+            destination_id, request.label, EmbeddingRunState.QUEUED,
+            selected_model_id=run.selected_model_id, created_at=now, updated_at=now)
+        state = ExecutionState("reduction", destination_id, request.label, generation=self._generation,
+            source_run_id=run_id, display_run=display_run,
+            operation=dict(method=request.method, source_label=run.label, source_dimensions=summary.get("dimensions"),
+                           item_count=summary.get("item_count"), dimensions=request.dimensions,
+                           output_label=request.label, output_mode="replace" if request.replace_original else "copy"))
+        self._append_report(state, "Queued")
+        self._jobs[("reduction", destination_id)] = state
+        project = self._project
+
+        def start():
+            if state.generation != self._generation or self._shutting_down:
+                return
+            from EmbeddingsArea.controllers.reduction_worker import ReductionThread
+            thread = ReductionThread(project, run_id, request, self, output_id=destination_id)
+            state.thread = state.worker = thread
+            self._thread_keys[thread] = ("reduction", destination_id)
+            state.state, state.detail, state.progress = "running", "Preparing reduction…", -1
+            thread.progress.connect(self._reduction_progress)
+            thread.result_ready.connect(self._finish_reduction)
+            thread.finished.connect(self._job_thread_finished)
+            thread.finished.connect(thread.deleteLater)
+            thread.start()
+
+        state.admission = self._submit(state.title, start, lambda: self._cancel_worker(state))
+        self.changed.emit()
+        self.reduction_started.emit(destination_id)
+        return destination_id
+
+    @QtCore.Slot(str, int, str)
+    def _reduction_progress(self, identity, value, detail):
+        state = self.state("reduction", identity)
+        if state is None or self.sender() is not state.thread:
+            return
+        if state.generation != self._generation:
+            return
+        match = re.search(r": ([\d,]+) / ([\d,]+)", detail)
+        state.progress = -1
+        if match:
+            done, total = (int(part.replace(",", "")) for part in match.groups())
+            state.progress = min(100, int(100 * done / total)) if total else -1
+            stage = detail[:match.start()] + "…"
+        else:
+            stage = detail
+        state.detail = detail
+        self._append_report(state, stage)
+        self.progress.emit("reduction", identity, state.progress, detail)
+
+    @QtCore.Slot(str, object)
+    def _finish_reduction(self, identity, result):
+        from EmbeddingsArea.reduction.parameters import ReductionCancelled
+        state = self.state("reduction", identity)
+        if state is None or self.sender() is not state.thread:
+            return
+        if isinstance(result, ReductionCancelled):
+            state.result_detail = str(result)
+            self._finish("reduction", identity, "cancelled", None)
+        elif isinstance(result, Exception):
+            self._finish("reduction", identity, "failed", str(result))
+        else:
+            state.output_id = result.run_id
+            state.operation.update(result.recipe)
+            state.operation.update(dimensions=result.dimensions, variance_retained=result.variance_retained)
+            state.result_detail = "Completed"
+            if result.warning:
+                state.result_detail += " " + result.warning
+            self._finish("reduction", identity, "completed", None)
 
     def submit_clustering(self, result_id: str) -> None:
         self.start(result_id)
@@ -230,16 +368,36 @@ class ExecutionCoordinator(QtCore.QObject):
         kind = kind_or_id if identity is not None else "clustering"
         target = identity if identity is not None else kind_or_id
         state = self.state(kind, target)
+        if kind == "embedding" and self._session is not None and (state is None or state.state == "paused"):
+            # A paused run has no worker to cancel, including after reopening
+            # the project. Persist the transition through the normal run service.
+            run = self._session.runs.require_run(target)
+            if run.state == EmbeddingRunState.PAUSED:
+                cancelled = self._session.service.cancel_embedding_run(target)
+                if state is not None:
+                    state.state = cancelled.state.value
+                    state.detail = cancelled.state.value.capitalize()
+                    self._append_report(state, state.detail)
+                self.changed.emit()
+                return
         if state is None:
             if kind == "clustering" and self.service is not None:
                 self.service.repository.cancel_queued(target)
                 self.changed.emit()
             return
+        if state.state not in {"queued", "running"}:
+            return
         queued = bool(state.admission is not None and getattr(state.admission, "queued", False))
         if queued:
             state.admission.cancel()
             self._mark_queued_cancelled(state)
-            self._jobs.pop((kind, target), None)
+            if kind == "reduction":
+                state.state = "cancelled"
+                state.detail = "Reduction cancelled; original vectors are unchanged."
+                state.admission = None
+                self._append_report(state, state.detail)
+            else:
+                self._jobs.pop((kind, target), None)
             self.changed.emit()
             return
         state.state = "cancelling"
@@ -266,15 +424,9 @@ class ExecutionCoordinator(QtCore.QObject):
         def start() -> None:
             if generation != self._generation or self._shutting_down or self.service is None:
                 return
-            thread = QtCore.QThread(self)
-            worker = _InitializationWorker(self.service)
-            worker.moveToThread(thread)
+            thread = _InitializationThread(self.service, self)
             self._initialization_thread = thread
-            self._initialization_worker = worker
-            thread.started.connect(worker.run)
-            worker.finished.connect(self._initialization_complete_current)
-            worker.finished.connect(thread.quit)
-            worker.finished.connect(worker.deleteLater)
+            thread.result_ready.connect(self._initialization_complete_current)
             thread.finished.connect(self._initialization_thread_finished_current)
             thread.finished.connect(thread.deleteLater)
             thread.start()
@@ -283,6 +435,8 @@ class ExecutionCoordinator(QtCore.QObject):
 
     @QtCore.Slot(object)
     def _initialization_complete_current(self, result: object) -> None:
+        if self.sender() is not self._initialization_thread:
+            return
         generation = self._initialization_generation
         if generation != self._generation:
             return
@@ -290,13 +444,14 @@ class ExecutionCoordinator(QtCore.QObject):
 
     @QtCore.Slot()
     def _initialization_thread_finished_current(self) -> None:
+        if self.sender() is not self._initialization_thread:
+            return
         generation = self._initialization_generation
         admission = self._initialization_admission
         self._initialization_admission = None
         if admission is not None:
             admission.finish()
         self._initialization_thread = None
-        self._initialization_worker = None
         if generation != self._generation:
             return
         self.initializing = False
@@ -325,7 +480,7 @@ class ExecutionCoordinator(QtCore.QObject):
         self._thread_keys[thread] = ("embedding", state.id)
         state.state, state.detail = "running", "Preparing embedding inputs…"
         state.progress = -1
-        self._append_report(state, "Started · Preparing embedding inputs…")
+        self._append_report(state, "Started: Preparing embedding inputs…")
         thread.progress.connect(self._embedding_progress)
         thread.message.connect(self._embedding_message)
         thread.result_ready.connect(self._embedding_finished)
@@ -412,7 +567,7 @@ class ExecutionCoordinator(QtCore.QObject):
             guidance = record_failure(f"{kind} job failed", error)
             if guidance:
                 state.pending_error += "\n\n" + guidance
-            self._append_report(state, "Execution failed. See error details below.")
+            self._append_report(state, "Execution failed. See ‘Error details’ in this report.")
 
     def _thread_finished(self, kind: str, identity: str) -> None:
         state = self.state(kind, identity)
@@ -421,7 +576,7 @@ class ExecutionCoordinator(QtCore.QObject):
         result_state = state.pending_state or "failed"
         state.state = result_state
         state.progress = 100 if result_state == "completed" else state.progress
-        state.detail = state.pending_error or result_state.replace("_", " ").capitalize()
+        state.detail = state.pending_error or state.result_detail or result_state.replace("_", " ").capitalize()
         if not state.pending_error:
             self._append_report(state, state.detail)
         state.worker = None
@@ -434,7 +589,7 @@ class ExecutionCoordinator(QtCore.QObject):
         if admission is not None:
             admission.finish()
         if state.generation == self._generation:
-            self.output_ready.emit(kind, identity)
+            self.output_ready.emit(kind, state.output_id or identity)
             self.changed.emit()
             if (kind == "embedding" and result_state == "completed"
                     and state.create_thumbnails and not self._shutting_down
@@ -460,7 +615,7 @@ class ExecutionCoordinator(QtCore.QObject):
             self._thread_finished(*key)
 
     def _cancel_worker(self, state: ExecutionState) -> None:
-        if state.kind == "embedding" and state.worker is not None:
+        if state.kind in {"embedding", "reduction"} and state.worker is not None:
             state.worker.request_cancel()
         elif state.kind == "clustering":
             cancellation = self._cluster_cancellations.get(state.id)
@@ -489,7 +644,6 @@ class ExecutionCoordinator(QtCore.QObject):
             self._initialization_admission.finish()
         self._initialization_admission = None
         self._initialization_thread = None
-        self._initialization_worker = None
         self.initializing = False
         for state in tuple(self._jobs.values()):
             if state.state in {"queued", "running", "cancelling"}:

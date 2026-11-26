@@ -19,14 +19,23 @@ def install_application_icon(app: QtGui.QGuiApplication) -> None:
 
 
 def application_icon() -> QtGui.QIcon:
-    """Return the platform-appropriate runtime application icon."""
+    """Keep logical-size artwork distinct from its high-density rendition."""
     if sys.platform == "win32":
-        name = "eidora_icon_windows.ico"
-    elif sys.platform == "darwin":
-        name = "eidora_icon_macos.png"
-    else:
-        name = "eidora_icon_linux.png"
-    return QtGui.QIcon(str(_branding_resource(name)))
+        return QtGui.QIcon(str(_branding_resource("eidora_icon_windows.ico")))
+    platform = "macos" if sys.platform == "darwin" else "linux"
+    directory = resources.files("shared").joinpath("branding", platform)
+    icon = QtGui.QIcon()
+    for path in sorted(directory.iterdir(), key=lambda item: item.name):
+        if not path.name.endswith(".png"):
+            continue
+        pixmap = QtGui.QPixmap(str(path))
+        if pixmap.isNull():
+            raise RuntimeError(f"Could not load application icon: {path}")
+        pixmap.setDevicePixelRatio(2 if path.name.endswith("@2x.png") else 1)
+        icon.addPixmap(pixmap)
+    if icon.isNull():
+        raise RuntimeError(f"Application icon renditions are missing: {directory}")
+    return icon
 
 
 def branding_pixmap(

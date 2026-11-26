@@ -4,6 +4,310 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Prevent delayed Media row resize callbacks from accessing deleted table items after source removal or project switching.
+
+- Standardize pop-up menu ordering, separators, preset labels, and pin-scope wording across all areas; label project deletion explicitly as Delete From Disk and projection-panel deletion as Delete Selected Projection.
+
+- Simplify clustering removal to one Remove action that deletes the result and its generated groups together.
+- Confirm that deleting a clustering group set in Metadata also removes its result in Embeddings; deleting one subgroup keeps the result and marks it Modified.
+
+- Preserve timer-triggered event-loop exits on macOS so nested waits and dialogs can finish after manual event processing.
+
+- Let the Discovery Appearance panel expand while retaining a compact content-based minimum that keeps controls visible, without changing margins or layout.
+
+- Reduce the Custom fill/border color field and value dropdown minimums while allowing them to expand with the Appearance sidebar.
+
+- Show the point count in the Save Area dialog, with an optional Include filtered checkbox that updates the count and polygon membership.
+
+- Automatically suffix duplicate saved lasso area names with `_2`, `_3`, and so on, preserving existing polygons and group memberships.
+
+- Keep new lasso polygons visible while saving, reuse unchanged metadata caches when publishing groups, and preserve the active slicer without reloading it.
+
+- Allow the Metadata Table and Groups panels to resize freely with their splitter while preserving their natural minimum widths.
+
+- Make saved areas a lasso-only tool with automatic matching polygon/member colors; remove Areas layer settings and move export and group-saving actions into the lasso context menu.
+
+- Support the relocated Retry Save button without the removed failure panel; show it only for failed project saves and expose failure details in its tooltip.
+
+- Keep long project names from widening the main window; shorten only their displayed text with an ellipsis while preserving the full accessible name, tooltip and project-menu behavior.
+
+- Use Tillmann Ohm's forthcoming “EIDORA: The Embedding Space Explorer for Collection Data” paper as the preferred citation, explicitly marked as a planned arXiv submission with its identifier pending.
+
+- Recover missing embedding references from the matching installed model package, checking recorded versions and labeling the source. Abbreviate large settings lists and oversized technical values in methods reports.
+
+- Limit embedding-run reports to model and data provenance without an automatic EIDORA citation, and hide the Export button menu arrow.
+
+- Open Methods & Citations with selectable brief methods, caption summaries and references, keeping complete parameters and technical records expandable. Provide project-menu access to saved analyses, one Copy BibTeX action, and brief, full-report and BibTeX exports. Individual references open and export independently without adding EIDORA; transform and filter settings remain in snapshot reports without separate panel actions.
+
+- Label import and linking table samples with “Preview: shown/total” and show a display-only continuation row when more records exist; standardize projection and combined media-link previews to 25 rows.
+
+- Restore standard alternating rows and content-aware row sizing in processing parameter tables, matching New Projection without custom background overrides or extra row padding.
+
+- Add one non-blocking large-dataset note to the clustering dialog, updating with the selected algorithm and PCA settings while reusing existing dataset metadata.
+
+- Keep processing parameter tables free of row selection and hover highlights; use one checkbox style for aligned outlines, ticks, and click targets in both themes.
+
+- Use the shared parameter-table appearance for Model Run batch and model preparation settings, preserving saved values and conditional controls.
+
+- Keep failed Discovery and Figures autosaves visible and retryable, protect unsaved changes when closing or switching projects, and prevent failed settings or Pin reads from becoming destructive empty saves.
+
+- Reduce MiniBatch K-Means memory use by streaming vector preparation into temporary file-backed input while preserving clustering settings and item alignment.
+
+- Align model execution and clustering dialogs with Preview Assets: horizontal labeled fields, consistent spacing and footers, and collapsible clustering advanced parameters.
+
+- Add a shared stretch plots checkbox to Figures: keep each snapshot's proportions when unchecked, or fit every plot to its available space when checked, including single-plot figures.
+
+- Add globally remembered clustering CPU usage presets (25%, 50%, 75%, or 100%; default 75%) for fitting and optional PCA, with protection against nested numerical thread pools.
+
+- Keep Vector Data run cards collapsed by default; expand a newly starting embedding run and collapse previous cards, leaving the final run open until the user closes it.
+
+- Offer Folder and ZIP options under one Open Project button, and offer a writable local copy when opening a project folder fails because of write permissions. Open Project and More Options menus appear at the click position with larger dropdown indicators.
+
+- Remove the Measurements selector from Figures plot settings; size edits now apply to all plots.
+
+- Silence routine multimedia playback and media-metadata messages in the terminal while retaining warnings and errors.
+
+- Limit Tooltip, Pin and Preview rendering asset choices to sets serving Items in the active projection, including previews generated from linked metadata sources.
+
+- Support the main-window project push button with its dropdown indicator and open its actions menu at the mouse click position.
+
+- Read the selected Tooltip Preview Asset directly from its control and show the settings preview on opening, without requiring an off/on toggle.
+
+- Limit mapped Appearance color categories to items in the selected Discovery projection, excluding unused labels from other vector sets.
+
+- Prevent repeated deleted-window event-filter errors during application shutdown.
+
+- Calculate Appearance’s Entire Distribution percentages from the selected Discovery projection, excluding metadata records outside that projection.
+
+- Avoid deleted-main-window errors when opening dialogs after their application window is destroyed.
+
+- Load size-specific app icons with their display densities during macOS and Linux development launches; preserve the layered icon in packaged macOS apps.
+
+- Remove the redundant Installed label from Embeddings model rows, retaining installation progress and package warnings.
+
+- Show all valid projects in the Project path alongside recent projects stored elsewhere in the Project Chooser, without duplicate paths. Order by most recently opened, with projects lacking opening history at the end.
+
+- Remember separate import/export folders and the main window's geometry, maximized state and workspace splitter positions across relaunches. Restore current Slicer, Pin styling and Tooltip settings per project, including projects without Pins.
+
+- Restore saved Figures as lightweight tabs with loading placeholders, prepare the selected figure independently of renderer startup, and build each figure’s UI only when selected. Preserve unopened figures through edits, rename, deletion, and project changes. Protect legacy animation sources during cleanup and cancel skipped tabs’ queued loads.
+
+- Use the existing simplified app icon through 64 px on Windows and Linux, vertically centered within its teal surface, including Linux 2x variants and Windows Store assets, and through 32 logical px in macOS ICNS at both densities.
+
+- Keep tooltip feedback clear of its settings panel and separate text box width from font size, retaining the preview-size controls for text assets.
+
+- Right-click an Item in Pan or Selection mode to create a Pin using the saved scope or open Show Item. Creating a Pin in Pan mode switches to Selection so the Pin can be moved immediately.
+
+- Create Pins directly from the selected item dialog. Hold the Pin button to choose Collection-wide or Projection only, with the choice remembered across EIDORA sessions and Collection-wide as the default.
+
+- Use a consistent set of open, closed, and pointing-hand cursors with matching finger widths, outlines, and palms. Show the pointing hand over clickable canvas Items and Pin playback controls.
+
+- Show saved text excerpts directly in Pins with compact font and font-size controls, theme colors, background text loading for visible cards, and support for canvas exports. Resizing reflows text without scaling it or generating preview images.
+
+- Restore the move cursor over Pins in canvas selection mode, including the remove cursor when a removal modifier is held.
+
+- Show immediate preview feedback for changes in Tooltip Settings, use the curated Figures font choices for text, and keep settings open when selecting dropdown entries outside the panel.
+
+- Use saved text excerpts in Discovery tooltips. Tooltip Settings shows only font and font size for text assets, using the application theme for colors; text loads in the background and remains available without the original source.
+
+- Create plain-text excerpt Preview Assets from linked text sources in Media. Choose beginning, middle, end, or reproducible random excerpts, with a character limit and optional word-boundary trimming. Inspect saved excerpts without the original source and reuse the existing pause, cancel, retry, and set-management workflow.
+
+- Play generated video, audio, and GIF previews directly in Pins with click-to-play, pause, seeking, and an audio playhead. Use one active pin player, preserve final frames, and keep canvas exports on static posters.
+
+- Prepare text files consistently as whole documents, including JSONL, while preserving explicit indexed-record inputs. Support BOM-marked Unicode, identify failing files/records, bound text reads, and reuse tokenizers and record offsets without adding model dependencies.
+
+- Show a red playback-position line over tooltip audio waveforms, with lightweight updates during playback and cleanup when the tooltip closes or changes.
+
+- Keep the last video frame visible when a tooltip preview finishes with Loop disabled; release it when the tooltip closes or changes.
+
+- Simplify the Project Chooser’s More Options menu: Settings opens directly on Storage, followed by a separator; remove the separate Storage action.
+
+- Open project actions from the project-name dropdown in the main navigation bar and use the full EIDORA wordmark for Settings.
+
+- Use bold header checkboxes with grouped controls in Tooltip and Pins settings. Rename Info Field to Metadata. Disabling sections preserves their saved selections.
+
+- Make the edited tooltip, Preview Asset, and Settings forms safer to edit in Designer: use unique widget names and initialize conditional visibility in controllers.
+
+- Add tooltip clip selection, a preview-position combobox, and a saved Loop toggle enabled only for audio/video clips. Remove the tooltip mute control. Hover previews autoplay generated audio/video clips after 200 ms and animate GIFs with their saved repeat settings; loading and GIF decoding run in a bounded background worker, and leaving the tooltip stops playback.
+
+- Add confirmed bulk deletion for projects in the Settings Project Location, closing the active project and waiting for saves first. Move preset selection and deletion controls into the Presets tab.
+
+- Use basic and expandable advanced parameter tables for Preview Asset creation, with aligned Asset Type and Output name form rows, Reset defaults, and saved settings. Expose image/video quality, video/GIF frame-rate and size limits, audio bitrate/channels, GIF palette/dithering, and reproducible random seeds.
+
+- Connect the Settings Storage tab to background size measurement and confirmed model cleanup through its trash icon. Nonempty folder changes offer relocation or keeping the current folder; relocation closes the project, verifies and moves its contents, and returns to the Project Chooser after Settings closes.
+
+- Create compact audio clips, video clips, and animated GIFs from linked Media Sources. Add excerpt settings, optional video muting, GIF palette/dithering and Play once/Forever/Ping-Pong controls, stored output sizes, and a Media inspector. Keep clip sets separate from Canvas previews until later integration.
+
+- Rename the project-menu action to “Switch Projects…”.
+
+- Hide the Project Chooser immediately when opening a project and use only the square loading indicator until the main window is ready. Remove the chooser's redundant progress bar and loading text; restore the chooser on errors for retry or cancellation.
+
+- Show a square light/dark loading panel with a rotating square and the EIDORA wordmark when opening a project. Tint the wordmark for light/dark appearance and render it at the display scale. Load project files in a worker and prepare hidden workspaces in queued steps, keeping Discovery's graphics host attached before the main window appears. Keep the loader visible through workspace refresh and the window handoff when switching projects from the chooser.
+
+- Remove the duplicate menu arrow from the camera preset button in Discovery Canvas Layers.
+
+- Allow Grid and No Overlap transforms for every projection, including PCA, MDS, and imported coordinates, in Discovery and Figures. Preserve and restore their saved arrangements.
+
+- Remove oversized gaps between Preview Assets cards on opening by refreshing the tree layout after hidden cards become visible.
+
+- Close the Main Window before showing the Project Chooser and restore it after selection or cancellation.
+
+- Restyle Settings to match EIDORA’s form dialogs: clean sections, compact choices, grouped storage fields, taller preset rows, and a shared action footer. Keep both tabs the same size and synchronize native controls and lazy preset lists with Light/Dark/System appearance.
+
+- Make preset and category selection checkboxes visible on macOS, keeping their drawing and click targets aligned after scrolling in both themes.
+
+- Manage reusable presets in Settings with a project selector, collapsible type groups, group checkboxes, and confirmed bulk deletion. Preserve snapshots, projections, and presets still required by saved work; refresh preset menus without changing applied settings.
+
+- Rename the main-window Help button to Settings and use the simplified EIDORA icon with light/dark palette tinting; preserve its menu and size.
+
+- Paint the selected Settings appearance radio before applying the theme, and combine pending theme changes so the latest choice wins.
+
+- Keep only preset actions in the Filters options menu and remove its citations dialog entry and report handler.
+
+- Add Settings to Help and the startup chooser, with saved Light/Dark/System appearance, startup project choice, storage destinations, optional verified project relocation, and a scoped General reset.
+
+- Separate Discovery snapshots from reusable presets. Snapshot saves and updates capture their own settings without generating presets; Figures preserve imported views until another snapshot is dropped onto the plot. Add per-component “From snapshot” resets and explicit preset application, restore saved slicer views, and resolve mapped and conditional appearance fields for Figures. Keep presets project-only, with “Apply preset…” and “Save as preset…” actions; remove Global Template options. “Manage Presets...” at the bottom of Apply preset menus opens Settings directly on the Presets tab.
+
+- Prevent model-list refreshes from resizing deleted tree items while old row widgets await Qt cleanup.
+
+- Open Vector Data Info tabs and cards without blocking the interface: remove whole-library scans, load details in the background and reuse them across tab switches.
+
+- Let panel rows grow to fit native and styled buttons, sharing minimum header heights across Media Sources, Preview Assets, Models and Vector Data without fixed height caps.
+
+- Keep panel row bindings working when Designer replaces decorative widget wrappers with nested layouts, including the Vector Data progress controls.
+
+- Hide Preview Assets options while jobs are active, matching Vector Data; keep the menu available when paused or finished.
+
+- Let active panel jobs use the full second line for progress and right-aligned controls, restoring info labels when idle. Use standard button heights and list-colored gaps between cards.
+
+- Unify Media Sources, Preview Assets, Models and Vector Data with stable two-line headers, compact progress and direct row actions. Keep Models and Media Sources non-expandable, anchor expanded details below the header, and remove outer-row selection and hover highlights.
+
+- Match Vector Data cards to Preview Assets using a full-width tree, consistent collapsed row height, keyboard expansion and elided names. Preserve live cards when their order changes.
+
+- Move live embedding and PCA activity text into the Progress textbox, coalescing rapid updates. Collapsed Vector Data cards now show only the header and progress controls.
+
+- Bind Preview Assets to the revised Model Run card design, with an inline expandable details table, visible job controls while collapsed, and height fitted to the Designer layout.
+
+- Reuse the existing Vector Data card progress bar and Cancel button for PCA reduction, removing the duplicate reduction activity controls. Disable Pause while PCA is running.
+
+- Compact projection memory to “Estimated memory: ~estimate / budget” beside the refresh icon. Use numeric controls, checkboxes and dropdowns for simple parameters, with free-text JSON for compound settings.
+
+- Start PCA copies in their own destination card immediately, with source-import history, progress and cancellation. Preserve the card through publication and keep replacement jobs in the original card.
+
+- Explain potential projection runtime with one relevant reason, such as all-pairs comparisons, iteration settings or selection size, while keeping memory notices separate.
+- Simplify Preview Assets into compact expandable rows matching Media Sources height, with source context in details, live progress and adjacent Pause/Resume and Cancel controls, an options menu, and one settings/results section. Preserve expansion through publication and refresh; show actual generated counts and skip totals.
+
+- Refresh projection estimates from an icon beside Memory budget and keep assessment messages brief, tentative and free of routine implementation details.
+- Keep Advanced parameters expand/collapse working when the projection dialog uses a layout directly around its parameter table.
+
+- Move Vector Data’s model, status and processed-item summary into the Progress activity log, removing the separate label above it.
+- Move PCA progress and cancellation into Progress, retaining method, dimension changes, variance and duration in saved results. Simplify Vector Data Info to dataset facts and reduction summaries, with technical details collapsed by default.
+
+- Redesign New Preview Assets to match Run Embeddings with a source heading, compact stacked controls and a separate action footer. Use media-specific default names for manual and automatic previews, including `(thumbs)` for images and `(frames)` for video stills.
+
+- Create previews directly from Media Source rows with source-specific image/video settings and informational Text/Audio placeholders. Show Link on unlinked sources and replace it with Create Previews once linked; show jobs and outputs in Preview Assets and remove its Add New button.
+
+- Present projection assessments with consistent body text, aligned estimated-memory and memory-budget rows and a fixed Create Projection button label.
+
+- Assess projection inputs and parameters inline before running. Show memory estimates and runtime warnings, keep every method selectable, and block invalid settings or necessary allocations exceeding the current memory budget. Recheck in the worker before loading vectors.
+
+- Add PCA and Incremental PCA to Vector Data’s PCA tab, with dimensions, vector-storage estimates, a copy-by-default output choice, editable PCA/PCAin result names for copies and replacements, safe original replacement, and saved variance-retention results.
+
+- Add MDS with metric and non-metric modes and a separate t-SNE (openTSNE) projection with Barnes–Hut/FFT optimization, advanced controls and saved execution details. Check MDS memory requirements before allocating pairwise matrices.
+
+- Add a right-aligned Reset button beside Advanced parameters in New Projection to restore the selected method's basic and advanced defaults.
+
+- Match New Projection to the import dialogs, with each method's basic parameters visible and editable advanced parameters collapsed. Initialize both sections from library defaults and preserve edits when collapsing. Align PCA, t-SNE, PaCMAP and TriMAP execution defaults with their libraries, including automatic solver/learning-rate choices, unseeded execution and TriMAP's full default triplet/iteration settings.
+
+- Offer UMAP 0.6 first and UMAP 0.5 directly below it in New Projection. Expose their complete library parameter sets and defaults, with advanced controls and explicit restrictions for unsupported inputs/outputs. UMAP 0.5 uses the 0.6 library's compatibility pipeline; saved projection coordinates remain unchanged.
+
+- Resolve animation Slicer frames through Discovery’s field and relationship catalog so linked-table fields produce distinct frame selections.
+
+- Add Create animation… to the Slicer menu to capture the current Discovery view and generate a new Figures animation from the current Slicer settings.
+
+- Let snapshot preview backgrounds follow light/dark mode when the snapshot uses the default canvas background, including existing MET_Example previews.
+
+- Align Simple and Advanced filter footer controls and expose the shared hide-tooltip setting beside Apply Query.
+
+- Match Transform play-button spacing to Filters.
+
+- Enlarge Appearance palette icons within their existing buttons.
+
+- Quiet routine footer messages for workspace navigation, selections, and canvas controls; retain progress, warnings, errors, and operation results.
+
+- Resolve Advanced filter metadata by stable field identity and remove the metadata-loading retry button.
+
+- Activate the Discovery Slicer when users operate its slider, navigation buttons, or range controls, while preserving inactive saved settings.
+
+- Clicking empty space in the Discovery snapshot list deselects the snapshot and disables update/overwrite actions; list refreshes preserve deselection.
+
+- Size Metadata tabs with standard Qt tab icons and wider padding so long labels and link icons stay inside the tab.
+
+- Keep the current Discovery canvas view when a projection finishes; select the new projection from the list to display it.
+
+- Compact the Advanced filter operators into one combobox with an insert operator button, aligned with field and value insertion.
+
+- Correct the failed execution message to reference Error details without assuming their position in the report.
+
+- Show focus outlines only after keyboard navigation and hide them on mouse click.
+
+- Use Preview Assets terminology across the app, including Discovery settings, tooltips, and job progress.
+
+- Rename the Assets workspace to Media and update the tour to cover Media Sources and Preview Assets.
+
+- Move the project chooser's example project, storage, and diagnostics actions into More Options.
+
+- Keep clustering status and result lists responsive while groups are being saved. Source validation now reads only the item identities needed to verify the embeddings.
+
+- Metadata table deletion now tolerates unrelated Discovery appearance autosaves. Confirmation still checks for new dependencies and edits to data scheduled for removal.
+
+- Closing a metadata import or update releases its dialog and selection popups, preventing widgets from accumulating during repeated imports.
+
+- Discovery returns to points when the active thumbnail set is deleted from Media.
+
+- Open the bundled starter and older version 5 media databases with their existing asset links and saved matching choices intact.
+
+- Mac builds use upstream Qt fixes for accessibility elements retained after list and table changes. Discovery reuses its palette menus, and deleting Figures releases their tab close buttons.
+
+- Release deleted Figures controllers and the Python wrappers for removed pages, media rows, filter rules and vector cards during long editing sessions.
+
+- Release the embedding import dialog and its four selection popups after each import or cancellation, reducing memory use during repeated imports.
+
+- Fix a native crash when refreshing Discovery metadata fields, snapshots, and other lists during project switches and repeated imports.
+
+- Keep GUI-thread garbage collection progressing after short-lived allocation bursts and during idle periods, including in packaged GUI self-tests. Explicitly delete disposed project-chooser widget trees so row callbacks cannot retain closed dialogs and their controllers.
+
+- Schedule cyclic garbage collection on the GUI thread so background allocations cannot finalize abandoned Qt widget cycles during event dispatch. Retire Vector Data card controllers with their widgets on project switches instead of retaining them in the persistent list.
+
+- Make failed metadata choices explicitly retryable without losing saved settings; keep pending numeric filters active, missing fields inactive, and advanced-query values tied to the selected field. Track Model Zoo card and size completion separately. Drain final Figure saves after renderer-stop errors, reject new preparations and saves after retirement, and keep long exports independent of the interactive preview deadline. Start render processes without holding the GUI-facing lifetime lock and close pipe endpoints when startup fails.
+
+- Load Discovery metadata choices and numeric ranges in bounded background queues; preserve saved colors, filters and slicer settings while loading, and discard obsolete control/project results.
+
+- Cancel obsolete or stalled Figure renderer exchanges, recover with a fresh worker, and retire Figures services without blocking the GUI. Preserve final-save ordering when returning to a project and discard cancelled animation-export staging.
+
+- Bound Model Zoo catalog, card and size requests independently, keeping the latest selection responsive without accumulating network threads or delaying cards behind size lookups.
+
+- Preserve saved Figures after unreadable or invalid collection files: report load failures, keep autosave disabled until restoration succeeds, and allow retry without restarting.
+
+- Capture snapshot state before background writes and reject stale UI activation; cancel Figure callbacks with their widgets and reuse the snapshot-save dialog. Retry unfinished thumbnail sources across viewport changes, bound source lookup queues and caches, and account for metadata summaries in the shared cache budget without retaining failed reads or unbounded panel copies.
+
+- Give projection jobs unique output identities so cancellation cannot delete another writer's result. Preserve committed imports through cleanup errors, keep coordinate read failures visible without replacing the current view, and finish jobs whose saved projection disappears before activation.
+
+- Handle re-entrant background progress delivery and release superseded Discovery task inputs immediately; end item sessions when reloading a different projection and keep temporarily locked recent projects retryable.
+
+- Keep Discovery computation tasks free of Qt objects, collect results on the GUI thread, and retain only active and latest queued work. Give projection and clustering-initialization runners GUI-owned lifetimes and reject initialization callbacks from previous projects.
+
+- Keep projection children tied to the application lifetime, report actual computation stages, reserve default CPU capacity for interaction, and prepare newly saved coordinates in the background before display. Preserve the pinned UMAP version for this reliability change.
+
+- Cancel deferred Appearance and Vector Data layout callbacks when their widgets are destroyed.
+
+- Finish Discovery pan gestures independently of tool and Space-key release order, restore pending appearance updates, and discard abandoned gestures on focus loss, mouse-grab loss, hiding, and closure without re-uploading point positions.
+
+- Dispose item/nearest-neighbor dialogs and their callbacks when a session ends, restore selection and blinking on workspace/project changes, and preserve the open window after saving a group. Limit neighbor searches to one running task and the latest pending request; cancelled requests skip obsolete loading and cannot publish into another session.
+
+- Protect saved vectors from accidental model execution, reconfiguration, reset, cancellation, and startup cleanup, including legacy runs whose saved status is inconsistent. Dismissing clustering menus no longer cancels finished jobs.
+
+- Report committed embedding imports as saved even if derived metadata or display refresh fails. Close import iterators and mapped files before cleanup, preserve cards after read failures, and keep locked projects in Recent Projects instead of treating storage errors as missing data.
+
 - Simplify footer activity feedback to a single-line process description and adjacent progress bar, removing the redundant activity-summary box.
 
 - Rename static and animation tabs through their right-click menu or by double-clicking the tab label. Save names automatically and use them for export filename suggestions.
@@ -22,7 +326,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Replace cached dataset identities when loading snapshot data so direct animation-frame exports cannot reuse another frame's axis bounds.
 
-- Simplify the thumbnail footer to “Creating thumbnails” with the same progress state as the Assets panel.
+- Simplify the thumbnail footer to “Creating Preview Assets” with the same progress state as the Media workspace.
 
 - Prioritize visible figure previews across the workspace, supersede queued stale draws, and deliver completion directly through the GUI event loop. Hidden previews still publish durable datasets, and exports retain their full-quality rendering and reliable queue order.
 
@@ -32,7 +336,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Update figure controls only when their geometry or visible preset selection changes, and share transformation and decoded-animation cache budgets across tabs. Preserve full-resolution previews, document data and export quality.
 
-- Close Run Model immediately and prepare inputs in the embedding card with pause/cancel support. After successful embedding completion, run optional default thumbnails as a separate Assets job with aspect-preserving previews, tracked in the footer without changing workspaces.
+- Close Run Model immediately and prepare inputs in the embedding card with pause/cancel support. After successful embedding completion, run optional default thumbnails as a separate Media job with aspect-preserving previews, tracked in the footer without changing workspaces.
 
 - Simplify the batch selector by removing its explanatory paragraph; Auto now prefers faster batches when the throughput gap exceeds 2%, matching High's tolerance.
 
@@ -132,7 +436,7 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 - Offer metadata linking only when Items exist, restrict automatic and manual links to Items–source pairs, and add Unlink for a source’s saved relationships without deleting records.
 
-- Rename the Project workspace to Assets and move the active project name and project actions into the main window, with Switching Projects first. Project storage and bundle formats remain unchanged.
+- Move the active project name and project actions into the main window, with Switching Projects first. Project storage and bundle formats remain unchanged.
 
 - Align Media Source matching with the Metadata Link dialog: suggest settings from actual matches, preview source and item values together, and keep manual adjustments in collapsed Link options.
 

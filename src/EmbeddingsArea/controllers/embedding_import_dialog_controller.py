@@ -10,6 +10,8 @@ import threading
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from shared.qt import file_dialogs
+
 from EmbeddingsArea.exchange.domain import (
     EmbeddingImportCompanionProbe,
     EmbeddingImportInspection,
@@ -23,13 +25,15 @@ from EmbeddingsArea.exchange.importer import (
     SIDECAR_FILE_FILTER,
 )
 from shared.qt.ui_loader import load_ui
+from shared.qt.table_preview import set_preview_continuation
 from shared.qt.widgets import require_child
 
 
-class EmbeddingImportDialogController:
+class EmbeddingImportDialogController(QtCore.QObject):
     """Inspect, link, and publish one already-selected embedding file."""
 
     def __init__(self, service, source_path: Path, *, process_manager=None) -> None:
+        super().__init__()
         self.connections: list[tuple[object, object]] = []
         self.process_manager = process_manager
         self.publication_reserved = False
@@ -125,7 +129,7 @@ class EmbeddingImportDialogController:
         self._connect(self.apply_button.clicked, self._commit)
         self._connect(self.name_edit.textChanged, self._validate_name)
         self._connect(self.close_button.clicked, self._close_requested)
-        self.dialog.installEventFilter(self._close_guard())
+        self.dialog.installEventFilter(self)
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
         self.progress.hide()
@@ -135,20 +139,22 @@ class EmbeddingImportDialogController:
             self.identifier_file_key_label.hide()
 
     def exec(self) -> bool:
-        QtCore.QTimer.singleShot(0, lambda: self._load_source(self.source_path))
         try:
+            self._load_source(self.source_path)
             self.dialog.exec()
             return self.changed
         finally:
             self.timer.stop()
             self.cancel_event.set()
-            self.executor.shutdown(wait=True, cancel_futures=True)
-            self.exchange.cleanup_import(self.inspection)
-            for signal, callback in reversed(self.connections):
-                try:
+            try:
+                self.executor.shutdown(wait=True, cancel_futures=True)
+                self.exchange.cleanup_import(self.inspection)
+            finally:
+                self.dialog.removeEventFilter(self)
+                for signal, callback in reversed(self.connections):
                     signal.disconnect(callback)
-                except (RuntimeError, TypeError):
-                    pass
+                self.connections.clear()
+                self.dialog.deleteLater()
 
     def _load_source(self, path: Path) -> None:
         if self.future is not None:
@@ -368,9 +374,6 @@ class EmbeddingImportDialogController:
                 self.linking_label.setText(result.message)
                 self.linking_label.show()
                 self.preview_status.hide()
-                self.preview_count.setText(
-                    f"Showing {len(result.inspection.samples):,} of {result.inspection.row_count:,} vectors"
-                )
                 if not result.can_import:
                     self._show_import_error(result.message)
                     self.options_button.setChecked(True)
@@ -446,7 +449,8 @@ class EmbeddingImportDialogController:
             if plan is not None and plan.match_index_path is not None
             else None
         )
-        for sample in self.inspection.samples:
+        samples = self.inspection.samples[:25]
+        for sample in samples:
             item_id = int(matches[sample.row_index]) if matches is not None else -1
             status = str(item_id) if item_id >= 0 else "New Item"
             vector = json.dumps(list(sample.vector))
@@ -460,6 +464,8 @@ class EmbeddingImportDialogController:
                     QtGui.QStandardItem(status),
                 ]
             )
+        set_preview_continuation(self.preview_model, len(samples), self.inspection.row_count, 1)
+        self.preview_count.setText(f"Preview: {len(samples):,}/{self.inspection.row_count:,} vectors")
         self.preview_table.resizeColumnsToContents()
 
     def _schema_changed(self, *_args) -> None:
@@ -485,7 +491,7 @@ class EmbeddingImportDialogController:
             self._remove_identifier_file()
 
     def _choose_identifier_file(self) -> None:
-        path, _selected = QtWidgets.QFileDialog.getOpenFileName(
+        path, _selected = file_dialogs.get_open_file_name(
             self.dialog,
             "Choose Identifiers or Index",
             str(self.source_path.parent),
@@ -541,7 +547,7 @@ class EmbeddingImportDialogController:
             self._remove_sidecar_file()
 
     def _choose_sidecar_file(self) -> None:
-        path, _selected = QtWidgets.QFileDialog.getOpenFileName(
+        path, _selected = file_dialogs.get_open_file_name(
             self.dialog,
             "Choose Schema Sidecar",
             str(self.source_path.parent),
@@ -620,27 +626,14 @@ class EmbeddingImportDialogController:
     def _widget(self, widget_type, name: str):
         return require_child(self.dialog, widget_type, name)
 
-    def _close_guard(self):
-        controller = self
-
-        class Guard(QtCore.QObject):
-            def eventFilter(self, watched, event):
-                if event.type() == QtCore.QEvent.Type.Close and controller.future is not None:
-                    controller.close_after_abort = True
-                    controller._request_abort()
-                    return True
-                if (
-                    event.type() == QtCore.QEvent.Type.KeyPress
-                    and event.key() == QtCore.Qt.Key.Key_Escape
-                    and controller.future is not None
-                ):
-                    controller.close_after_abort = True
-                    controller._request_abort()
-                    return True
-                return False
-
-        self.guard = Guard(self.dialog)
-        return self.guard
+    def eventFilter(self, watched, event):
+        if self.future is not None and (
+            event.type() == QtCore.QEvent.Type.Close
+            or (event.type() == QtCore.QEvent.Type.KeyPress and event.key() == QtCore.Qt.Key.Key_Escape)
+        ):
+            self._close_requested()
+            return True
+        return False
 
     @staticmethod
     def _format_bytes(value: int) -> str:

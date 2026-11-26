@@ -10,16 +10,6 @@ from MetadataArea.relationship_service import MetadataRelationshipService
 from shared.qt.widgets import require_child
 
 
-class _MetadataTabStyle(QtWidgets.QProxyStyle):
-    """Tighten the status-icon gap without reducing the text rectangle."""
-
-    def drawItemText(self, painter, rect, flags, palette, enabled, text,
-                     text_role=QtGui.QPalette.ColorRole.NoRole):
-        offset = -4 if self.parent().layoutDirection() == QtCore.Qt.LayoutDirection.RightToLeft else 4
-        super().drawItemText(painter, rect.translated(offset, 0), flags, palette,
-                             enabled, text, text_role)
-
-
 class MetadataTablesPanelController(QtCore.QObject):
     def __init__(self, owner):
         super().__init__(owner._table_panel)
@@ -27,9 +17,6 @@ class MetadataTablesPanelController(QtCore.QObject):
         self.owner = owner
         self.widget = owner._table_panel
         self.tabs = require_child(self.widget, QtWidgets.QTabWidget, 'tabs_metadata')
-        self._tab_style = _MetadataTabStyle()
-        self._tab_style.setParent(self.tabs.tabBar())
-        self.tabs.tabBar().setStyle(self._tab_style)
         self.tabs.tabBar().setExpanding(False)
         self.tabs.tabBar().setElideMode(QtCore.Qt.TextElideMode.ElideNone)
         self.tabs.tabBar().setUsesScrollButtons(True)
@@ -60,16 +47,7 @@ class MetadataTablesPanelController(QtCore.QObject):
         for index in range(self.tabs.count()):
             table_id = bar.tabData(index)
             icon = items if index == 0 else linked if table_id in self._linked_table_ids else unlinked
-            self.tabs.setTabIcon(index, QtGui.QIcon())
-            label = bar.tabButton(index, QtWidgets.QTabBar.ButtonPosition.RightSide)
-            if label is None:
-                label = QtWidgets.QLabel(bar)
-                label.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-                label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-                bar.setTabButton(index, QtWidgets.QTabBar.ButtonPosition.RightSide, label)
-            label.setFixedSize(size)
-            label.setPixmap(icon.pixmap(size))
-            label.setToolTip(self.tabs.tabToolTip(index))
+            self.tabs.setTabIcon(index, icon)
 
     def _open_links(self):
         self._run(self._link_tables)
@@ -81,9 +59,17 @@ class MetadataTablesPanelController(QtCore.QObject):
     def _menu(self, parent, position, actions):
         menu = QtWidgets.QMenu(parent)
         callbacks = {}
-        for label, callback in actions:
+        separator_pending = False
+        for entry in actions:
+            if entry is None:
+                separator_pending = bool(callbacks)
+                continue
+            label, callback = entry
             if callback in (self._link_tables, self._link) and not self.link_button.isEnabled():
                 continue
+            if separator_pending:
+                menu.addSeparator()
+                separator_pending = False
             action = menu.addAction(label)
             if callback == self._unlink:
                 action.setEnabled(self.owner._project is not None
@@ -99,18 +85,18 @@ class MetadataTablesPanelController(QtCore.QObject):
             return
         self.tabs.setCurrentIndex(index)
         if self.owner._table_id == 'metadata':
-            actions = [('Unlink all', self._unlink), ('Delete all', self._delete),
-                       ('Export', self.owner._on_export_metadata)]
+            actions = [('Export…', self.owner._on_export_metadata), None,
+                       ('Unlink All', self._unlink), ('Delete All…', self._delete)]
         else:
-            actions = [('Link tables…', self._link_tables), ('Unlink', self._unlink),
-                       ('Rename table…', self._rename), ('Delete table…', self._delete),
-                       ('Export table…', self.owner._on_export_metadata)]
+            actions = [('Link Tables…', self._link_tables), ('Rename Table…', self._rename),
+                       ('Export Table…', self.owner._on_export_metadata), None,
+                       ('Unlink', self._unlink), ('Delete Table…', self._delete)]
         self._menu(self.tabs.tabBar(), position, actions)
 
     def _record_menu(self, position):
-        self._menu(self.owner._table, position, [('Set value…', self._set_value),
-            ('Assign source…', self._assign_source), ('Link records…', self._link),
-            ('Link tables…', self._link_tables)])
+        self._menu(self.owner._table, position, [('Set Value…', self._set_value), None,
+            ('Assign Source…', self._assign_source), ('Link Records…', self._link),
+            ('Link Tables…', self._link_tables)])
 
     def _run(self, action):
         if self.owner._project is None or self.owner._media_publication_active:
@@ -218,7 +204,7 @@ class MetadataTablesPanelController(QtCore.QObject):
                 self._changed()
 
     def _assign_source(self):
-        from AssetsArea.controllers.record_link_dialog_controller import assign_source_dialog
+        from MediaArea.controllers.record_link_dialog_controller import assign_source_dialog
         if assign_source_dialog(self.widget, self.owner._project, self._ids()):
             self._changed()
 

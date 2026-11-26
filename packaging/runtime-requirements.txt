@@ -98,6 +98,7 @@ numpy==2.5.3 ; sys_platform != "darwin" or platform_machine != "x86_64"
     #   matplotlib
     #   numba
     #   onnxruntime
+    #   opentsne
     #   pacmap
     #   scikit-learn
     #   scipy
@@ -116,6 +117,8 @@ onnxruntime==1.30.0 ; (sys_platform != "darwin" or platform_machine != "x86_64")
     # via eidora-desktop (pyproject.toml)
 openpyxl==3.1.5
     # via eidora-desktop (pyproject.toml)
+opentsne==1.0.4
+    # via eidora-desktop (pyproject.toml)
 packaging==26.3
     # via
     #   faiss-cpu
@@ -132,8 +135,10 @@ protobuf==7.36.1
     # via onnxruntime
 pyarrow==25.0.1
     # via eidora-desktop (pyproject.toml)
-pynndescent==0.6.0
-    # via umap-learn
+pynndescent==0.7.0
+    # via
+    #   eidora-desktop (pyproject.toml)
+    #   umap-learn
 pyparsing==3.3.2
     # via matplotlib
 pyside6==6.10.1 ; sys_platform == "win32"
@@ -159,6 +164,7 @@ pyyaml==6.0.3
 scikit-learn==1.9.1
     # via
     #   eidora-desktop (pyproject.toml)
+    #   opentsne
     #   pacmap
     #   pynndescent
     #   trimap
@@ -166,6 +172,7 @@ scikit-learn==1.9.1
 scipy==1.18.1
     # via
     #   eidora-desktop (pyproject.toml)
+    #   opentsne
     #   pynndescent
     #   scikit-learn
     #   umap-learn
@@ -192,5 +199,5 @@ typing-extensions==4.16.0
     # via
     #   anyio
     #   huggingface-hub
-umap-learn==0.5.12
+umap-learn==0.6.0
     # via eidora-desktop (pyproject.toml)

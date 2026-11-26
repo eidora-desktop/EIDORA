@@ -171,9 +171,9 @@
       <item>
        <widget class="QTabWidget" name="tabs_metadata">
         <property name="styleSheet">
-         <string notr="true">QTabBar::tab { font-style: italic; font-weight: normal; padding: 4px 4px; color: palette(window-text); background-color: palette(window); border-bottom: 2px solid transparent; }
+         <string notr="true">QTabBar::tab { font-style: italic; font-weight: normal; padding: 4px 12px; color: palette(window-text); background-color: palette(window); border-bottom: 2px solid transparent; }
 QTabBar::tab:selected { background-color: palette(base); border-bottom: 2px solid palette(window-text); }
-QTabBar::tab:first, QTabBar::tab:only-one { font-style: normal; font-weight: bold; padding: 4px 6px; }</string>
+QTabBar::tab:first, QTabBar::tab:only-one { font-style: normal; font-weight: bold; padding: 4px 12px; }</string>
         </property>
         <property name="iconSize">
          <size>

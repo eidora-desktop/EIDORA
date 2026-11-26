@@ -9,19 +9,16 @@ from EmbeddingsArea.controllers.model_install_coordinator import (
     ModelInstallCoordinator,
     PendingModelInstall,
 )
+from EmbeddingsArea.controllers.model_row_controller import ModelRowController
 from EmbeddingsArea.domain import InstalledModel, ModelCatalogEntry
 from EmbeddingsArea.model_catalog import (
     DEVELOPMENT_PLACEHOLDER_MODEL_IDS,
     ModelCatalog,
 )
 from EmbeddingsArea.session import EmbeddingsAreaSession
-from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, configure_panel_item_view
+from shared.qt.item_views import configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
-from shared.qt.widgets import require_child
-
-_MODEL_ID_ROLE = 32
-_MODEL_KIND_ROLE = 33
-_ACTIONS_COLUMN_PADDING = 8
+from shared.qt.widgets import delete_removed_widgets, require_child
 
 
 class _BaseModelsPanelController(UiPanelController):
@@ -95,39 +92,12 @@ class _BaseModelsPanelController(UiPanelController):
             self._readme_dialogs.remove(dialog)
 
     @staticmethod
-    def _set_row_tooltip(item: QtWidgets.QTreeWidgetItem, tooltip: str) -> None:
-        for column in range(item.columnCount()):
-            item.setToolTip(column, tooltip)
-
-    @staticmethod
     def _configure_tree(tree: QtWidgets.QTreeWidget) -> None:
         configure_panel_item_view(tree)
         tree.setRootIsDecorated(False)
         tree.setUniformRowHeights(False)
-        tree.setAlternatingRowColors(True)
-        tree.setColumnCount(4)
-        tree.setHeaderLabels(["Name", "Type", "Size", "Actions"])
-        tree.header().setStretchLastSection(False)
+        tree.setColumnCount(1)
         tree.header().setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeMode.Stretch)
-        tree.header().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        tree.header().setSectionResizeMode(2, QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
-        # QHeaderView does not reliably include widgets installed with
-        # setItemWidget() when calculating ResizeToContents widths.
-        tree.header().setSectionResizeMode(3, QtWidgets.QHeaderView.ResizeMode.Fixed)
-
-    @staticmethod
-    def _fit_actions_column(tree: QtWidgets.QTreeWidget) -> None:
-        header = tree.header()
-        width = header.sectionSizeHint(3)
-        for index in range(tree.topLevelItemCount()):
-            item = tree.topLevelItem(index)
-            actions = tree.itemWidget(item, 3) if item is not None else None
-            if actions is None:
-                continue
-            if actions.layout() is not None:
-                actions.layout().activate()
-            width = max(width, actions.minimumSizeHint().width() + _ACTIONS_COLUMN_PADDING)
-        tree.setColumnWidth(3, width)
 
     @staticmethod
     def _installed_tooltip(installed: InstalledModel) -> str:
@@ -165,6 +135,7 @@ class LocalModelsPanelController(_BaseModelsPanelController):
         self._browse_button.clicked.connect(self._browse_model_zoo)
         self._install_coordinator.changed.connect(self.update_pending_install)
         self._install_coordinator.progress_changed.connect(self.update_pending_install)
+        self._rows = {}
         self._configure_tree(self._local_models)
         self.refresh()
 
@@ -176,96 +147,49 @@ class LocalModelsPanelController(_BaseModelsPanelController):
             self._browse_callback()
 
     def refresh(self) -> None:
+        old_items = [self._local_models.topLevelItem(i) for i in range(self._local_models.topLevelItemCount())]
+        old_widgets = [row.widget for row in self._rows.values()]
+        for row in self._rows.values():
+            row.dispose()
         self._local_models.clear()
+        self._rows.clear()
+        delete_removed_widgets(self._local_models, old_widgets)
+        del old_items
         for pending in sorted(
             self._install_coordinator.pending_installs(), key=lambda item: item.label.casefold()
         ):
-            item = QtWidgets.QTreeWidgetItem(
-                [
-                    f"{pending.label} (installing...)",
-                    ", ".join(pending.modality_labels) or "--",
-                    "",
-                    "",
-                ]
-            )
-            item.setData(0, _MODEL_ID_ROLE, pending.id)
-            item.setData(0, _MODEL_KIND_ROLE, "installing")
-            self._set_row_tooltip(item, "Installing from the EIDORA Model Zoo.")
-            self._local_models.addTopLevelItem(item)
-            progress = QtWidgets.QProgressBar(self._local_models)
-            progress.setRange(0, 100)
-            progress.setValue(max(0, min(100, int(pending.progress))))
-            progress.setTextVisible(True)
-            progress.setFormat("aborting..." if pending.abort_requested else "%p%")
-            self._local_models.setItemWidget(item, 2, progress)
-            actions = self._pending_actions_widget(pending)
-            self._local_models.setItemWidget(item, 3, actions)
-            item.setSizeHint(
-                0,
-                QtCore.QSize(
-                    0,
-                    max(PANEL_ITEM_ROW_HEIGHT, item.sizeHint(0).height(), actions.sizeHint().height() + 4),
-                ),
-            )
+            row = ModelRowController(self._local_models, pending.id, "installing")
+            self._rows[pending.id] = row
+            row.set_summary(pending.label, ", ".join(pending.modality_labels) or "—",
+                            "Installing from the EIDORA Model Zoo.")
+            row.set_installing(pending)
+            row.cancel.clicked.connect(lambda _checked=False, key=pending.id: self._on_abort_pending_install(key))
         for installed in self._catalog().list_installed_models():
             if installed.descriptor.id in DEVELOPMENT_PLACEHOLDER_MODEL_IDS:
                 continue
-            item = QtWidgets.QTreeWidgetItem(
-                [
-                    installed.descriptor.label,
-                    ", ".join(content_type.value for content_type in installed.descriptor.compatible_content_types) or "--",
-                    _human_size(installed.size_bytes) if installed.size_bytes is not None else "--",
-                    "",
-                ]
-            )
-            item.setData(0, _MODEL_ID_ROLE, installed.descriptor.id)
-            item.setData(0, _MODEL_KIND_ROLE, "installed")
-            self._set_row_tooltip(item, self._installed_tooltip(installed))
-            self._local_models.addTopLevelItem(item)
-            actions = self._local_actions_widget(installed)
-            self._local_models.setItemWidget(item, 3, actions)
-            item.setSizeHint(
-                0,
-                QtCore.QSize(
-                    0,
-                    max(PANEL_ITEM_ROW_HEIGHT, item.sizeHint(0).height(), actions.sizeHint().height() + 4),
-                ),
-            )
-        self._fit_actions_column(self._local_models)
+            row = ModelRowController(self._local_models, installed.descriptor.id, "installed")
+            self._rows[installed.descriptor.id] = row
+            modalities = ", ".join(value.value for value in installed.descriptor.compatible_content_types) or "—"
+            size = _human_size(installed.size_bytes) if installed.size_bytes is not None else "Size unavailable"
+            row.set_summary(installed.descriptor.label, f"{modalities} · {size}", self._installed_tooltip(installed))
+            row.set_installing(None)
+            executable = installed.descriptor.package_status == "ready"
+            row.run.setEnabled(executable)
+            if not executable:
+                row.status.setText("Requires repackaging")
+                row.status.show()
+                row.run.setToolTip("This legacy model package must be repackaged with the EIDORA schema v3 contract.")
+            row.run.clicked.connect(lambda _checked=False, model=installed: self._on_run_installed_model(model))
+            row.options.clicked.connect(lambda _checked=False, model=installed, button=row.options:
+                                        self._open_local_more_menu(model, button))
 
     def update_pending_install(self, install_id: str) -> None:
         pending = self._install_coordinator.pending(install_id)
-        if pending is None:
+        row = self._rows.get(install_id)
+        if pending is None or row is None:
             self.refresh()
             return
-        for index in range(self._local_models.topLevelItemCount()):
-            item = self._local_models.topLevelItem(index)
-            if item is None or item.data(0, _MODEL_ID_ROLE) != install_id:
-                continue
-            item.setText(0, f"{pending.label} (installing...)")
-            progress = self._local_models.itemWidget(item, 2)
-            if isinstance(progress, QtWidgets.QProgressBar):
-                progress.setValue(max(0, min(100, int(pending.progress))))
-                progress.setFormat("aborting..." if pending.abort_requested else "%p%")
-            action_panel = self._local_models.itemWidget(item, 3)
-            if action_panel is not None:
-                for button in action_panel.findChildren(QtWidgets.QPushButton):
-                    if button.text() == "abort":
-                        button.setEnabled(not pending.abort_requested)
-            return
-        self.refresh()
-
-    def _pending_actions_widget(self, pending: PendingModelInstall) -> QtWidgets.QWidget:
-        panel = QtWidgets.QWidget(self._widget)
-        layout = QtWidgets.QHBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
-        abort_button = QtWidgets.QPushButton("abort", panel)
-        abort_button.setEnabled(not pending.abort_requested)
-        abort_button.clicked.connect(lambda: self._on_abort_pending_install(pending.id))
-        layout.addWidget(abort_button)
-        layout.addStretch(1)
-        return panel
+        row.set_installing(pending)
 
     def _on_abort_pending_install(self, install_id: str) -> None:
         pending = self._install_coordinator.pending(install_id)
@@ -319,33 +243,6 @@ class LocalModelsPanelController(_BaseModelsPanelController):
         if self._runs_changed_callback is not None:
             self._runs_changed_callback(updated.id)
         self._show_status(f"Added {updated.label} with {installed.descriptor.label}")
-
-    def _local_actions_widget(self, installed: InstalledModel) -> QtWidgets.QWidget:
-        panel = QtWidgets.QWidget(self._widget)
-        layout = QtWidgets.QHBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-
-        executable = installed.descriptor.package_status == "ready"
-        run_button = QtWidgets.QPushButton(panel)
-        run_button.setText("Run..." if executable else "requires repackaging")
-        run_button.setAutoDefault(False)
-        run_button.setEnabled(executable)
-        if not executable:
-            run_button.setToolTip("This legacy model package must be repackaged with the EIDORA schema v3 contract.")
-        run_button.clicked.connect(lambda: self._on_run_installed_model(installed))
-        layout.addWidget(run_button)
-
-        more_button = QtWidgets.QPushButton(panel)
-        more_button.setText("...")
-        more_button.setFixedWidth(22)
-        more_button.setAutoDefault(False)
-        more_button.setToolTip("Model options")
-        more_button.setAccessibleName("Model options")
-        more_button.clicked.connect(lambda: self._open_local_more_menu(installed, more_button))
-        layout.addWidget(more_button)
-        layout.addStretch(1)
-        return panel
 
     def _open_local_more_menu(self, installed: InstalledModel, anchor: QtWidgets.QWidget) -> None:
         menu = QtWidgets.QMenu(anchor)

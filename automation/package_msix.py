@@ -126,7 +126,7 @@ def generate_assets(destination: Path, source: Path | None = None) -> None:
     for size in (16, 24, 32, 48, 256):
         sizes[f"Square44x44Logo.targetsize-{size}_altform-unplated.png"] = size
     for name, size in sizes.items():
-        renderer = QtSvg.QSvgRenderer(str(small if size <= 24 else normal))
+        renderer = QtSvg.QSvgRenderer(str(small if size <= 64 else normal))
         if not renderer.isValid():
             raise ValueError("Invalid approved SVG icon")
         bitmap = QtGui.QImage(size, size, QtGui.QImage.Format.Format_ARGB32_Premultiplied)

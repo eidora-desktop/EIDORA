@@ -55,9 +55,6 @@ TEXT_EXTENSIONS = {
     ".html",
     ".htm",
 }
-JSONL_EXTENSIONS = {".jsonl", ".ndjson"}
-TEXT_KEYS = ("text", "content", "body", "prompt")
-IDENTIFIER_KEYS = ("id", "identifier", "filename", "file", "name")
 
 
 @dataclass(frozen=True)
@@ -388,8 +385,6 @@ def scan_media_source(source: MediaSource, scanned_at: str) -> MediaScanResult:
         return MediaScanResult(assets=[], discovered_count=0, error_message="Source directory does not exist.")
 
     try:
-        if source.content_type == MediaContentType.TEXT and path.is_file() and path.suffix.lower() in JSONL_EXTENSIONS:
-            return _scan_jsonl_text_file(source, path, scanned_at)
         return _scan_files(source, path, scanned_at)
     except OSError as exc:
         return MediaScanResult(assets=[], discovered_count=0, error_message=str(exc))
@@ -446,51 +441,6 @@ def _scan_files(source: MediaSource, path: Path, scanned_at: str) -> MediaScanRe
     assets = list(iter_media_source_assets(source, scanned_at))
     scan_cursor = assets[-1].relative_path if assets else ""
     return MediaScanResult(assets=assets, discovered_count=len(assets), scan_cursor=scan_cursor)
-
-
-def _scan_jsonl_text_file(source: MediaSource, path: Path, scanned_at: str) -> MediaScanResult:
-    assets: list[MediaAsset] = []
-    discovered = 0
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except UnicodeDecodeError:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-
-    stat = path.stat()
-    for line_number, line in enumerate(lines, start=1):
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(payload, dict):
-            continue
-        text_value = _first_payload_value(payload, TEXT_KEYS)
-        identifier = _first_payload_value(payload, IDENTIFIER_KEYS)
-        if not text_value or not identifier:
-            continue
-        discovered += 1
-        source_key = identifier
-        assets.append(
-            MediaAsset(
-                id=media_asset_id(source.id, source_key),
-                source_id=source.id,
-                source_key=source_key,
-                absolute_path=path.resolve(),
-                relative_path=f"{path.name}#{line_number}",
-                display_name=source_key,
-                content_type=MediaContentType.TEXT,
-                fingerprint=_fingerprint(str(path.resolve()), int(stat.st_size), line_number),
-                size_bytes=int(stat.st_size),
-                mtime_ns=_mtime_ns(stat),
-                status=MediaAssetStatus.READY,
-                created_at=scanned_at,
-                updated_at=scanned_at,
-            )
-        )
-    return MediaScanResult(assets=assets, discovered_count=discovered, scan_cursor=str(len(lines)))
 
 
 def _media_asset_for_file(
@@ -596,17 +546,6 @@ def _content_type_for_archive(path: Path) -> MediaContentType:
     if audio_count > 0 and image_count == 0 and text_count == 0 and video_count == 0:
         return MediaContentType.AUDIO
     return MediaContentType.IMAGE
-
-
-def _first_payload_value(payload: dict[object, object], keys: tuple[str, ...]) -> str:
-    for key in keys:
-        value = payload.get(key)
-        if value is None:
-            continue
-        text = str(value).strip()
-        if text:
-            return text
-    return ""
 
 
 def _safe_resolve(path: Path) -> Path:

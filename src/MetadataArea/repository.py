@@ -239,13 +239,12 @@ class MetadataRepository:
     def is_initialized(self) -> bool:
         if not self._database_path.exists():
             return False
-        try:
-            with closing(self._connect()) as connection, connection:
-                row = connection.execute(
-                    f"SELECT name FROM sqlite_master WHERE type = 'table' AND name = '{self.sql_table}'"
-                ).fetchone()
-        except sqlite3.Error:
-            return False
+        # Access failures must reach the caller, not masquerade as missing data.
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (self.sql_table,),
+            ).fetchone()
         return row is not None
 
     @staticmethod
@@ -254,12 +253,10 @@ class MetadataRepository:
         from shared.persistence.sqlite import connect_read_only
         if not database_path.is_file():
             return False
-        try:
-            with closing(connect_read_only(database_path)) as connection:
-                return connection.execute(
-                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'").fetchone() is not None
-        except sqlite3.Error:
-            return False
+        with closing(connect_read_only(database_path)) as connection:
+            connection.execute("PRAGMA busy_timeout = 0")
+            return connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'").fetchone() is not None
 
     def list_columns(self) -> list[MetadataColumn]:
         with closing(self._connect()) as connection, connection:

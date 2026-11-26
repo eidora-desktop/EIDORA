@@ -1,6 +1,7 @@
 """Small sklearn adapters: no storage or UI dependencies."""
 from __future__ import annotations
 from EmbeddingsArea.clustering.base import ClusteringOutput, descriptor_for, normalize_parameters
+from EmbeddingsArea.clustering.cpu import clustering_cpu_budget
 
 
 class SklearnClusteringMethod:
@@ -44,7 +45,7 @@ class SklearnClusteringMethod:
             allowed["algorithm"] = ("auto", "brute") if values["metric"] == "cosine" else ("auto", "brute", "kd_tree", "ball_tree")
         return allowed
 
-    def estimator_parameters(self, p):
+    def estimator_parameters(self, p, *, cpu_budget=1):
         p = dict(p)
         if p.get("metric") == "cosine" and p.get("algorithm") == "auto":
             p["algorithm"] = "brute"
@@ -62,28 +63,37 @@ class SklearnClusteringMethod:
             power = p.pop("p")
             if p["metric"] == "minkowski":
                 p["metric_params"] = {"p": power}
-            p["n_jobs"] = 1
+            p["n_jobs"] = cpu_budget
         if self.id == "dbscan":
             if p["metric"] != "minkowski":
                 p.pop("p")
-            p["n_jobs"] = 1
+            p["n_jobs"] = cpu_budget
         if self.id == "minibatch_kmeans":
             p["compute_labels"] = True
         return p
 
-    def fit(self, embeddings, parameters):
+    def fit(self, embeddings, parameters, *, cpu_budget=None):
         import numpy as np
+        from joblib import parallel_config
         from threadpoolctl import threadpool_limits
         values = np.asarray(embeddings, dtype=np.float32)
         if values.ndim != 2:
             raise ValueError("Embeddings must be a two-dimensional matrix.")
         if len(values) < 2 or not values.shape[1]:
             raise ValueError("At least two embeddings are required for clustering.")
-        if not np.isfinite(values).all():
-            raise ValueError("Embeddings contain non-finite values.")
-        p = self.estimator_parameters(self.validate(parameters, len(values)))
+        for start in range(0, len(values), 4096):
+            if not np.isfinite(values[start:start + 4096]).all():
+                raise ValueError("Embeddings contain non-finite values.")
+        cpu_budget = clustering_cpu_budget() if cpu_budget is None else cpu_budget
+        p = self.estimator_parameters(self.validate(parameters, len(values)), cpu_budget=cpu_budget)
         estimator = self.create_estimator(p)
-        with threadpool_limits(limits=1):
+        # Neighbor workers and K-Means must not each start a BLAS pool.
+        # DBSCAN's native radius search uses OpenMP instead of joblib workers.
+        neighbors = self.id in {"dbscan", "hdbscan"}
+        kmeans = self.id in {"kmeans", "minibatch_kmeans"}
+        limits = {"openmp": cpu_budget if kmeans or self.id == "dbscan" else 1,
+                  "blas": cpu_budget if not (neighbors or kmeans) else 1}
+        with parallel_config(backend="threading"), threadpool_limits(limits=limits):
             labels = estimator.fit_predict(values)
             strengths = None
             if self.id == "gaussian_mixture":
@@ -92,7 +102,7 @@ class SklearnClusteringMethod:
                                             for i in range(0, len(values), 1024)])
             elif self.id == "hdbscan":
                 strengths = estimator.probabilities_
-        diagnostics = {"resolved_parameters": p}
+        diagnostics = {"resolved_parameters": p, "cpu_budget": cpu_budget}
         for key in ("n_iter_", "converged_", "inertia_", "lower_bound_"):
             if hasattr(estimator, key):
                 value = getattr(estimator, key)

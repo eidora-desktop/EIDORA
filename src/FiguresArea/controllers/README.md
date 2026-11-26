@@ -1,6 +1,8 @@
 # Figure controllers
 
-`main_controller.py` manages tabs and project restoration. `plot_tab_controller.py`
+`main_controller.py` manages tabs and project restoration.
+`saved_tabs_controller.py` owns lightweight placeholders, selected-document preparation,
+retry, and cancellation; unopened records remain available to collection autosave. `plot_tab_controller.py`
 binds composition/editing; `snapshot_animation_tab_controller.py` binds the timeline.
 Preview adapters, latest-only preview coordination, transform coordination, settings and export dialogs are separate.
 Large plots publish plain image/layout results from `work_service.py`; controllers

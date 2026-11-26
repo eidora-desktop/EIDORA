@@ -39,13 +39,16 @@ class TriMAPDiscoveryMethod(DiscoveryMethodBase):
 
         import numba
         import trimap
+        from DiscoveryArea.method_catalog import DiscoveryMethodCatalog
+
+        parameters = DiscoveryMethodCatalog().normalize_parameters(self.method_id, dict(parameters))
 
         settings = _settings_from_parameters(parameters, data.shape[0])
-        random_state = int(parameters.get("random_state", 42))
-        distance = str(parameters.get("distance", "cosine"))
+        random_state = parameters["random_state"]
+        distance = str(parameters["distance"])
         projection_data = _neighbor_input(
             data,
-            apply_pca=bool(parameters.get("apply_pca", True)),
+            apply_pca=bool(parameters["apply_pca"]),
             pca_dimensions=settings.pca_dimensions,
         )
         neighbor_thread_count = numba.get_num_threads()
@@ -61,22 +64,23 @@ class TriMAPDiscoveryMethod(DiscoveryMethodBase):
         if progress_callback is not None:
             progress_callback(55)
 
-        np.random.seed(random_state)
+        if random_state is not None:
+            np.random.seed(random_state)
         reducer = trimap.TRIMAP(
             n_dims=2,
             n_inliers=settings.n_inliers,
             n_outliers=settings.n_outliers,
             n_random=settings.n_random,
             distance=distance,
-            weight_temp=float(parameters.get("weight_temp", 0.5)),
-            lr=float(parameters.get("learning_rate", 0.1)),
+            weight_temp=float(parameters["weight_temp"]),
+            lr=float(parameters["learning_rate"]),
             n_iters=settings.iterations,
             apply_pca=False,
-            opt_method=str(parameters.get("optimizer", "dbd")),
+            opt_method=str(parameters["optimizer"]),
             knn_tuple=knn_tuple,
             verbose=False,
         )
-        coordinates = reducer.fit_transform(projection_data)
+        coordinates = reducer.fit_transform(projection_data, init=parameters["initialization"])
 
         result = np.asarray(coordinates, dtype=np.float32)
         _validate_coordinates(result, expected_rows=data.shape[0])
@@ -88,21 +92,21 @@ class TriMAPDiscoveryMethod(DiscoveryMethodBase):
             "n_outliers": settings.n_outliers,
             "n_random": settings.n_random,
             "distance": distance,
-            "weight_temp": float(parameters.get("weight_temp", 0.5)),
-            "learning_rate": float(parameters.get("learning_rate", 0.1)),
+            "weight_temp": float(parameters["weight_temp"]),
+            "learning_rate": float(parameters["learning_rate"]),
             "iterations": settings.iterations,
-            "apply_pca": bool(parameters.get("apply_pca", True)),
+            "apply_pca": bool(parameters["apply_pca"]),
             "pca_dimensions": settings.pca_dimensions,
-            "optimizer": str(parameters.get("optimizer", "dbd")),
+            "optimizer": str(parameters["optimizer"]),
             "random_state": random_state,
             "output_dimensions": 2,
             "neighbor_trees": settings.neighbor_trees,
             "neighbor_iterations": settings.neighbor_iterations or "automatic",
             "neighbor_workers": neighbor_thread_count,
-            "pca_random_state": 0 if bool(parameters.get("apply_pca", True)) else None,
+            "pca_random_state": 0 if bool(parameters["apply_pca"]) else None,
         })
         derived_steps = ()
-        if bool(parameters.get("apply_pca", True)) and data.shape[1] > settings.pca_dimensions:
+        if bool(parameters["apply_pca"]) and data.shape[1] > settings.pca_dimensions:
             components = min(settings.pca_dimensions, data.shape[0] - 1, data.shape[1] - 1)
             derived_steps = (f"PCA pre-reduction to {components} dimensions",)
         return ProjectionExecutionResult(
@@ -110,7 +114,7 @@ class TriMAPDiscoveryMethod(DiscoveryMethodBase):
             requested_parameters=dict(parameters),
             effective_parameters=effective,
             derived_steps=derived_steps,
-            repeatability="repeatable_with_recorded_seed",
+            repeatability=("repeatable_with_recorded_seed" if random_state is not None else "stochastic_execution"),
             citations=((dict(PCA_CITATION),) if derived_steps else ()),
         )
 
@@ -120,12 +124,12 @@ def _settings_from_parameters(
     row_count: int,
 ) -> _TriMAPSettings:
     selected = _TriMAPSettings(
-        n_inliers=int(parameters.get("n_inliers", 6)),
-        n_outliers=int(parameters.get("n_outliers", 1)),
-        n_random=int(parameters.get("n_random", 1)),
-        iterations=int(parameters.get("iterations", 200)),
-        pca_dimensions=int(parameters.get("pca_dimensions", 50)),
-        neighbor_trees=int(parameters.get("neighbor_trees", 10)),
+        n_inliers=int(parameters["n_inliers"]),
+        n_outliers=int(parameters["n_outliers"]),
+        n_random=int(parameters["n_random"]),
+        iterations=int(parameters["iterations"]),
+        pca_dimensions=int(parameters["pca_dimensions"]),
+        neighbor_trees=int(parameters["neighbor_trees"]),
         neighbor_iterations=None,
     )
     n_inliers = min(selected.n_inliers, row_count - 2)
@@ -146,7 +150,7 @@ def _pynndescent_knn(
     *,
     n_neighbors: int,
     distance: str,
-    random_state: int,
+    random_state: int | None,
     tree_count: int | None,
     iteration_count: int | None,
     thread_count: int,

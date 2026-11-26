@@ -49,6 +49,26 @@ if TYPE_CHECKING:
     from project.domain import Project
 
 
+def load_vector_info(session, run, dataset, model_label):
+    """Read one card's details using its captured session and published snapshot.
+
+    Suitable for a plain-data worker: no whole-library counts, dataset catalog
+    rescans, model discovery, or Qt objects are needed for this report.
+    """
+    from EmbeddingsArea.reporting import vector_info_rows
+    from EmbeddingsArea.runtime.readers import load_embedding_summary
+
+    configuration = session.service.get_embedding_run_configuration(run.id)
+    source_labels = []
+    for source_id in run.selected_source_ids:
+        try:
+            source_labels.append(session.media_library.require_source(source_id).label)
+        except ValueError:
+            source_labels.append(source_id)
+    summary = load_embedding_summary(Path(dataset.artifact_path)) if dataset and dataset.artifact_path else {}
+    return vector_info_rows(run, dataset, summary, source_labels, model_label, configuration.parameter_values)
+
+
 class EmbeddingCatalogService:
     def __init__(self, model_catalog: ModelCatalog) -> None:
         self._model_catalog = model_catalog
@@ -179,7 +199,7 @@ class EmbeddingRunService:
         for run in self._runs_repository.list_runs():
             if not _timestamp_precedes(run.created_at, app_started_at):
                 continue
-            if run.state == EmbeddingRunState.COMPLETED:
+            if self._has_saved_artifact(run):
                 continue
             checkpoint = None
             if run.state not in {EmbeddingRunState.DRAFT, EmbeddingRunState.CANCELLED}:
@@ -219,6 +239,20 @@ class EmbeddingRunService:
             raise ValueError(f"Unknown embedding run: {run_id}")
         return run
 
+    def _has_saved_artifact(self, run: EmbeddingRun) -> bool:
+        # A legacy status may be wrong. Never discard evidence of a saved result.
+        return bool(
+            run.state == EmbeddingRunState.COMPLETED
+            or run.artifact_path
+            or (self._project.paths.embeddings / f"{run.id}.npz").exists()
+        )
+
+    def require_unpublished_run(self, run_id: str) -> EmbeddingRun:
+        run = self.require_run(run_id)
+        if self._has_saved_artifact(run):
+            raise ValueError("Saved vector data cannot be changed into a model job. Create a new run instead.")
+        return run
+
     def count_run_inputs(self, run_id: str) -> int:
         self.require_run(run_id)
         return self._runs_repository.count_run_inputs(run_id)
@@ -243,7 +277,7 @@ class EmbeddingRunService:
         input_bindings: dict[str, str] | None = None,
         parameter_values: dict[tuple[str, str], str] | None = None,
     ) -> EmbeddingRun:
-        run = self.require_run(run_id)
+        run = self.require_unpublished_run(run_id)
         active_model_id = run.selected_model_id if model_id is None else model_id.strip()
         active_source_ids = run.selected_source_ids if source_ids is None else tuple(
             source_id.strip() for source_id in source_ids if source_id.strip()
@@ -345,7 +379,7 @@ class EmbeddingRunService:
                 status_callback(message)
 
         checkpoint("Preparing embedding inputs: loading sources…")
-        run = self.require_run(run_id)
+        run = self.require_unpublished_run(run_id)
         if not run.selected_model_id:
             raise ValueError("Choose a model before preparing the embedding run.")
         if not run.selected_source_ids:
@@ -407,6 +441,7 @@ class EmbeddingRunService:
             source_key=asset.source_key, absolute_path=asset.absolute_path, content_type=asset.content_type,
             metadata_row_id=int(asset.source_key) if sources[asset.source_id].source_kind == MediaSourceKind.METADATA_COLUMN else identity,
             size_bytes=asset.size_bytes, mtime_ns=asset.mtime_ns, link_revision=source_revisions[asset.source_id],
+            text_record_key=asset.text_record_key,
         ) for ordinal, (asset, identity) in enumerate(selected)]
         model = self._catalog.get_model(refreshed.selected_model_id)
         if model.runtime_contract.get("components") and pairing_field:
@@ -472,7 +507,7 @@ class EmbeddingRunService:
     ) -> EmbeddingRun:
         from EmbeddingsArea.runtime.contracts import RunCancelled, RunPaused
 
-        run = self.require_run(run_id)
+        run = self.require_unpublished_run(run_id)
         if run.state == EmbeddingRunState.DRAFT or not run.prepared_signature:
             try:
                 run = self.prepare_run(run.id, control_callback=control_callback,
@@ -725,7 +760,7 @@ class EmbeddingRunService:
 
     def cancel_run(self, run_id: str) -> EmbeddingRun:
         run = self.require_run(run_id)
-        if run.state in {EmbeddingRunState.COMPLETED, EmbeddingRunState.FAILED, EmbeddingRunState.CANCELLED}:
+        if self._has_saved_artifact(run) or run.state in {EmbeddingRunState.FAILED, EmbeddingRunState.CANCELLED}:
             return run
         if run.state not in {
             EmbeddingRunState.QUEUED,
@@ -739,7 +774,7 @@ class EmbeddingRunService:
         return cancelled
 
     def reset_run(self, run_id: str) -> EmbeddingRun:
-        run = self.require_run(run_id)
+        run = self.require_unpublished_run(run_id)
         if run.state in {EmbeddingRunState.RUNNING, EmbeddingRunState.QUEUED, EmbeddingRunState.PAUSED}:
             raise ValueError(f"Cannot reset embedding run in {run.state.value} state.")
         self._clear_run_runtime_artifacts(run.id, run.artifact_path)
@@ -837,11 +872,13 @@ class EmbeddingRunService:
                     identifier=item.source_key,
                     path=item.absolute_path,
                     content_type=item.content_type.value,
+                    text_record_key=item.text_record_key,
                     components={
                         part.content_type.value: RuntimeInput(
                             ordinal=item.ordinal, media_item_id=part.media_item_id,
                             identifier=part.source_key, path=part.absolute_path,
                             content_type=part.content_type.value,
+                            text_record_key=part.text_record_key,
                         ) for part in item.components
                     },
                 )
@@ -936,6 +973,7 @@ class EmbeddingRunService:
                     "source_id": item.source_id,
                     "source_key": item.source_key,
                     "content_type": item.content_type.value,
+                    "text_record_key": item.text_record_key,
                     "metadata_row_id": item.metadata_row_id,
                     "size_bytes": item.size_bytes,
                     "mtime_ns": item.mtime_ns,

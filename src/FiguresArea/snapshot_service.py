@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from collections.abc import Mapping
 from contextlib import closing
 import json
@@ -13,6 +14,9 @@ import zipfile
 import numpy as np
 
 from FiguresArea.domain import PlotCell
+from FiguresArea.data_repository import FigureDataRepository, FigureDataCache
+from DiscoveryArea.snapshot_settings import snapshot_component_states
+from DiscoveryArea.slicing import slicer_selection
 from DiscoveryArea.thumbnails.resolver import ThumbnailResolver
 
 
@@ -28,6 +32,8 @@ class FigureSnapshotService:
 
     def needs_background(self, path: Path) -> bool:
         payload = self.snapshot_payload(path)
+        if "figure_snapshot_copy" in payload:
+            return True
         refs = [payload.get("discovery_ref"), payload.get("arrangement_ref")]
         refs.append(self._safe_dict(payload.get("projection")).get("coordinates_ref"))
         if self._project_root:
@@ -51,7 +57,13 @@ class FigureSnapshotService:
         """Resolve one snapshot into renderer-ready data for preview or export."""
 
         payload = self.snapshot_payload(snapshot_path)
-        return self._prepare_payload(snapshot_path, payload, cancelled=cancelled)
+        if isinstance(payload.get("figure_snapshot_copy"), dict):
+            return self._load_snapshot_copy(snapshot_path, payload["figure_snapshot_copy"])
+        prepared = self._prepare_payload(snapshot_path, payload, cancelled=cancelled)
+        self._prepare_style_metadata(prepared, cancelled=cancelled)
+        self._resolve_slicer_membership(prepared, cancelled=cancelled)
+        self.capture_snapshot_base(prepared, payload)
+        return prepared
 
     def _prepare_payload(self, snapshot_path, payload, *, cancelled, load_metadata=True):
         coordinates, metadata_ids = self.coordinates_for_snapshot_payload(payload, cancelled=cancelled)
@@ -113,16 +125,255 @@ class FigureSnapshotService:
     def prepare_with_overrides(self, path, overrides, *, cancelled=lambda: False):
         from FiguresArea.transform_service import FigureTransformService
         payload = self.snapshot_payload(path)
-        prepared = self._prepare_payload(path, payload, cancelled=cancelled, load_metadata=False)
+        frozen = isinstance(payload.get("figure_snapshot_copy"), dict)
+        transformed = "transform" in (overrides or {}).get("state", {})
         source_projection = None
-        if not payload.get('arrangement_ref') and not self._safe_dict(payload.get('projection')).get('coordinates_ref'):
-            source_projection = (self.resolved_path_text(payload.get('discovery_ref')),
-                                 prepared.coordinates, prepared.metadata_ids)
+        if frozen:
+            prepared = self._load_snapshot_copy(path, payload["figure_snapshot_copy"])
+        elif not transformed:
+            prepared = self.prepare(path, cancelled=cancelled)
+        else:
+            # Legacy animations prepare only their final metadata population.
+            prepared = self._prepare_payload(path, payload, cancelled=cancelled, load_metadata=False)
+            if not payload.get('arrangement_ref') and not self._safe_dict(payload.get('projection')).get('coordinates_ref'):
+                source_projection = (self.resolved_path_text(payload.get('discovery_ref')),
+                                     prepared.coordinates, prepared.metadata_ids)
         if not hasattr(self, '_override_transforms'):
             self._override_transforms = FigureTransformService(self, cache=self._transform_cache)
+        before_ids = prepared.metadata_ids
         self._override_transforms.apply_overrides(prepared, overrides, cancelled=cancelled,
                                                 load_metadata=False, source_projection=source_projection)
-        prepared.metadata = self.metadata_for_ids(prepared.metadata_ids, cancelled=cancelled)
+        if (transformed and not frozen) or prepared.metadata_ids is not before_ids:
+            prepared.metadata = self.metadata_for_ids(prepared.metadata_ids, cancelled=cancelled)
+        metadata_override = prepared.render_state.get("preset_metadata")
+        frozen_metadata = prepared.metadata if frozen else None
+        if isinstance(metadata_override, dict):
+            saved = PlotCell(0, 0, data_ref=metadata_override.get("data_ref"),
+                             metadata={int(key): row for key, row in metadata_override.get("metadata", {}).items()})
+            FigureDataCache().hydrate(saved)
+            frozen_metadata = saved.metadata
+        self._prepare_style_metadata(prepared, cancelled=cancelled, frozen_metadata=frozen_metadata)
+        selection = prepared.render_state.get("slicer_selection", {})
+        if "matched_metadata_ids" not in selection:
+            self._resolve_slicer_membership(prepared, cancelled=cancelled)
+        return prepared
+
+    def archive_snapshot(self, path: Path, directory: Path) -> Path:
+        """Import an immutable animation source on a worker, including frozen metadata."""
+        from FiguresArea.repository import FigureTabsRepository
+        prepared = self.prepare(path)
+        repository = FigureTabsRepository(self._project_root / "state" if self._project_root else directory.parent)
+        return repository.save_snapshot_copy(path, prepared.render_state["snapshot_base"], directory,
+                                             portable=self._project_root is not None)
+
+    def _load_snapshot_copy(self, path, base):
+        from FiguresArea.repository import FigureTabsRepository
+        from project.portable_paths import ProjectPaths
+        base = copy.deepcopy(base)
+        if self._project_root is not None:
+            FigureTabsRepository.render_state_paths({"snapshot_base": base}, ProjectPaths(self._project_root).decode)
+        prepared = PlotCell(0, 0, snapshot_path=str(path), snapshot_label=base.get("name"),
+                            coordinates=base.get("coordinates", []), metadata_ids=base.get("metadata_ids", []),
+                            metadata={int(key): row for key, row in base.get("metadata", {}).items()},
+                            data_ref=base.get("data_ref"), point_count=base.get("point_count", 0),
+                            render_state=copy.deepcopy(base["state"]))
+        FigureDataCache().hydrate(prepared)
+        prepared.render_state["snapshot_base"] = base
+        prepared.render_state["component_sources"] = {}
+        return prepared
+
+    def _resolve_slicer_membership(self, prepared: PlotCell, *, cancelled) -> None:
+        from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
+        from DiscoveryArea.multiple_values import membership_mask
+        from DiscoveryArea.transforms import TransformCancelled
+        from project.domain import Project
+
+        if cancelled():
+            raise TransformCancelled
+        selection = prepared.render_state.get("slicer_selection")
+        recipe = self._safe_dict(prepared.render_state.get("slicer"))
+        column = str((selection if isinstance(selection, dict) else recipe).get("column") or "")
+        if not column or (selection is None and not recipe.get("enabled", bool(column))):
+            prepared.render_state["slicer_selection"] = {}
+            return
+        access = None
+        if self._project_root is not None:
+            project = self._project or Project(name=self._project_root.name, root=self._project_root, schema_version=1)
+            access = DiscoveryMetadataAccess(project)
+            column = access.canonical_column_name(column)
+            if column not in access.column_names():
+                raise ValueError(f"Slicer column is unavailable: {column}")
+        if not isinstance(selection, dict):
+            values = access.distinct_values(column) if access else [row.get(column, "") for row in prepared.metadata.values()]
+            selection = slicer_selection(dict(recipe, column=column), values)
+        selection = copy.deepcopy(selection)
+        selection["column"] = column
+        ids = np.asarray(prepared.metadata_ids, dtype=np.int64)
+        if access:
+            values, _ = access.values_for_ids(ids, columns={column}, numeric_columns=set())
+            multiple = access.multiple_values_for_ids(ids, columns={column})
+            scalars = ids.astype(str) if column == "id" else values[column]
+            mask = membership_mask(scalars, selection.get("values", []), multiple.get(column))
+        else:
+            scalars = ids.astype(str) if column == "id" else np.asarray([prepared.metadata.get(int(key), {}).get(column, "") for key in ids])
+            mask = membership_mask(scalars, selection.get("values", []))
+        if cancelled():
+            raise TransformCancelled
+        selection["matched_metadata_ids"] = ids[mask].tolist()
+        prepared.render_state["slicer_selection"] = selection
+
+    def _prepare_style_metadata(self, cell: PlotCell, *, cancelled, kind=None, frozen_metadata=None) -> None:
+        """Freeze resolved Discovery fields used by a style, including group fields."""
+        from DiscoveryArea.canvas.style_preparation import color_style_metadata_columns, custom_color_labels
+        from DiscoveryArea.filters import filters_from_state_payload, required_filter_columns
+        from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
+        from DiscoveryArea.transforms import TransformCancelled
+        from FiguresArea.compact_metadata import CompactMetadata, MetadataColumnBuilder, encode_metadata
+        from project.domain import Project
+
+        appearance = self._safe_dict(cell.render_state.get("appearance"))
+        styles = [appearance.setdefault(key, {}) for key in ("point_colors", "border")] if kind != "filter" else []
+        columns, _ = required_filter_columns(filters_from_state_payload(self._safe_dict(cell.render_state.get("filters")))) if kind != "appearance" else (set(), set())
+        for style in styles:
+            columns.update(color_style_metadata_columns(style)[0])
+        if not columns:
+            return
+        FigureDataCache().hydrate(cell)
+        existing_names = (set(cell.metadata.names) if isinstance(cell.metadata, CompactMetadata)
+                          else {key for row in cell.metadata.values() for key in row})
+        if columns <= existing_names and not any(style.get("custom") for style in styles) and frozen_metadata is None:
+            return
+        ids = np.unique(np.asarray(cell.metadata_ids, dtype=np.int64))
+        access = None
+        if frozen_metadata is None and self._project_root is not None and (self._project_root / "metadata" / "metadata.db").exists():
+            project = self._project or Project(name=self._project_root.name, root=self._project_root, schema_version=1)
+            access = DiscoveryMetadataAccess(project)
+        resolved = {}
+        if access:
+            available = set(access.column_names())
+            requested = {column for column in columns if access.canonical_column_name(column) in available}
+            resolved, _ = access.values_for_ids(ids, columns=requested, numeric_columns=set())
+            if "id" in columns:
+                resolved["id"] = ids.astype(str)
+        source = frozen_metadata if frozen_metadata is not None else cell.metadata
+        for column in columns - resolved.keys():
+            resolved[column] = (source.map_values(column, ids, str) if isinstance(source, CompactMetadata)
+                                else np.asarray([str(source.get(int(key), {}).get(column, "")) for key in ids]))
+        for channel, style in zip(("point_colors", "border"), styles):
+            if style.get("custom") and style.get("column"):
+                style["resolved_column"] = f"__figure_{channel}__"
+                resolved[style["resolved_column"]] = custom_color_labels(len(ids), style, resolved)
+        cell.render_state["appearance"] = appearance
+        if cancelled():
+            raise TransformCancelled
+        # Retain unmodified columns in their encoded representation. Only new or
+        # replaced fields are encoded, without materializing one dict per item.
+        previous = encode_metadata(cell.metadata)
+        previous_ids = previous["metadata_row_ids"]
+        names = json.loads(previous["metadata_columns"].tobytes())
+        names = sorted(set(names) | resolved.keys())
+        arrays = {"metadata_row_ids": ids,
+                  "metadata_columns": np.frombuffer(json.dumps(names).encode("utf-8"), np.uint8)}
+        previous_names = json.loads(previous["metadata_columns"].tobytes())
+        positions = np.searchsorted(ids, previous_ids)
+        present = positions < len(ids)
+        if len(ids):
+            present &= ids[np.minimum(positions, len(ids) - 1)] == previous_ids
+        for index, name in enumerate(names):
+            if cancelled():
+                raise TransformCancelled
+            if name in resolved:
+                builder = MetadataColumnBuilder(len(ids))
+                builder.add_batch(np.arange(len(ids)), resolved[name])
+                codes, offsets, values = builder.finish(np.ones(len(ids), dtype=bool))
+            else:
+                old_index = previous_names.index(name)
+                codes = np.full(len(ids), -1, dtype=np.int32)
+                codes[positions[present]] = previous[f"meta_{old_index}_codes"][present]
+                offsets, values = previous[f"meta_{old_index}_offsets"], previous[f"meta_{old_index}_values"]
+            arrays.update({f"meta_{index}_codes": codes, f"meta_{index}_offsets": offsets,
+                           f"meta_{index}_values": values})
+        cell.metadata = CompactMetadata(None, ids, names, arrays)
+        cell.data_ref, cell.data_key, cell.data_sources = None, "", ()
+
+    def capture_snapshot_base(self, cell: PlotCell, payload: dict) -> None:
+        """Keep reset data owned by the figure, independent of the snapshot file."""
+        reference = (FigureDataRepository(self._project_root / "state" / "figure_data").store(cell)
+                     if self._project_root is not None else None)
+        base = {
+            "name": cell.snapshot_label,
+            "created_at": payload.get("created_at", ""),
+            "state": copy.deepcopy(cell.render_state),
+            "data_ref": reference,
+            "point_count": len(cell.coordinates),
+        }
+        if reference is None:
+            base.update(coordinates=np.asarray(cell.coordinates).tolist(),
+                        metadata_ids=np.asarray(cell.metadata_ids).tolist(),
+                        metadata={str(key): dict(value) for key, value in cell.metadata.items()})
+        cell.render_state["snapshot_base"] = base
+        cell.render_state["component_sources"] = {}
+        if reference:
+            cell.data_ref = reference
+
+    def prepare_component(self, cell: PlotCell, kind: str, value: str, *, cancelled=lambda: False) -> PlotCell:
+        """Apply a copied recipe, or restore the figure's captured snapshot component."""
+        prepared = replace(cell, render_state=copy.deepcopy(cell.render_state))
+        state = prepared.render_state
+        key = {"filter": "filters"}.get(kind, kind)
+        base = state.get("snapshot_base", {})
+        if value == "__snapshot__":
+            if not base:
+                raise ValueError("This older plot has no captured reset state. Drop its snapshot onto the plot again.")
+            baseline = base["state"]
+            state[key] = copy.deepcopy(baseline.get(key, {}))
+            if kind == "slicer":
+                state["slicer_selection"] = copy.deepcopy(baseline.get("slicer_selection", {}))
+            if kind in ("transform", "discovery"):
+                state["transform"] = copy.deepcopy(baseline.get("transform", {}))
+                state.setdefault("component_sources", {}).pop("discovery", None)
+                state["component_sources"].pop("transform", None)
+                prepared.coordinates = base.get("coordinates", [])
+                prepared.metadata_ids = base.get("metadata_ids", [])
+                prepared.metadata = {int(key): row for key, row in base.get("metadata", {}).items()}
+                prepared.data_ref = base.get("data_ref")
+                prepared.point_count = base.get("point_count", 0)
+                prepared.data_key, prepared.data_sources = "", ()
+                state["snapshot_projection"] = copy.deepcopy(baseline.get("snapshot_projection", {}))
+                state["preset_paths"]["discovery"] = baseline.get("preset_paths", {}).get("discovery")
+                state["preset_paths"]["transform"] = None
+                FigureDataCache().hydrate(prepared)
+                metadata_override = state.get("preset_metadata")
+                if isinstance(metadata_override, dict):
+                    saved = PlotCell(0, 0, data_ref=metadata_override.get("data_ref"),
+                                     metadata={int(key): row for key, row in metadata_override.get("metadata", {}).items()})
+                    FigureDataCache().hydrate(saved)
+                    self._prepare_style_metadata(prepared, cancelled=cancelled, frozen_metadata=saved.metadata)
+            state.setdefault("component_sources", {}).pop(kind, None)
+            path = baseline.get("preset_paths", {}).get("discovery") if kind == "discovery" else None
+        else:
+            payload = {} if value == "__none__" else self.payload_from_path(Path(value))
+            if payload is None:
+                raise ValueError(f"Could not load {kind} preset '{Path(value).stem}'.")
+            state[key] = copy.deepcopy(payload.get("camera", payload) if kind == "camera" else payload)
+            path = None if value == "__none__" else value
+            state.setdefault("component_sources", {})[kind] = "none" if value == "__none__" else "preset"
+            if kind == "slicer":
+                state.pop("slicer_selection", None)
+                self._resolve_slicer_membership(prepared, cancelled=cancelled)
+        state.setdefault("preset_paths", {})[kind] = path
+        if kind in ("appearance", "filter"):
+            frozen_metadata = None
+            if value == "__snapshot__":
+                frozen = PlotCell(0, 0, data_ref=base.get("data_ref"),
+                                  metadata={int(key): row for key, row in base.get("metadata", {}).items()})
+                FigureDataCache().hydrate(frozen)
+                frozen_metadata = frozen.metadata
+            self._prepare_style_metadata(prepared, cancelled=cancelled, kind=kind, frozen_metadata=frozen_metadata)
+            reference = (FigureDataRepository(self._project_root / "state" / "figure_data").store(prepared)
+                         if self._project_root is not None else None)
+            state["preset_metadata"] = ({"data_ref": reference} if reference else
+                {"metadata": {str(key): dict(row) for key, row in prepared.metadata.items()}})
         return prepared
 
     @staticmethod
@@ -228,20 +479,16 @@ class FigureSnapshotService:
         return coordinates, ids
 
     def snapshot_render_state(self, payload: dict[str, Any]) -> dict[str, Any]:
-        states = payload.get("states") if isinstance(payload.get("states"), dict) else {}
-        refs = payload.get("refs") if isinstance(payload.get("refs"), dict) else {}
-        appearance = self.payload_from_ref(refs.get("appearance")) or self._safe_dict(states.get("appearance"))
-        filters = self.payload_from_ref(refs.get("filters")) or self._safe_dict(states.get("filters"))
-        camera_payload = self.payload_from_ref(refs.get("camera"))
-        camera = (
-            self._safe_dict(camera_payload.get("camera"))
-            if isinstance(camera_payload, dict)
-            else self._safe_dict(states.get("camera"))
-        )
+        states = snapshot_component_states(payload, self.payload_from_ref)
+        appearance = self._safe_dict(states.get("appearance"))
+        filters = self._safe_dict(states.get("filters"))
+        camera = self._safe_dict(states.get("camera"))
         layers = self._safe_dict(states.get("layers"))
         pinboard = self.snapshot_pinboard_state(states, metadata_ids=[])
         state = {
             "appearance": appearance,
+            "slicer": self._safe_dict(states.get("slicer")),
+            "transform": {"preset_version": 2, "transform": self._safe_dict(states.get("transform"))},
             "filters": filters,
             "camera": camera,
             "layers": layers,
@@ -372,14 +619,14 @@ class FigureSnapshotService:
         return payload if isinstance(payload, dict) else None
 
     def snapshot_preset_paths(self, payload: dict[str, Any], snapshot_path: Path) -> dict[str, str | None]:
-        refs = payload.get("refs") if isinstance(payload.get("refs"), dict) else {}
         return {
             "snapshot": str(snapshot_path),
             "discovery": self.resolved_path_text(payload.get("discovery_ref")),
-            "transform": self.resolved_path_text(refs.get("transform")),
-            "camera": self.resolved_path_text(refs.get("camera")),
-            "appearance": self.resolved_path_text(refs.get("appearance")),
-            "filter": self.resolved_path_text(refs.get("filters")),
+            "transform": None,
+            "camera": None,
+            "appearance": None,
+            "filter": None,
+            "slicer": None,
         }
 
     def resolved_path_text(self, value: object) -> str | None:

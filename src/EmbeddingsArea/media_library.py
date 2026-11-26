@@ -246,18 +246,6 @@ class MediaLibraryService:
                 stage_callback=stage_callback,
                 replacement_path=source.path if replacement_source else None,
             )
-        elif source.content_type == MediaContentType.TEXT and source.path.suffix.lower() in {".jsonl", ".ndjson"}:
-            result = scan_media_source(source, scanned_at=started_at)
-            if not result.error_message:
-                indexed_count, scan_cursor = self._media_repository.synchronize_source_assets(
-                    source.id,
-                    result.assets,
-                    updated_at=started_at,
-                    progress_callback=progress_callback,
-                    should_cancel=should_cancel,
-                    stage_callback=stage_callback,
-                    replacement_path=source.path if replacement_source else None,
-                )
         elif source.path.suffix.lower() == ".zip":
             result = self._scan_archive_source(source, started_at)
             if not result.error_message:

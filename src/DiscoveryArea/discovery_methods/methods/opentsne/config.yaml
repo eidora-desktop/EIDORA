@@ -1,0 +1,271 @@
+id: opentsne
+name: t-SNE (openTSNE)
+class: OpenTSNEDiscoveryMethod
+status: available
+execution: subprocess
+supports_transform: false
+output_dimensions:
+- 2
+description: Parallel t-SNE with Barnes-Hut or FFT-accelerated interpolation. Uses openTSNE parameter
+  conventions independently of the original t-SNE entry.
+implementation:
+  distribution: openTSNE
+citations:
+- id: vanDerMaaten2008tsne
+  role: method
+  title: Visualizing Data using t-SNE
+  authors:
+  - van der Maaten, Laurens
+  - Hinton, Geoffrey
+  year: 2008
+  journal: Journal of Machine Learning Research
+  volume: '9'
+  pages: 2579-2605
+  url: https://jmlr.org/papers/v9/vandermaaten08a.html
+- id: policar2024opentsne
+  role: implementation
+  title: 'openTSNE: A Modular Python Library for t-SNE Dimensionality Reduction and Embedding'
+  authors:
+  - Poličar, Pavlin G.
+  - Stražar, Martin
+  - Zupan, Blaž
+  year: 2024
+  journal: Journal of Statistical Software
+  volume: '109'
+  issue: '3'
+  doi: 10.18637/jss.v109.i03
+- id: linderman2019fitsne
+  role: method
+  title: Fast interpolation-based t-SNE for improved visualization of single-cell RNA-seq data
+  authors:
+  - Linderman, George C.
+  - Rachh, Manas
+  - Hoskins, Jeremy G.
+  - Steinerberger, Stefan
+  - Kluger, Yuval
+  year: 2019
+  journal: Nature Methods
+  volume: '16'
+  pages: 243-245
+  doi: 10.1038/s41592-018-0308-4
+parameters:
+  perplexity:
+    ui: double_spin_box
+    type: float
+    default: 30.0
+    label: Perplexity
+    advanced: false
+    info: Effective neighbor count. Must be smaller than the number of items.
+    min: 1.0e-06
+    decimals: 6
+  metric:
+    ui: combo_box
+    type: str
+    default: euclidean
+    label: Distance
+    advanced: false
+    info: Distance between input vectors.
+    choices:
+    - euclidean
+    - cosine
+    - manhattan
+    - chebyshev
+    - minkowski
+    - hamming
+  learning_rate:
+    ui: number_optional
+    type: float
+    default: auto
+    label: Learning rate
+    advanced: true
+    info: Auto uses item count divided by exaggeration in each phase. openTSNE learning rates are four
+      times scikit-learn t-SNE rates for equivalent settings.
+    automatic: auto
+    min: 1.0e-06
+  early_exaggeration_iter:
+    ui: spin_box
+    type: int
+    default: 250
+    label: Early iterations
+    advanced: true
+    info: Iterations in the early exaggeration phase, in addition to normal iterations.
+    min: 0
+  early_exaggeration:
+    ui: number_optional
+    type: float
+    default: auto
+    label: Early exaggeration
+    advanced: true
+    info: Auto uses at least 12, or the normal exaggeration if larger.
+    automatic: auto
+    min: 1.0e-06
+  n_iter:
+    ui: spin_box
+    type: int
+    default: 500
+    label: Normal iterations
+    advanced: true
+    info: Optimization iterations after the early exaggeration phase; the default total is 750.
+    min: 1
+  exaggeration:
+    ui: number_optional
+    type: float
+    default: null
+    label: Normal exaggeration
+    advanced: true
+    info: None disables normal-phase exaggeration. Larger values emphasize compact groups.
+    nullable: true
+    min: 1.0e-06
+  dof:
+    ui: double_spin_box
+    type: float
+    default: 1.0
+    label: Degrees of freedom
+    advanced: true
+    info: Tail weight of the embedding kernel; 1 is standard t-SNE.
+    min: 1.0e-06
+    decimals: 6
+  negative_gradient_method:
+    ui: combo_box
+    type: str
+    default: auto
+    label: Optimization method
+    advanced: true
+    info: Auto uses Barnes-Hut below 10,000 items and FFT interpolation for larger inputs.
+    choices:
+    - auto
+    - bh
+    - fft
+  theta:
+    ui: double_spin_box
+    type: float
+    default: 0.5
+    label: Barnes-Hut angle
+    advanced: true
+    info: Larger values are faster and less exact; used only by Barnes-Hut.
+    min: 0.0
+    max: 1.0
+    decimals: 4
+  n_interpolation_points:
+    ui: spin_box
+    type: int
+    default: 3
+    label: Interpolation points
+    advanced: true
+    info: Interpolation points per grid cell for FFT optimization; the recommended value is 3.
+    min: 1
+  min_num_intervals:
+    ui: spin_box
+    type: int
+    default: 50
+    label: Minimum grid intervals
+    advanced: true
+    info: Minimum grid size for FFT optimization.
+    min: 1
+  ints_in_interval:
+    ui: double_spin_box
+    type: float
+    default: 1.0
+    label: Grid interval size
+    advanced: true
+    info: FFT grid cell size; smaller values improve accuracy at greater cost.
+    min: 1.0e-06
+    decimals: 6
+  initialization:
+    ui: combo_box
+    type: str
+    default: pca
+    label: Initialization
+    advanced: true
+    info: Initial arrangement. One-dimensional input uses random initialization when PCA is selected.
+    choices:
+    - pca
+    - spectral
+    - random
+  metric_params:
+    ui: line_edit
+    type: json
+    default: null
+    label: Distance parameters
+    advanced: true
+    info: Optional distance settings as a JSON object, or None.
+    nullable: true
+    json_kind: object
+  initial_momentum:
+    ui: double_spin_box
+    type: float
+    default: 0.8
+    label: Early momentum
+    advanced: true
+    info: Momentum used during this optimization phase.
+    min: 0.0
+    max: 1.0
+    decimals: 4
+  final_momentum:
+    ui: double_spin_box
+    type: float
+    default: 0.8
+    label: Normal momentum
+    advanced: true
+    info: Momentum used during this optimization phase.
+    min: 0.0
+    max: 1.0
+    decimals: 4
+  max_grad_norm:
+    ui: number_optional
+    type: float
+    default: null
+    label: Maximum gradient norm
+    advanced: true
+    info: Optional gradient clipping; None disables it.
+    nullable: true
+    min: 1.0e-06
+  max_step_norm:
+    ui: number_optional
+    type: float
+    default: 5.0
+    label: Maximum step norm
+    advanced: true
+    info: Limit point movement per iteration; None disables clipping.
+    nullable: true
+    min: 1.0e-06
+  n_jobs:
+    ui: spin_box
+    type: int
+    default: 1
+    label: Workers
+    advanced: true
+    info: 1 matches the library default. -1 uses the projection CPU budget; positive requests are capped
+      to that budget. 0 is invalid.
+    min: -1
+  neighbors:
+    ui: combo_box
+    type: str
+    default: auto
+    label: Neighbor search
+    advanced: true
+    info: Auto uses exact search below 1,000 items and PyNNDescent otherwise. This avoids the optional
+      Annoy backend.
+    choices:
+    - auto
+    - exact
+    - pynndescent
+  random_state:
+    ui: number_optional
+    type: int
+    default: null
+    label: Random seed
+    advanced: true
+    info: None uses unseeded library randomness. Set an integer for repeatable results.
+    nullable: true
+    min: 0
+    max: 2147483647
+  pca_dimensions:
+    ui: spin_box
+    type: int
+    default: 50
+    label: PCA dimensions
+    advanced: true
+    info: Recommended preprocessing for wide embeddings. 0 disables it; this is an EIDORA preprocessing
+      option.
+    min: 0

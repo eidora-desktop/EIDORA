@@ -56,10 +56,20 @@ Video uses the same spatial recipe consistently for all selected frames.
 
 ## Text and temporal semantics
 
-Text: read UTF-8 → literal prefix/suffix → packaged tokenizer.json → configured
+Text: read Unicode text → literal prefix/suffix → packaged tokenizer.json → configured
 special tokens, truncation and fixed padding → named tensors. No chat templates,
 arbitrary Python tokenizers or automatic chunking. Padding uses tokenizer_config.json's
 pad_token, otherwise [PAD], with ID 0 if unavailable.
+
+File inputs are whole documents, including JSONL/NDJSON, CSV, JSON and markup;
+the extension does not select fields or split records. Explicitly indexed text
+records carry a separate record key. Unicode decoding accepts UTF-8 (with or
+without BOM) and BOM-marked UTF-16/32; invalid encoding, NUL characters, missing
+records and empty content fail with the input path and record key. Empty content
+is checked before adding prefixes/suffixes. Each document or record is limited to
+2,000,000 characters; larger inputs must be split, never silently clipped.
+The worker reuses its tokenizer and indexes offsets for the current record source.
+Package token limits still truncate long text; there is no document chunking.
 
 Audio: decode first stream continuously from its beginning → choose channel or
 mono downmix → PyAV float planar resampling → select the exact target-rate sample

@@ -5,9 +5,37 @@ from collections.abc import Callable
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from DiscoveryArea.metadata_access import DiscoveryMetadataAccess
+from DiscoveryArea.controllers.metadata_options import MetadataOptions
 from shared.qt.icons import apply_icon_color
 from shared.qt.panel_controller import UiPanelController
+from shared.qt.preset_menu import append_manage_presets_action
 from shared.qt.widgets import require_child
+
+
+class _SlicerInteractionFilter(QtCore.QObject):
+    def __init__(self, parent, activate) -> None:
+        super().__init__(parent)
+        self._activate = activate
+
+    def eventFilter(self, watched, event) -> bool:
+        event_type = event.type()
+        using_control = (
+            event_type == QtCore.QEvent.Type.MouseButtonPress
+            and event.button() == QtCore.Qt.MouseButton.LeftButton
+        ) or event_type == QtCore.QEvent.Type.Wheel
+        if event_type == QtCore.QEvent.Type.KeyPress:
+            using_control = event.key() in (
+                QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Right,
+                QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Down,
+                QtCore.Qt.Key.Key_PageUp, QtCore.Qt.Key.Key_PageDown,
+                QtCore.Qt.Key.Key_Home, QtCore.Qt.Key.Key_End,
+                QtCore.Qt.Key.Key_Space, QtCore.Qt.Key.Key_Return,
+                QtCore.Qt.Key.Key_Enter, QtCore.Qt.Key.Key_Backspace,
+                QtCore.Qt.Key.Key_Delete,
+            ) or bool(event.text().strip())
+        if using_control and watched.isEnabled():
+            self._activate()
+        return super().eventFilter(watched, event)
 
 
 class SlicerPanelController(UiPanelController):
@@ -16,6 +44,9 @@ class SlicerPanelController(UiPanelController):
     _navigation_speed_options = (100, 150, 200, 250, 300, 400, 500, 750, 1000, 2000)
 
     def _wire(self) -> None:
+        self._metadata_options = MetadataOptions(self._widget, self._show_status)
+        self._pending_state = None
+        self._values_loading = False
         self._column_combo = require_child(self._widget, QtWidgets.QComboBox, "combo_slicer_column")
         self._scrollbar = require_child(self._widget, QtWidgets.QScrollBar, "scrollbar_slicer")
         self._backward_button = require_child(self._widget, QtWidgets.QToolButton, "button_backward")
@@ -42,6 +73,7 @@ class SlicerPanelController(UiPanelController):
         self._update_apply_button_icon()
         self._save_preset_callback: Callable[[str, dict], bool] | None = None
         self._load_preset_callback: Callable[[str], dict | None] | None = None
+        self._create_animation_callback = None
         self._slicer_changed_callback: Callable[[], None] | None = None
         self._menu_load_recent: QtWidgets.QMenu | None = None
         self._distinct_values_by_column: dict[str, list[str]] = {}
@@ -69,52 +101,88 @@ class SlicerPanelController(UiPanelController):
         self._forward_button.released.connect(self._stop_navigation_repeat)
         self._apply_button.clicked.connect(self._on_apply_button_clicked)
         self._configure_menu()
+        self._interaction_filter = _SlicerInteractionFilter(self._widget, self._activate_from_interaction)
+        for control in (self._scrollbar, self._backward_button, self._forward_button,
+                        self._start_spin, self._spread_spin, self._step_spin):
+            control.installEventFilter(self._interaction_filter)
+            if isinstance(control, QtWidgets.QSpinBox):
+                control.lineEdit().installEventFilter(self._interaction_filter)
 
     def set_project(self, project) -> None:
-        super().set_project(project)
-        previous_column = str(self._column_combo.currentData() or self._column_combo.currentText() or "")
-        self._column_combo.blockSignals(True)
-        self._column_combo.clear()
-        self._add_field_indicator()
+        self._metadata_options.reset()
+        self._pending_state = None
         self._distinct_values_by_column = {}
-        if project is not None:
-            access = self._metadata_access or DiscoveryMetadataAccess(project)
-            self._metadata_access = access
-            try:
-                columns = access.columns()
-            except Exception:
-                columns = []
-            for column in columns:
-                if column.name != "id":
-                    self._column_combo.addItem(
-                        getattr(column, "display_name", None) or column.name,
-                        column.name,
-                    )
-        self._column_combo.setEnabled(project is not None)
-        index = self._column_combo.findData(previous_column) if previous_column else 0
-        self._column_combo.setCurrentIndex(index if index >= 0 else 0)
-        self._column_combo.blockSignals(False)
+        super().set_project(project)
+        self._populate_columns(project)
         self._on_column_changed(self._column_combo.currentIndex())
+
+    def _populate_columns(self, project) -> None:
+        previous_column = self._current_column()
+        with QtCore.QSignalBlocker(self._column_combo):
+            self._column_combo.clear()
+            self._add_field_indicator()
+            if project is not None:
+                access = self._metadata_access or DiscoveryMetadataAccess(project)
+                self._metadata_access = access
+                try:
+                    columns = access.columns()
+                except Exception:
+                    columns = []
+                for column in columns:
+                    if column.name != "id":
+                        self._column_combo.addItem(
+                            getattr(column, "display_name", None) or column.name, column.name,
+                        )
+            self._column_combo.setEnabled(project is not None)
+            index = self._column_combo.findData(previous_column) if previous_column else 0
+            self._column_combo.setCurrentIndex(index if index >= 0 else 0)
+
+    def refresh_metadata_groups(self, metadata_access: DiscoveryMetadataAccess) -> None:
+        """Update group choices without reloading an unchanged physical slice."""
+        state = self.slicer_state_payload()
+        pending = self._values_loading
+        self.set_metadata_access(metadata_access)
+        self._distinct_values_by_column = {
+            name: values for name, values in self._distinct_values_by_column.items()
+            if not name.startswith(("group:", "group-set:"))
+        }
+        self._populate_columns(self._project)
+        column = str(state.get("column") or "")
+        if pending or column.startswith(("group:", "group-set:")) or column != self._current_column():
+            self.apply_slicer_state_payload(state)
 
     def set_metadata_access(
         self,
         metadata_access: DiscoveryMetadataAccess | None,
     ) -> None:
         self._metadata_access = metadata_access
+        self._metadata_options.reset()
+
+    def shutdown(self) -> None:
+        self._metadata_options.shutdown()
+        self._navigation_repeat_timer.stop()
+
+    def _values_for_column(self, column, ready):
+        if column in self._distinct_values_by_column or not column or self._metadata_access is None:
+            self._metadata_options.cancel(self._column_combo)
+            return list(self._distinct_values_by_column.get(column, []))
+        access = self._metadata_access
+        return self._metadata_options.get(self._column_combo, (id(access), column),
+            lambda: SlicerPanelController._sorted_slicer_values(set(access.distinct_values(column))), ready)
 
     def _on_column_changed(self, index: int) -> None:
-        column = self._current_column()
-        if (
-            column
-            and column not in self._distinct_values_by_column
-            and self._metadata_access is not None
-        ):
-            try:
-                values = set(self._metadata_access.distinct_values(column))
-            except Exception:
-                values = set()
-            self._distinct_values_by_column[column] = self._sorted_slicer_values(values)
-        self._column_values = list(self._distinct_values_by_column.get(column, []))
+        self._pending_state = None
+        values = self._values_for_column(self._current_column(),
+            lambda: self._on_column_changed(self._column_combo.currentIndex()))
+        if values is None:
+            self._pending_state = self.slicer_state_payload()
+            self._pending_state.update(enabled=index > 0, position=0)
+            self._pending_state.pop('start', None)
+            self._set_values_loading(True)
+            self._show_status("Loading slicer values…")
+            return
+        self._set_values_loading(False)
+        self._column_values = values
         self._configure_start_spin(reset=True)
         self._slicer_enabled = index > 0
         self._apply_button.setChecked(self._slicer_enabled)
@@ -122,7 +190,15 @@ class SlicerPanelController(UiPanelController):
         self._update_active_range()
         self._update_enabled_state()
         self._emit_slicer_changed()
-        self._show_status(f"Slicer {'enabled' if self._slicer_enabled else 'disabled'}.")
+
+    def _set_values_loading(self, loading: bool) -> None:
+        self._values_loading = loading
+        if loading:
+            self._navigation_repeat_timer.stop()
+        for control in (self._start_spin, self._spread_spin, self._step_spin,
+                        self._scrollbar, self._backward_button, self._forward_button,
+                        self._apply_button):
+            control.setEnabled(not loading)
 
     def _on_spread_changed(self, value: int) -> None:
         if value < 1:
@@ -153,9 +229,16 @@ class SlicerPanelController(UiPanelController):
             self._scrollbar.blockSignals(False)
         self._update_active_range()
         self._emit_slicer_changed()
-        self._show_status(f"Slicer position: {self._scrollbar.value()}")
+
+    def _activate_from_interaction(self) -> None:
+        if (self._slicer_enabled or self._applying_state or self._values_loading
+                or not self._current_column() or not self._column_values):
+            return
+        self._apply_button.setChecked(True)
+        self._on_apply_button_clicked()
 
     def _start_navigation_repeat(self, direction: int) -> None:
+        self._activate_from_interaction()
         self._navigation_direction = direction
         self._navigation_repeated = False
         self._navigation_repeat_timer.start()
@@ -186,7 +269,6 @@ class SlicerPanelController(UiPanelController):
         self._update_enabled_state()
         self._update_active_range()
         self._emit_slicer_changed()
-        self._show_status(f"Slicer {'enabled' if self._slicer_enabled else 'disabled'}.")
 
     def _configure_scrollbar(self, values_count: int, *, reset_position: bool = False) -> None:
         spread = self._current_spread()
@@ -233,7 +315,7 @@ class SlicerPanelController(UiPanelController):
     def _update_enabled_state(self) -> None:
         has_column = bool(self._current_column())
         has_values = bool(self._column_values)
-        self._scrollbar.setEnabled(has_column and has_values and self._slicer_enabled)
+        self._scrollbar.setEnabled(has_column and has_values and not self._values_loading)
         self._start_spin.setEnabled(has_column and has_values)
         navigation_enabled = self._scrollbar.isEnabled()
         self._backward_button.setEnabled(navigation_enabled)
@@ -349,14 +431,8 @@ class SlicerPanelController(UiPanelController):
 
     @staticmethod
     def _sorted_slicer_values(values: set[str]) -> list[str]:
-        numeric_values: list[tuple[float, str]] = []
-        for value in values:
-            try:
-                numeric_values.append((float(value), value))
-            except ValueError:
-                return sorted(values, key=lambda text: text.lower())
-        numeric_values.sort(key=lambda pair: pair[0])
-        return [text for _numeric, text in numeric_values]
+        from DiscoveryArea.slicing import sorted_slicer_values
+        return sorted_slicer_values(values)
 
     def _emit_slicer_changed(self) -> None:
         if self._applying_state:
@@ -366,9 +442,8 @@ class SlicerPanelController(UiPanelController):
 
     def _configure_menu(self) -> None:
         menu = QtWidgets.QMenu(self._menu_button)
-        self._menu_load_recent = menu.addMenu("Load Recent")
-        save_action = menu.addAction("Save Preset…")
-        save_action.triggered.connect(self._save_current_preset)
+        animation_action = menu.addAction("Create Animation…")
+        animation_action.triggered.connect(self._create_animation)
         menu.addSeparator()
         speed_menu = menu.addMenu("Set Speed")
         self._speed_actions: dict[int, QtGui.QAction] = {}
@@ -383,10 +458,28 @@ class SlicerPanelController(UiPanelController):
             speed_group.addAction(action)
             self._speed_actions[interval_ms] = action
         self._update_speed_menu_selection()
+        menu.addSeparator()
+        self._menu_load_recent = menu.addMenu("Apply Preset")
+        save_action = menu.addAction("Save as Preset…")
+        save_action.triggered.connect(self._save_current_preset)
         self._menu_button.setMenu(menu)
         self._menu_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._menu_button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
         self.set_recent_preset_labels([])
+
+    def set_create_animation_callback(self, callback) -> None:
+        self._create_animation_callback = callback
+
+    def _create_animation(self) -> None:
+        if self._values_loading or not self._current_column() or not self._column_values:
+            self._show_status("Select a Slicer field with values before creating an animation.")
+            return
+        if self._create_animation_callback is None:
+            self._show_status("Animation creation is unavailable.")
+            return
+        payload = dict(self.slicer_state_payload())
+        payload["enabled"] = True
+        self._create_animation_callback(payload, list(self._column_values))
 
     def _set_navigation_repeat_interval(self, interval_ms: int) -> None:
         self._navigation_repeat_interval_ms = min(
@@ -403,6 +496,8 @@ class SlicerPanelController(UiPanelController):
             action.setChecked(True)
 
     def slicer_state_payload(self) -> dict:
+        if self._pending_state is not None:
+            return self._pending_state
         return {
             "enabled": bool(self._slicer_enabled and self._current_column()),
             "column": self._current_column(),
@@ -420,6 +515,17 @@ class SlicerPanelController(UiPanelController):
             payload = self._metadata_access.canonical_field_payload(payload)
         slicer_payload = payload.get("slicer") if isinstance(payload.get("slicer"), dict) else payload
         column = str(slicer_payload.get("column") or "")
+        self._pending_state = dict(slicer_payload)
+        available = self._column_combo.findData(column) >= 0 or self._column_combo.findText(column) >= 0
+        if available and self._values_for_column(column, lambda: self.apply_slicer_state_payload(payload)) is None:
+            index = self._column_combo.findData(column)
+            if index < 0:
+                index = self._column_combo.findText(column)
+            with QtCore.QSignalBlocker(self._column_combo):
+                self._column_combo.setCurrentIndex(index)
+            self._set_values_loading(True)
+            return
+        self._pending_state = None
         self._applying_state = True
         try:
             if "auto_roll_seconds" in slicer_payload:
@@ -483,7 +589,7 @@ class SlicerPanelController(UiPanelController):
 
     def active_selection(self) -> dict[str, object]:
         column = self._current_column()
-        enabled = bool(self._slicer_enabled and column)
+        enabled = bool(self._slicer_enabled and column and not self._values_loading)
         return {
             "enabled": enabled,
             "column": column if enabled else "",
@@ -503,10 +609,10 @@ class SlicerPanelController(UiPanelController):
         if not labels:
             action = self._menu_load_recent.addAction("No Presets Saved")
             action.setEnabled(False)
-            return
-        for label in labels[:10]:
+        for label in labels:
             action = self._menu_load_recent.addAction(label)
             action.triggered.connect(lambda _checked=False, value=label: self._load_preset_label(value))
+        append_manage_presets_action(self._menu_load_recent, self._open_settings)
 
     def _save_current_preset(self) -> None:
         if self._save_preset_callback is None:

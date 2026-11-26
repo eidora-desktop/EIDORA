@@ -4,73 +4,145 @@ class: TSNEDiscoveryMethod
 status: available
 execution: subprocess
 supports_transform: false
-supports_arrangement_transform: true
 output_dimensions:
-  - 2
+- 2
 description: t-distributed stochastic neighbor embedding.
 implementation:
   distribution: scikit-learn
 citations:
-  - id: vanDerMaaten2008tsne
-    role: method
-    title: Visualizing Data using t-SNE
-    authors:
-      - van der Maaten, Laurens
-      - Hinton, Geoffrey
-    year: 2008
-    journal: Journal of Machine Learning Research
-    volume: "9"
-    pages: 2579-2605
-    url: https://jmlr.org/papers/v9/vandermaaten08a.html
+- id: vanDerMaaten2008tsne
+  role: method
+  title: Visualizing Data using t-SNE
+  authors:
+  - van der Maaten, Laurens
+  - Hinton, Geoffrey
+  year: 2008
+  journal: Journal of Machine Learning Research
+  volume: '9'
+  pages: 2579-2605
+  url: https://jmlr.org/papers/v9/vandermaaten08a.html
 parameters:
   perplexity:
-    ui: spin_box
-    type: int
-    default: 30
-    min: 2
-    max: 200
-    info: Effective neighbor count.
-  learning_rate:
+    ui: double_spin_box
+    type: float
+    default: 30.0
+    label: Perplexity
+    advanced: false
+    info: Effective neighbor count. Must be smaller than the number of items.
+    min: 1.0e-06
+    decimals: 6
+  metric:
     ui: combo_box
     type: str
-    default: auto
+    default: euclidean
+    label: Distance
+    advanced: false
+    info: Distance between input vectors.
     choices:
-      - auto
-    info: Automatic scikit-learn learning rate.
-  random_state:
-    ui: spin_box
-    type: int
-    default: 42
-    min: 0
-    max: 2147483647
-    info: Random seed.
+    - euclidean
+    - cosine
+    - manhattan
+    - chebyshev
+    - minkowski
+    - hamming
+  learning_rate:
+    ui: number_optional
+    type: float
+    default: auto
+    label: Learning rate
+    advanced: true
+    info: Library automatic learning rate, or a positive number.
+    automatic: auto
+    min: 1.0e-06
+  early_exaggeration:
+    ui: double_spin_box
+    type: float
+    default: 12.0
+    label: Early exaggeration
+    advanced: true
+    info: Controls cluster separation during the initial optimization.
+    min: 1.0
+    decimals: 4
   init:
     ui: combo_box
     type: str
     default: pca
+    label: Initialization
+    advanced: true
+    info: PCA initialization is the library default.
     choices:
-      - pca
-      - random
-    info: Initial layout.
-  pca_dimensions:
-    ui: spin_box
-    type: int
-    default: 50
-    min: 0
-    max: 200
-    info: Pre-reduce wider embeddings before neighbor search; 0 disables it.
+    - pca
+    - random
   iterations:
     ui: spin_box
     type: int
     default: 1000
+    label: Iterations
+    advanced: true
+    info: Maximum optimization iterations.
     min: 250
-    max: 5000
-    info: Number of optimization iterations.
+  n_iter_without_progress:
+    ui: spin_box
+    type: int
+    default: 300
+    label: Patience
+    advanced: true
+    info: Iterations without progress before stopping.
+    min: 1
+  min_grad_norm:
+    ui: double_spin_box
+    type: float
+    default: 1.0e-07
+    label: Gradient threshold
+    advanced: true
+    info: Stop when the gradient norm falls below this value.
+    min: 0.0
+    decimals: 10
+  method:
+    ui: combo_box
+    type: str
+    default: barnes_hut
+    label: Optimization method
+    advanced: true
+    info: Barnes-Hut approximation or exact t-SNE.
+    choices:
+    - barnes_hut
+    - exact
   angle:
     ui: double_spin_box
     type: float
     default: 0.5
+    label: Barnes-Hut angle
+    advanced: true
+    info: Larger values are faster and less exact; used only by Barnes-Hut.
     min: 0.0
     max: 1.0
-    decimals: 2
-    info: Barnes-Hut approximation; larger values are faster and less exact.
+    decimals: 4
+  metric_params:
+    ui: line_edit
+    type: json
+    default: null
+    label: Distance parameters
+    advanced: true
+    info: Optional distance settings as a JSON object, or None.
+    nullable: true
+    json_kind: object
+  random_state:
+    ui: number_optional
+    type: int
+    default: null
+    label: Random seed
+    advanced: true
+    info: None uses unseeded library randomness. Set an integer for repeatable results.
+    nullable: true
+    min: 0
+    max: 2147483647
+  pca_dimensions:
+    ui: spin_box
+    type: int
+    default: 50
+    label: PCA dimensions
+    advanced: true
+    info: Recommended preprocessing for wide embeddings. 0 disables it; this is an
+      EIDORA preprocessing option.
+    min: 0

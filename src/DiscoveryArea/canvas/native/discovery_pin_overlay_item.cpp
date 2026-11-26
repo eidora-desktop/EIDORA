@@ -9,6 +9,7 @@
 #include <QByteArray>
 #include <QLineF>
 #include <QSize>
+#include <QTextLayout>
 #include <QtMath>
 
 namespace {
@@ -194,6 +195,19 @@ void DiscoveryPinOverlayItem::setPinData(
         pin.screenOffset = screenOffset;
         pin.lines = lines;
         pin.thumbnailSize = qMax(32, entry.value("thumbnail_size", 96).toInt());
+        const QVariantMap preview = entry.value("preview_text_layout").toMap();
+        pin.hasTextPreview = !preview.isEmpty();
+        if (pin.hasTextPreview) {
+            for (const QVariant& line : preview.value("lines").toList()) {
+                pin.previewLines.append(line.toString());
+            }
+            pin.previewSize = QSizeF(preview.value("width").toDouble(), preview.value("height").toDouble());
+            pin.previewFont = QFont(preview.value("family").toString());
+            pin.previewFont.setPointSize(preview.value("font_size").toInt());
+            pin.previewLineSpacing = preview.value("line_spacing").toDouble();
+            pin.previewForeground = QColor(preview.value("foreground").toString());
+            pin.previewBackground = QColor(preview.value("background").toString());
+        }
         const int thumbWidth = qMax(0, entry.value("thumbnail_width", 0).toInt());
         const int thumbHeight = qMax(0, entry.value("thumbnail_height", 0).toInt());
         const QByteArray thumbRgba = entry.value("thumbnail_rgba").toByteArray();
@@ -331,7 +345,7 @@ void DiscoveryPinOverlayItem::paint(QPainter* painter) {
         const bool hasText = textWidth > 0 || textHeight > 0;
         const bool drawThumb = m_drawThumbnail;
         const int thumbSize = drawThumb ? qMax(32, pin.thumbnailSize) : 0;
-        const QSizeF thumbDisplaySize = drawThumb ? fittedThumbnailSize(pin.thumbnail, thumbSize) : QSizeF(0.0, 0.0);
+        const QSizeF thumbDisplaySize = drawThumb ? (pin.hasTextPreview ? pin.previewSize : fittedThumbnailSize(pin.thumbnail, thumbSize)) : QSizeF(0.0, 0.0);
         const double thumbWidth = thumbDisplaySize.width();
         const double thumbHeight = thumbDisplaySize.height();
         const bool horizontalLayout =
@@ -408,7 +422,7 @@ void DiscoveryPinOverlayItem::paint(QPainter* painter) {
         const bool hasText = textWidth > 0 || textHeight > 0;
         const bool drawThumb = m_drawThumbnail;
         const int thumbSize = drawThumb ? qMax(32, pin.thumbnailSize) : 0;
-        const QSizeF thumbDisplaySize = drawThumb ? fittedThumbnailSize(pin.thumbnail, thumbSize) : QSizeF(0.0, 0.0);
+        const QSizeF thumbDisplaySize = drawThumb ? (pin.hasTextPreview ? pin.previewSize : fittedThumbnailSize(pin.thumbnail, thumbSize)) : QSizeF(0.0, 0.0);
         const double thumbWidth = thumbDisplaySize.width();
         const double thumbHeight = thumbDisplaySize.height();
         const bool horizontalLayout =
@@ -517,7 +531,23 @@ void DiscoveryPinOverlayItem::paint(QPainter* painter) {
         }
 
         if (drawThumb) {
-            if (!pin.thumbnail.isNull()) {
+            if (pin.hasTextPreview) {
+                painter->save();
+                painter->fillRect(thumbnailRect, pin.previewBackground);
+                painter->setClipRect(thumbnailRect.adjusted(6, 6, -6, -6), Qt::IntersectClip);
+                painter->setPen(pin.previewForeground);
+                for (int index = 0; index < pin.previewLines.size(); ++index) {
+                    QTextLayout layout(pin.previewLines.at(index), pin.previewFont);
+                    layout.beginLayout();
+                    QTextLine line = layout.createLine();
+                    if (line.isValid()) {
+                        line.setLineWidth(pin.previewSize.width() - 12);
+                    }
+                    layout.endLayout();
+                    layout.draw(painter, thumbnailRect.topLeft() + QPointF(6, 6 + index * pin.previewLineSpacing));
+                }
+                painter->restore();
+            } else if (!pin.thumbnail.isNull()) {
                 painter->setPen(Qt::NoPen);
                 const QRectF imageRect = fitRectKeepAspect(thumbnailRect, pin.thumbnail.size());
                 painter->drawImage(imageRect, pin.thumbnail);

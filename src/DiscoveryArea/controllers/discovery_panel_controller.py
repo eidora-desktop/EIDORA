@@ -7,16 +7,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
+
+from shared.qt import file_dialogs
 import numpy as np
 
 from DiscoveryArea.domain import DiscoveryOption
 from DiscoveryArea.discovery_importer import DiscoveryImportPreview, import_discovery_coordinates, preview_discovery_import
 from DiscoveryArea.discovery_methods.base import DiscoveryMethodDefinition
 from DiscoveryArea.controllers.methods_citations_dialog_controller import MethodsCitationsDialogController
+from DiscoveryArea.controllers.projection_assessment_controller import ProjectionAssessmentController
+from DiscoveryArea.controllers.projection_parameter_editor import create_parameter_editor, parameter_value
 from DiscoveryArea.provenance import MethodsReport, PROVENANCE_SCHEMA_VERSION
-from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, configure_panel_item_view
+from shared.qt.item_views import PANEL_ITEM_ROW_HEIGHT, clear_list_items, configure_panel_item_view
 from shared.qt.panel_controller import UiPanelController
 from shared.qt.ui_loader import load_ui
+from shared.qt.table_preview import set_preview_continuation
 from shared.qt.widgets import require_child
 
 RUN_ID_ROLE = QtCore.Qt.ItemDataRole.UserRole + 1
@@ -47,6 +52,7 @@ class DiscoveryPanelController(UiPanelController):
             self._widget, QtWidgets.QAbstractButton, "button_add_new_projection"
         )
         self._dialog: QtWidgets.QWidget | None = None
+        self._assessment: ProjectionAssessmentController | None = None
         self._selection_changed_callback: Callable[[str], None] | None = None
         self._create_discovery_callback: Callable[[dict[str, object]], bool | None] | None = None
         self._abort_discovery_callback: Callable[[str], bool | None] | None = None
@@ -73,6 +79,8 @@ class DiscoveryPanelController(UiPanelController):
         self._list.currentRowChanged.connect(self._on_discovery_selected)
 
     def set_project(self, project) -> None:
+        if project is not self._project and self._dialog is not None:
+            self._dialog.close()
         super().set_project(project)
         has_project = project is not None
         self._list.setEnabled(has_project)
@@ -82,6 +90,9 @@ class DiscoveryPanelController(UiPanelController):
             self.set_discovery_options([], enabled=False)
 
     def shutdown(self) -> None:
+        if self._assessment is not None:
+            self._assessment.shutdown()
+            self._assessment = None
         if self._dialog is not None:
             self._dialog.close()
             self._dialog = None
@@ -101,14 +112,14 @@ class DiscoveryPanelController(UiPanelController):
         self._action_import = menu.addAction("Import Data…")
         self._action_import.triggered.connect(self._open_import_discovery_dialog)
         menu.addSeparator()
-        self._action_export = menu.addAction("Export Data…")
-        self._action_export.triggered.connect(self._export_current_discovery)
-        self._action_methods = menu.addAction("Citations…")
-        self._action_methods.triggered.connect(self._show_methods_and_citations)
         self._action_rename = menu.addAction("Rename…")
         self._action_rename.triggered.connect(self._rename_current_discovery)
+        self._action_export = menu.addAction("Export Data…")
+        self._action_export.triggered.connect(self._export_current_discovery)
+        self._action_methods = menu.addAction("Methods && Citations…")
+        self._action_methods.triggered.connect(self._show_methods_and_citations)
         menu.addSeparator()
-        self._action_delete = menu.addAction("Delete…")
+        self._action_delete = menu.addAction("Delete Selected Projection…")
         self._action_delete.triggered.connect(self._delete_current_discovery)
         menu.aboutToShow.connect(self._refresh_menu_state)
         self._options_button.setMenu(menu)
@@ -125,7 +136,7 @@ class DiscoveryPanelController(UiPanelController):
     ) -> None:
         self._options_by_key = {option.key: option for option in options}
         with QtCore.QSignalBlocker(self._list):
-            self._list.clear()
+            clear_list_items(self._list)
             saved_items: dict[str, QtWidgets.QListWidgetItem] = {}
             random_option = next((option for option in options if option.is_random), None)
             projection_options = [option for option in options if not option.is_random]
@@ -331,15 +342,14 @@ class DiscoveryPanelController(UiPanelController):
             return None
         menu = QtWidgets.QMenu(self._list)
         menu.setToolTipsVisible(True)
-        action_methods = menu.addAction("Citations…")
+        action_rename = menu.addAction("Rename…")
+        action_methods = menu.addAction("Methods && Citations…")
         option = self._options_by_key.get(str(key))
         has_provenance = self._has_report_provenance(option)
         action_methods.setEnabled(has_provenance)
         if not has_provenance:
             action_methods.setToolTip("Rerun this projection to create methods and citation provenance.")
         action_methods.triggered.connect(self._show_methods_and_citations)
-        menu.addSeparator()
-        action_rename = menu.addAction("Rename…")
         menu.addSeparator()
         action_delete = menu.addAction("Delete…")
         action_rename.triggered.connect(self._rename_current_discovery)
@@ -370,6 +380,7 @@ class DiscoveryPanelController(UiPanelController):
             self._dialog.show()
             self._dialog.raise_()
             self._dialog.activateWindow()
+            self._assessment.activate(self._project)
             return
         dialog = load_ui(self.package, "ui/new_projection_dialog.ui", None)
         if not isinstance(dialog, QtWidgets.QDialog):
@@ -385,6 +396,14 @@ class DiscoveryPanelController(UiPanelController):
         cancel_button = dialog.findChild(QtWidgets.QPushButton, "button_cancel")
         run_button = dialog.findChild(QtWidgets.QPushButton, "button_run")
         table_parameters = dialog.findChild(QtWidgets.QTableWidget, "table_discovery_parameters")
+        advanced = dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
+        if advanced is not None:
+            advanced.toggled.connect(self._set_advanced_parameters_visible)
+        reset_button = dialog.findChild(QtWidgets.QPushButton, "button_reset_parameters")
+        if reset_button is not None:
+            reset_button.clicked.connect(
+                lambda: self._populate_parameter_table(combo_method, table_parameters, reset_expansion=False)
+            )
         if combo_method is not None:
             combo_method.currentIndexChanged.connect(
                 lambda _index: self._handle_discovery_method_changed(combo_method, table_parameters, edit_name)
@@ -413,9 +432,14 @@ class DiscoveryPanelController(UiPanelController):
                     table_parameters=table_parameters,
                 )
             )
+        self._assessment = ProjectionAssessmentController(
+            dialog, lambda: self._projection_parameter_values(table_parameters),
+        )
         self._reset_discovery_dialog(dialog)
+        self._assessment.activate(self._project)
+        dialog.layout().activate()
+        dialog.resize(dialog.width(), dialog.sizeHint().height())
         dialog.show()
-        self._show_status("New projection dialog opened.")
 
     def _reset_discovery_dialog(self, dialog: QtWidgets.QWidget) -> None:
         combo_method = dialog.findChild(QtWidgets.QComboBox, "combo_discovery_method")
@@ -424,12 +448,16 @@ class DiscoveryPanelController(UiPanelController):
         edit_name = dialog.findChild(QtWidgets.QLineEdit, "edit_run_name")
         table_parameters = dialog.findChild(QtWidgets.QTableWidget, "table_discovery_parameters")
         self._configure_parameter_table(table_parameters)
+        advanced = dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
+        if advanced is not None:
+            advanced.setChecked(False)
 
         if combo_method is not None:
             with QtCore.QSignalBlocker(combo_method):
                 combo_method.clear()
                 for method in self._method_definitions:
                     combo_method.addItem(method.name, method.method_id)
+                    combo_method.setItemData(combo_method.count() - 1, method.description, QtCore.Qt.ItemDataRole.ToolTipRole)
                 combo_method.setCurrentIndex(0 if combo_method.count() else -1)
             self._populate_parameter_table(combo_method, table_parameters)
         if combo_vectors is not None:
@@ -467,12 +495,14 @@ class DiscoveryPanelController(UiPanelController):
         edit_name: QtWidgets.QLineEdit | None,
         table_parameters: QtWidgets.QTableWidget | None,
     ) -> None:
+        if self._assessment is not None and not self._assessment.can_submit():
+            return
         method = str(combo_method.currentData()) if combo_method is not None else "random"
         name = edit_name.text().strip() if edit_name is not None else "Projection"
         payload: dict[str, object] = {
             "method": method or "random",
             "name": name or "Projection",
-            "parameters": self._parameter_values_from_table(table_parameters),
+            "parameters": self._projection_parameter_values(table_parameters),
         }
         if self._discovery_name_exists(str(payload["name"])):
             if edit_name is not None:
@@ -490,7 +520,7 @@ class DiscoveryPanelController(UiPanelController):
             payload["filter_preset_key"] = str(combo_filter.currentData())
             payload["filter_preset_label"] = str(combo_filter.currentText() or "")
         if method == "custom_coordinates":
-            path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            path, _selected_filter = file_dialogs.get_open_file_name(
                 self._dialog,
                 "Select Coordinates",
                 "",
@@ -838,7 +868,7 @@ class DiscoveryPanelController(UiPanelController):
         }
         current_item = self._list.currentItem()
         current_label = current_item.text() if current_item is not None else "projection"
-        destination, selected_filter = QtWidgets.QFileDialog.getSaveFileName(
+        destination, selected_filter = file_dialogs.get_save_file_name(
             self._widget,
             "Export Projection Coordinates",
             str(Path.home() / f"{self._safe_export_stem(current_label)}.csv"),
@@ -876,6 +906,7 @@ class DiscoveryPanelController(UiPanelController):
         combo_x = require_child(dialog, QtWidgets.QComboBox, "combo_import_x_column")
         combo_y = require_child(dialog, QtWidgets.QComboBox, "combo_import_y_column")
         table_preview = require_child(dialog, QtWidgets.QTableWidget, "table_import_preview")
+        preview_count = require_child(dialog, QtWidgets.QLabel, "label_preview_count")
         validation = require_child(dialog, QtWidgets.QTextBrowser, "text_import_validation")
         button_box = require_child(dialog, QtWidgets.QDialogButtonBox, "button_box_import_discovery")
         current_preview: dict[str, DiscoveryImportPreview | None] = {"preview": None}
@@ -901,6 +932,7 @@ class DiscoveryPanelController(UiPanelController):
                 combo_x=combo_x,
                 combo_y=combo_y,
                 table_preview=table_preview,
+                preview_count=preview_count,
                 validation=validation,
             )
             current_preview["preview"] = preview
@@ -910,7 +942,7 @@ class DiscoveryPanelController(UiPanelController):
             return preview
 
         def browse() -> None:
-            path, _selected_filter = QtWidgets.QFileDialog.getOpenFileName(
+            path, _selected_filter = file_dialogs.get_open_file_name(
                 dialog,
                 "Import Projection Data",
                 "",
@@ -923,7 +955,12 @@ class DiscoveryPanelController(UiPanelController):
 
         def refresh_validation(_index: int | None = None) -> None:
             preview = current_preview["preview"]
-            if preview is None or self._discovery_metadata_ids_provider is None:
+            if preview is None:
+                return
+            set_preview_continuation(
+                table_preview, len(preview.preview_rows), len(preview.rows), max(0, combo_id.currentIndex())
+            )
+            if self._discovery_metadata_ids_provider is None:
                 return
             try:
                 result = import_discovery_coordinates(
@@ -962,6 +999,7 @@ class DiscoveryPanelController(UiPanelController):
                 "y_column": str(combo_y.currentText() or ""),
             }
             if self._import_discovery_callback(payload):
+                file_dialogs.remember_path("import", payload["coordinate_file"])
                 dialog.accept()
             else:
                 validation.setPlainText("Projection import failed. Check the selected file and columns.")
@@ -984,6 +1022,7 @@ class DiscoveryPanelController(UiPanelController):
         combo_x: QtWidgets.QComboBox,
         combo_y: QtWidgets.QComboBox,
         table_preview: QtWidgets.QTableWidget,
+        preview_count: QtWidgets.QLabel,
         validation: QtWidgets.QTextBrowser,
     ) -> None:
         numeric_columns = self._numeric_import_columns(preview)
@@ -1029,6 +1068,10 @@ class DiscoveryPanelController(UiPanelController):
         for row_index, row in enumerate(preview.preview_rows):
             for column_index, column in enumerate(preview.columns):
                 table_preview.setItem(row_index, column_index, QtWidgets.QTableWidgetItem(str(row.get(column, ""))))
+        set_preview_continuation(
+            table_preview, len(preview.preview_rows), len(preview.rows), max(0, combo_id.currentIndex())
+        )
+        preview_count.setText(f"Preview: {len(preview.preview_rows):,}/{len(preview.rows):,} rows")
         table_preview.resizeColumnsToContents()
         validation.setPlainText(
             f"Loaded {len(preview.rows)} rows from {preview.path.name}.\n"
@@ -1162,6 +1205,8 @@ class DiscoveryPanelController(UiPanelController):
         self,
         combo_method: QtWidgets.QComboBox | None,
         table: QtWidgets.QTableWidget | None,
+        *,
+        reset_expansion: bool = True,
     ) -> None:
         if combo_method is None or table is None:
             return
@@ -1173,44 +1218,67 @@ class DiscoveryPanelController(UiPanelController):
             for name, spec in parameters.items()
             if str(spec.get("ui") or "").strip().lower() != "hidden"
         ]
-        table.setRowCount(len(visible_parameters))
-        for row, (name, spec) in enumerate(visible_parameters):
-            key_item = self._readonly_item(name)
-            tooltip = str(spec.get("info") or "")
-            key_item.setToolTip(tooltip)
-            table.setItem(row, 0, key_item)
-            table.setCellWidget(row, 1, self._parameter_editor(spec, tooltip))
-        table.resizeColumnsToContents()
+        advanced_table = (
+            self._dialog.findChild(QtWidgets.QTableWidget, "table_advanced_parameters")
+            if self._dialog is not None else None
+        )
+        for target, is_advanced in ((table, False), (advanced_table, True)):
+            if target is None:
+                continue
+            self._configure_parameter_table(target)
+            entries = [(name, spec) for name, spec in visible_parameters
+                       if bool(spec.get("advanced", False)) == is_advanced]
+            # Replaced cell widgets are deleted later by Qt. Hide them now so
+            # changing methods cannot paint old editors over the new defaults.
+            for row in range(target.rowCount()):
+                editor = target.cellWidget(row, 1)
+                if editor is not None:
+                    editor.hide()
+            target.clearContents()
+            target.setRowCount(len(entries))
+            for row, (name, spec) in enumerate(entries):
+                key_item = self._readonly_item(str(spec.get("label") or name))
+                key_item.setData(QtCore.Qt.ItemDataRole.UserRole, name)
+                tooltip = str(spec.get("info") or "")
+                key_item.setToolTip(tooltip)
+                target.setItem(row, 0, key_item)
+                target.setCellWidget(row, 1, self._parameter_editor(spec, tooltip))
+            target.resizeColumnToContents(0)
+        table.setVisible(table.rowCount() > 0)
+        table.setFixedHeight(table.horizontalHeader().height() + 2 * table.frameWidth()
+                             + sum(table.rowHeight(row) for row in range(table.rowCount())))
+        advanced = (
+            self._dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
+            if self._dialog is not None else None
+        )
+        if advanced is not None:
+            if reset_expansion:
+                with QtCore.QSignalBlocker(advanced):
+                    advanced.setChecked(False)
+            advanced.setVisible(advanced_table is not None and advanced_table.rowCount() > 0)
+        if self._dialog is not None:
+            reset_button = self._dialog.findChild(QtWidgets.QPushButton, "button_reset_parameters")
+            if reset_button is not None:
+                reset_button.setEnabled(bool(visible_parameters))
+        self._set_advanced_parameters_visible(advanced is not None and advanced.isChecked())
+        if self._assessment is not None:
+            self._assessment.bind_parameter_editors()
+
+    def _set_advanced_parameters_visible(self, expanded: bool) -> None:
+        if self._dialog is None:
+            return
+        button = self._dialog.findChild(QtWidgets.QToolButton, "button_advanced_settings")
+        table = self._dialog.findChild(QtWidgets.QTableWidget, "table_advanced_parameters")
+        if button is None or table is None:
+            return
+        table.setVisible(expanded and not button.isHidden())
+        button.setArrowType(QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow)
+        self._dialog.layout().activate()
+        self._dialog.resize(self._dialog.width(), self._dialog.sizeHint().height())
 
     @staticmethod
     def _parameter_editor(spec: dict[str, object], tooltip: str) -> QtWidgets.QWidget:
-        parameter_type = str(spec.get("type") or "str").strip().lower()
-        ui_element = str(spec.get("ui") or "").strip().lower()
-        default = spec.get("default", "")
-        choices = spec.get("choices")
-        if ui_element == "check_box" or (not ui_element and parameter_type == "bool"):
-            editor = QtWidgets.QCheckBox()
-            editor.setChecked(default if isinstance(default, bool) else str(default).strip().lower() in {"1", "true", "yes", "on"})
-        elif ui_element == "combo_box" or (not ui_element and isinstance(choices, list) and choices):
-            editor = QtWidgets.QComboBox()
-            for choice in choices if isinstance(choices, list) else []:
-                editor.addItem(str(choice), choice)
-            index = editor.findData(default)
-            editor.setCurrentIndex(index if index >= 0 else 0)
-        elif ui_element == "spin_box" or (not ui_element and parameter_type == "int"):
-            editor = QtWidgets.QSpinBox()
-            editor.setRange(int(spec.get("min", -2_147_483_648)), int(spec.get("max", 2_147_483_647)))
-            editor.setValue(int(default))
-        elif ui_element == "double_spin_box" or (not ui_element and parameter_type == "float"):
-            editor = QtWidgets.QDoubleSpinBox()
-            editor.setDecimals(max(0, min(12, int(spec.get("decimals", 6)))))
-            editor.setRange(float(spec.get("min", -1_000_000_000_000)), float(spec.get("max", 1_000_000_000_000)))
-            editor.setSingleStep(0.1)
-            editor.setValue(float(default))
-        else:  # line_edit and unconfigured parameters
-            editor = QtWidgets.QLineEdit(str(default))
-        editor.setToolTip(tooltip)
-        return editor
+        return create_parameter_editor(spec, tooltip)
 
     def _handle_discovery_method_changed(
         self,
@@ -1274,22 +1342,20 @@ class DiscoveryPanelController(UiPanelController):
             key_item = table.item(row, 0)
             if key_item is None:
                 continue
-            key = key_item.text().strip()
+            key = str(key_item.data(QtCore.Qt.ItemDataRole.UserRole) or key_item.text()).strip()
             editor = table.cellWidget(row, 1)
             if not key:
                 continue
-            if isinstance(editor, QtWidgets.QCheckBox):
-                values[key] = editor.isChecked()
-            elif isinstance(editor, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
-                values[key] = editor.value()
-            elif isinstance(editor, QtWidgets.QComboBox):
-                values[key] = editor.currentData()
-            elif isinstance(editor, QtWidgets.QLineEdit):
-                values[key] = editor.text().strip()
-            else:
-                value_item = table.item(row, 1)
-                if value_item is not None:
-                    values[key] = value_item.text().strip()
+            if editor is not None:
+                values[key] = parameter_value(editor)
+        return values
+
+    def _projection_parameter_values(self, table: QtWidgets.QTableWidget | None) -> dict[str, object]:
+        values = self._parameter_values_from_table(table)
+        if self._dialog is not None:
+            values.update(self._parameter_values_from_table(
+                self._dialog.findChild(QtWidgets.QTableWidget, "table_advanced_parameters")
+            ))
         return values
 
     def _default_discovery_name(

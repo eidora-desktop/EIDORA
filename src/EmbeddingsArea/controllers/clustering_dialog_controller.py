@@ -2,8 +2,10 @@
 from __future__ import annotations
 from PySide6 import QtCore, QtWidgets
 from EmbeddingsArea.clustering.parameters import PREPROCESSING
+from EmbeddingsArea.clustering.guidance import clustering_guidance
 from shared.qt.ui_loader import load_ui
 from shared.qt.widgets import require_child
+from shared.qt.item_views import configure_parameter_checkbox, fit_parameter_table_rows
 
 
 class _DecimalSpinBox(QtWidgets.QDoubleSpinBox):
@@ -12,11 +14,20 @@ class _DecimalSpinBox(QtWidgets.QDoubleSpinBox):
 
 
 class ClusteringDialogController:
-    def __init__(self, jobs, record):
+    def __init__(self, jobs, record, *, dataset=None):
         self.widget = load_ui("EmbeddingsArea", "ui/new_clusters_dialog.ui")
         self.widget.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
         self.jobs, self.service, self.record = jobs, jobs.service, record
+        self._input_shape = (dataset.item_count, dataset.dimensions) if dataset is not None else (0, 0)
+        count, dimensions = self._input_shape
+        summary = self.find(QtWidgets.QLabel, "label_input_summary")
+        summary.setText(f"{count:,} vectors · {dimensions:,} dimensions" if count and dimensions else "")
+        summary.setVisible(bool(summary.text()))
         self._connections = []
+        self._advanced_button = self.find(QtWidgets.QToolButton, "button_advanced_settings")
+        self._advanced_panel = self.find(QtWidgets.QWidget, "panel_advanced_settings")
+        self._advanced_panel.hide()
+        self._bind(self._advanced_button.toggled, self._toggle_advanced_settings)
         self.editors = {}
         self._building = True
         self.name = self.find(QtWidgets.QLineEdit, "edit_name")
@@ -39,15 +50,65 @@ class ClusteringDialogController:
         self._bind(self.find(QtWidgets.QPushButton, "button_defaults").clicked, self.defaults)
         self._bind(self.find(QtWidgets.QPushButton, "button_run").clicked, self.run)
         self._bind(self.find(QtWidgets.QPushButton, "button_close").clicked, self.widget.reject)
+        self.cpu_usage = self.find(QtWidgets.QComboBox, "combo_cpu_usage")
+        self.cpu_usage.clear()
+        for label, percentage in (("Low", 25), ("Middle", 50), ("High", 75), ("Maximum", 100)):
+            self.cpu_usage.addItem(f"{label} ({percentage}%)", percentage)
+        self.update_cpu_usage()
+        self._bind(self.cpu_usage.currentIndexChanged, self.cpu_usage_changed)
         self.build_fields()
         self._building = False
         self.show_error(record.get("error", ""))
         self._bind(jobs.changed, self.update_run)
         self.validate_name(self.name.text())
         self.update_run()
+        self._fit_dialog_height()
 
     def find(self, kind, name):
         return require_child(self.widget, kind, name)
+
+    def _toggle_advanced_settings(self, expanded):
+        self._advanced_panel.setVisible(expanded)
+        self._advanced_button.setArrowType(
+            QtCore.Qt.ArrowType.DownArrow if expanded else QtCore.Qt.ArrowType.RightArrow
+        )
+        self._fit_dialog_height()
+
+    def _fit_dialog_height(self):
+        self.widget.ensurePolished()
+        form = self.find(QtWidgets.QWidget, "panel_clusters_form")
+        footer = self.find(QtWidgets.QWidget, "panel_footer")
+        for layout in reversed(form.findChildren(QtWidgets.QLayout)):
+            layout.invalidate()
+            layout.activate()
+        footer.layout().activate()
+        height = 0
+        for panel in (form, footer):
+            preferred = panel.layout().totalHeightForWidth(self.widget.width())
+            height += preferred if preferred >= 0 else panel.sizeHint().height()
+        screen = self.widget.screen()
+        if screen is not None:
+            height = min(height, max(300, screen.availableGeometry().height() - 80))
+        self.widget.resize(self.widget.width(), height)
+
+    def update_cpu_usage(self):
+        percentage, budget, available = self.service.cpu_allocation()
+        self._cpu_percentage = percentage
+        with QtCore.QSignalBlocker(self.cpu_usage):
+            self.cpu_usage.setCurrentIndex(self.cpu_usage.findData(percentage))
+        self.find(QtWidgets.QLabel, "label_cpu_allocation").setText(
+            f"Up to {budget} of {available} available CPU threads."
+        )
+
+    def cpu_usage_changed(self, *_):
+        try:
+            self.service.set_cpu_usage(self.cpu_usage.currentData())
+        except (OSError, ValueError) as exc:
+            with QtCore.QSignalBlocker(self.cpu_usage):
+                self.cpu_usage.setCurrentIndex(self.cpu_usage.findData(self._cpu_percentage))
+            self.show_error(f"Could not save CPU usage: {exc}")
+            return
+        self.update_cpu_usage()
 
     def _bind(self, signal, slot):
         signal.connect(slot)
@@ -145,22 +206,22 @@ class ClusteringDialogController:
                 label.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled)
                 table.setItem(row, 0, label)
                 table.setCellWidget(row, 1, editor)
-                table.setRowHeight(row, max(30, editor.sizeHint().height() + 4))
                 self.editors[(scope, parameter.id)] = (editor, read, parameter)
         for name in ("table_basic", "table_advanced"):
             table = self.find(QtWidgets.QTableWidget, name)
-            table.setFixedHeight(
-                sum(table.rowHeight(row) for row in range(table.rowCount()))
-                + 2 * table.frameWidth()
-            )
+            fit_parameter_table_rows(table)
         self.find(QtWidgets.QTableWidget, "table_advanced").show()
         self._building = previous_building
         self.update_constraints()
+        self.update_guidance()
+        if not self._building:
+            self._fit_dialog_height()
 
     def editor(self, parameter, value, scope):
         changed = lambda *_: self.changed(scope)
         if parameter.kind == "bool":
             editor = QtWidgets.QCheckBox(self.widget)
+            configure_parameter_checkbox(editor)
             editor.setChecked(bool(value))
             self._bind(editor.toggled, changed)
             read = editor.isChecked
@@ -190,6 +251,7 @@ class ClusteringDialogController:
         layout = QtWidgets.QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         auto = QtWidgets.QCheckBox(parameter.nullable, container)
+        configure_parameter_checkbox(auto)
         auto.setChecked(value is None)
         editor.setEnabled(value is not None)
         layout.addWidget(auto)
@@ -222,6 +284,13 @@ class ClusteringDialogController:
         if scope == "preprocessing":
             self._preprocessing_custom = True
         self.update_constraints()
+        self.update_guidance()
+        self._fit_dialog_height()
+
+    def update_guidance(self):
+        note = clustering_guidance(self.method.id, *self._input_shape, self.values("preprocessing"))
+        self.find(QtWidgets.QLabel, "label_guidance_note").setText(note)
+        self.find(QtWidgets.QWidget, "panel_clustering_guidance").setVisible(bool(note))
 
     def save(self):
         settings = dict(self.record["method_settings"])

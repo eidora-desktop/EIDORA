@@ -10,6 +10,7 @@ from MetadataArea.relationship_service import MetadataRelationshipService, is_re
 from MetadataArea.table_repository import MetadataTableRepository, list_tables
 from shared.qt.dialog_windows import install_dialog_window_policy
 from shared.qt.ui_loader import load_ui
+from shared.qt.table_preview import set_preview_continuation
 from shared.qt.widgets import require_child
 
 
@@ -233,7 +234,7 @@ class LinkTablesDialogController:
             'Target record', f'{self.target_column.currentText()} ({self.target_table.currentText()})'
         ])
         filtered_total = counts[self.preview_filter.currentIndex()]
-        self.preview_count.setText(f'Showing {len(preview.rows):,} of {filtered_total:,} rows')
+        self.preview_count.setText(f'Preview: {len(preview.rows):,}/{filtered_total:,} rows')
         self._set_status('')
         already_linked = preview.existing_count > 0 and preview.linkable_count == 0
         self.link_button.setText('Already linked' if already_linked else 'Link records')
@@ -249,6 +250,7 @@ class LinkTablesDialogController:
                         value = f'{preview.match_counts[row_index]:,} matching records'
                 self.preview_table.setItem(row_index, column_index,
                                           QtWidgets.QTableWidgetItem('' if value is None else str(value)))
+        set_preview_continuation(self.preview_table, len(preview.rows), filtered_total, 1)
         self.preview_table.resizeColumnsToContents()
         self.preview_table.setColumnWidth(1, min(400, max(220, self.preview_table.columnWidth(1))))
         self.link_button.setEnabled(preview.linkable_count > 0)

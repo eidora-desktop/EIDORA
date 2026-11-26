@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>loading_panel</class>
+ <widget class="QDialog" name="loading_panel">
+  <property name="geometry"><rect><x>0</x><y>0</y><width>180</width><height>180</height></rect></property>
+  <property name="minimumSize"><size><width>180</width><height>180</height></size></property>
+  <property name="maximumSize"><size><width>180</width><height>180</height></size></property>
+  <property name="windowTitle"><string>Loading EIDORA</string></property>
+  <property name="accessibleName"><string>Loading EIDORA</string></property>
+  <layout class="QVBoxLayout" name="layout_loading">
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <item>
+    <widget class="QFrame" name="panel_card">
+     <property name="surfaceRole" stdset="0"><string>panel</string></property>
+     <property name="styleSheet"><string>QFrame#panel_card { border-radius: 12px; }</string></property>
+     <layout class="QVBoxLayout" name="layout_card">
+      <property name="spacing"><number>8</number></property>
+      <property name="leftMargin"><number>16</number></property>
+      <property name="topMargin"><number>24</number></property>
+      <property name="rightMargin"><number>16</number></property>
+      <property name="bottomMargin"><number>24</number></property>
+      <item alignment="Qt::AlignHCenter">
+       <widget class="QWidget" name="panel_animation" native="true">
+        <layout class="QHBoxLayout" name="layout_animation">
+         <property name="leftMargin"><number>0</number></property>
+         <property name="topMargin"><number>0</number></property>
+         <property name="rightMargin"><number>0</number></property>
+         <property name="bottomMargin"><number>0</number></property>
+        </layout>
+       </widget>
+      </item>
+      <item alignment="Qt::AlignHCenter"><widget class="QLabel" name="label_wordmark">
+       <property name="minimumSize"><size><width>120</width><height>23</height></size></property>
+       <property name="maximumSize"><size><width>120</width><height>23</height></size></property>
+       <property name="accessibleName"><string>EIDORA</string></property>
+       <property name="text"><string/></property>
+       <property name="alignment"><set>Qt::AlignCenter</set></property>
+      </widget></item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

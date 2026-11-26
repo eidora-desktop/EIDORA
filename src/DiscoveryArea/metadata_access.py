@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections import OrderedDict
+import sys
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, field, replace
 from threading import RLock
 from typing import TYPE_CHECKING
@@ -50,9 +51,41 @@ class DiscoveryMetadataAccess:
         self._column_data: OrderedDict[str, MetadataColumnData] = OrderedDict()
         self._distinct_values: dict[str, tuple[str, ...]] = {}
         self._value_counts: dict[str, tuple[tuple[str, int], ...]] = {}
+        self._summary_sizes: dict[tuple[str, str], int] = {}
         self._group_fields: dict[str, tuple[str, str]] = {}
         self._group_field_aliases: dict[str, str] = {}
         self._related_field_aliases: dict[str, str] = {}
+
+    def with_updated_groups(self, project: "Project") -> "DiscoveryMetadataAccess":
+        """Refresh virtual group fields without rereading unchanged physical columns.
+
+        Use a new access object so in-flight group reads can only populate the old
+        cache. Immutable physical-column data is safe to share between workers.
+        """
+        updated = DiscoveryMetadataAccess(project)
+        revision = self._check_revision()
+        with self._lock:
+            if (
+                updated._revision != revision
+                or updated._repository.database_path != self._repository.database_path
+            ):
+                return updated
+            def physical(name: str) -> bool:
+                return not name.startswith(("group:", "group-set:"))
+            updated._metadata_ids = self._metadata_ids
+            updated._column_data = OrderedDict(
+                (name, data) for name, data in self._column_data.items() if physical(name)
+            )
+            updated._distinct_values = {
+                name: values for name, values in self._distinct_values.items() if physical(name)
+            }
+            updated._value_counts = {
+                name: counts for name, counts in self._value_counts.items() if physical(name)
+            }
+            updated._summary_sizes = {
+                key: size for key, size in self._summary_sizes.items() if physical(key[0])
+            }
+        return updated
 
     def _check_revision(self):
         revision = self._repository.revision()
@@ -64,6 +97,7 @@ class DiscoveryMetadataAccess:
                 self._column_data.clear()
                 self._distinct_values.clear()
                 self._value_counts.clear()
+                self._summary_sizes.clear()
                 self._group_fields.clear()
                 self._group_field_aliases.clear()
                 self._related_field_aliases.clear()
@@ -77,6 +111,11 @@ class DiscoveryMetadataAccess:
             return cached
         from MetadataArea.related_fields import discovery_columns
         physical, related_aliases = discovery_columns(self._repository.database_path)
+        label_counts = Counter(column.label for column in physical)
+        canonical_names = {column.name for column in physical}
+        for column in physical:
+            if label_counts[column.label] == 1 and column.label not in canonical_names:
+                related_aliases[column.label] = column.name
         used_labels = {column.label.casefold() for column in physical}
         virtual: list[MetadataColumn] = []
         fields: dict[str, tuple[str, str]] = {}
@@ -193,10 +232,20 @@ class DiscoveryMetadataAccess:
 
     def _trim_column_cache(self):
         while (len(self._column_data) > self.MAX_CACHED_COLUMNS
-               or sum(self._column_bytes(data) for data in self._column_data.values()) > self.MAX_CACHE_BYTES):
+               or (sum(self._column_bytes(data) for data in self._column_data.values())
+                   + sum(self._summary_sizes.values())) > self.MAX_CACHE_BYTES):
             evicted, _ = self._column_data.popitem(last=False)
             self._distinct_values.pop(evicted, None)
             self._value_counts.pop(evicted, None)
+            self._summary_sizes.pop((evicted, "distinct"), None)
+            self._summary_sizes.pop((evicted, "counts"), None)
+
+    @staticmethod
+    def _summary_bytes(values):
+        # Conservatively include Python tuple, string and integer storage.
+        return sys.getsizeof(values) + sum(
+            DiscoveryMetadataAccess._summary_bytes(value) if isinstance(value, tuple)
+            else sys.getsizeof(value) for value in values)
 
     @staticmethod
     def _column_bytes(data):
@@ -295,12 +344,18 @@ class DiscoveryMetadataAccess:
             cached = self._distinct_values.get(name)
         if cached is not None:
             return cached
+        revision = self._revision
         values = self._all_values(name)
         loaded = (tuple(sorted({str(value) for value in values})) if name in self._group_fields
                   else tuple(sorted({str(value).strip() for value in values if str(value).strip()})))
+        size = self._summary_bytes(loaded)
+        if self._check_revision() != revision:
+            return self.distinct_values(column_name)
         with self._lock:
             if name in self._column_data:
                 self._distinct_values[name] = loaded
+                self._summary_sizes[name, "distinct"] = size
+                self._trim_column_cache()
             return loaded
 
     def value_counts(self, column_name: str) -> tuple[tuple[str, int], ...]:
@@ -311,6 +366,7 @@ class DiscoveryMetadataAccess:
             cached = self._value_counts.get(name)
         if cached is not None:
             return cached
+        revision = self._revision
         all_values = self._all_values(name)
         values, counts = np.unique(all_values, return_counts=True)
         loaded = tuple(
@@ -319,9 +375,14 @@ class DiscoveryMetadataAccess:
                 key=lambda item: (-item[1], item[0]),
             )
         )
+        size = self._summary_bytes(loaded)
+        if self._check_revision() != revision:
+            return self.value_counts(column_name)
         with self._lock:
             if name in self._column_data:
                 self._value_counts[name] = loaded
+                self._summary_sizes[name, "counts"] = size
+                self._trim_column_cache()
             return loaded
 
     def _all_values(self, name):
@@ -405,3 +466,30 @@ def _numeric_values(values: np.ndarray) -> np.ndarray:
     output = np.ascontiguousarray(output, dtype=np.float32)
     output.setflags(write=False)
     return output
+
+
+def numeric_value_range(values):
+    """Numeric domain and integer/float control choice, computed off the GUI thread."""
+    minimum = maximum = None
+    use_double = False
+    for raw in values:
+        text = str(raw).strip()
+        if not text:
+            continue
+        try:
+            value = float(text)
+        except (TypeError, ValueError):
+            return None
+        if np.isfinite(value):
+            minimum = value if minimum is None else min(minimum, value)
+            maximum = value if maximum is None else max(maximum, value)
+            try:
+                int(text)
+            except ValueError:
+                use_double = True
+    return (minimum, maximum, use_double) if minimum is not None else None
+
+
+def filter_options(access, column):
+    values = list(access.distinct_values(column))
+    return values, numeric_value_range(values)

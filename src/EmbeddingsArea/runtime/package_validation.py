@@ -62,7 +62,8 @@ def validate(directory, request):
                 for override in [*combinations, fixture.get("parameters", {})]:
                     contract = resolve_contract(component.contract(), override)
                     item = RuntimeInput(0, "fixture", str(fixture.get("identifier", "fixture")),
-                                        resolve_package_path(directory, fixture["path"]), component.modality)
+                                        resolve_package_path(directory, fixture["path"]), component.modality,
+                                        text_record_key=str(fixture.get("text_record_key", "")))
                     feed = prepare_batch([item], contract, package_directory=directory)
                     # Source-model reference tensors are explicit, named, and
                     # never inferred from ONNX output shape alone.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -74,11 +75,20 @@ class DiscoveryMethodCatalog:
         if definition is None:
             raise ValueError(f"Unknown discovery method: {method_id}")
         incoming = values or {}
+        if definition.implementation.get("distribution") == "umap-learn":
+            from DiscoveryArea.discovery_methods.methods.umap.parameters import migrate_legacy_parameters
+            incoming = migrate_legacy_parameters(incoming)
+        if method_id == "pacmap" and "reproducible" in incoming:
+            incoming = dict(incoming)
+            repeatable = _coerce_bool(incoming.pop("reproducible"))
+            incoming["random_state"] = incoming.get("random_state", 42) if repeatable else None
         normalized = self.default_parameters(method_id)
         for name, spec in definition.parameters.items():
             if name not in incoming:
                 continue
             normalized[name] = self._coerce_parameter(name, spec, incoming[name])
+            if spec.get("readonly") and normalized[name] != spec.get("default"):
+                raise ValueError(f"Parameter '{name}' is fixed to {spec.get('default')!r} for this method. {spec.get('info', '')}")
         return normalized
 
     def _discover(self) -> dict[str, DiscoveryMethodDefinition]:
@@ -125,9 +135,6 @@ class DiscoveryMethodCatalog:
                     status=status,
                     execution=execution,
                     supports_transform=bool(payload.get("supports_transform", False)),
-                    supports_arrangement_transform=bool(
-                        payload.get("supports_arrangement_transform", False)
-                    ),
                     output_dimensions=tuple(int(value) for value in output_dimensions),
                     citations=tuple(
                         dict(value)
@@ -154,6 +161,10 @@ class DiscoveryMethodCatalog:
 
     def _coerce_parameter(self, name: str, spec: dict[str, Any], value: object) -> object:
         kind = str(spec.get("type") or "str").strip().lower()
+        if "automatic" in spec and value == spec["automatic"]:
+            return value
+        if spec.get("nullable") and (value is None or isinstance(value, str) and value.strip().lower() in {"", "none", "null"}):
+            return None
         if kind == "int":
             if isinstance(value, bool):
                 raise ValueError(f"Parameter '{name}' must be an integer.")
@@ -170,6 +181,17 @@ class DiscoveryMethodCatalog:
             coerced = float(value)
         elif kind == "bool":
             coerced = _coerce_bool(value)
+        elif kind == "json":
+            try:
+                coerced = json.loads(value) if isinstance(value, str) else copy.deepcopy(value)
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"Parameter '{name}' must be valid JSON.") from exc
+            if spec.get("json_kind") == "object" and not isinstance(coerced, dict):
+                raise ValueError(f"Parameter '{name}' must be a JSON object or None.")
+            if spec.get("json_kind") == "epochs":
+                epochs = coerced if isinstance(coerced, list) else [coerced]
+                if not epochs or any(type(epoch) is not int or epoch < 0 for epoch in epochs):
+                    raise ValueError(f"Parameter '{name}' must be a nonnegative integer, a nonempty list of those integers, or None.")
         else:
             coerced = str(value)
         choices = spec.get("choices")

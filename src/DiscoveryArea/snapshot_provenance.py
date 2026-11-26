@@ -20,7 +20,9 @@ class SnapshotMethodsService:
         if snapshot is None:
             raise ValueError("Snapshot could not be read.")
         if snapshot.methods_report:
-            return MethodsReport.from_payload(snapshot.methods_report)
+            report = MethodsReport.from_payload(snapshot.methods_report)
+            return replace(report, scope=report.scope or f"Snapshot: {snapshot.name} at capture",
+                           caption_summary=report.caption_summary or report.methods_text)
         return self.build(project, snapshot, legacy=True)
 
     def freeze(self, project, snapshot):
@@ -51,14 +53,22 @@ class SnapshotMethodsService:
         projection_selection = option.provenance.get("selection", {}) if option else {}
         states = (snapshot.appearance_state, snapshot.filters_state, snapshot.slicer_state, projection_selection)
         reports.extend(self.clustering_reports(project, states))
-        reports.append(settings_report(snapshot.name, filters=snapshot.filters_state, slicer=snapshot.slicer_state,
-                                       transform=snapshot.projection.transform if snapshot.projection else snapshot.transform_state))
+        settings = settings_report(snapshot.name, filters=snapshot.filters_state, slicer=snapshot.slicer_state,
+                                   transform=snapshot.projection.transform if snapshot.projection else snapshot.transform_state)
+        reports.append(settings)
         reports.append(MethodsReport("Snapshot", "", (), (), (
             ("Snapshot created", snapshot.created_at),
             ("Snapshot item count", str(snapshot.metadata_signature.count)),
             ("Snapshot item checksum", snapshot.metadata_signature.checksum),
         )))
-        return combine_reports(snapshot.name, reports, warnings=warnings)
+        report = combine_reports(snapshot.name, reports, warnings=warnings)
+        method = option.provenance.get("method", {}) if option else {}
+        name = method.get("name") or (option.label if option else "saved")
+        caption = f"Items are shown using {name} coordinates."
+        if settings.methods_text:
+            caption += " " + settings.methods_text
+        return replace(report, scope=f"Snapshot: {snapshot.name} at capture",
+                       caption_summary=caption)
 
     @staticmethod
     def clustering_reports(project, states) -> list[MethodsReport]:

@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+import errno
 from pathlib import Path
+import sqlite3
 from typing import TYPE_CHECKING, Callable
 
 from PySide6 import QtCore, QtGui, QtWidgets
+from shiboken6 import isValid
 
+from MainWindow.controllers.loading_panel_controller import LoadingPanelController
 from MainWindow.controllers.project_chooser_row import (
     PROJECT_ROW_HEIGHT,
     ProjectRowWidget,
 )
 from project.service import ProjectService
+from shared.qt.item_views import clear_list_items
 from shared.qt.branding import branding_pixmap, branding_svg_pixmap
 from shared.qt.message_dialogs import show_error
 from shared.qt.ui_loader import load_ui
@@ -127,6 +133,34 @@ class _ProjectItemDelegate(QtWidgets.QStyledItemDelegate):
         return font
 
 
+class _ChooserMenuFilter(QtCore.QObject):
+    """Position mouse-opened menus at the click; retain native keyboard behavior."""
+
+    def __init__(self, button: QtWidgets.QPushButton) -> None:
+        super().__init__(button)
+        self._button = button
+        self._menu = button.menu()
+        self._menu.aboutToHide.connect(self._reset_button)
+        button.installEventFilter(self)
+
+    def eventFilter(self, watched: QtCore.QObject, event: QtCore.QEvent) -> bool:
+        if watched is self._button and event.type() in (
+            QtCore.QEvent.Type.MouseButtonPress,
+            QtCore.QEvent.Type.MouseButtonRelease,
+        ) and event.button() == QtCore.Qt.MouseButton.LeftButton:
+            if event.type() == QtCore.QEvent.Type.MouseButtonPress:
+                self._button.setFocus(QtCore.Qt.FocusReason.MouseFocusReason)
+                self._button.setDown(True)
+                self._menu.popup(event.globalPosition().toPoint())
+            return True
+        return False
+
+    @QtCore.Slot()
+    def _reset_button(self) -> None:
+        if isValid(self._button):
+            self._button.setDown(False)
+
+
 class _ChooserPaletteFilter(QtCore.QObject):
     """Keep the wordmark legible when the application palette changes."""
 
@@ -151,9 +185,11 @@ class ProjectChooserController:
         *,
         remove_project_callback: Callable[[Project], bool] | None = None,
         storage_read_only: bool = False,
-        prepare_project: Callable[[Project], None] | None = None,
+        prepare_project: Callable[[Project], Iterator[None] | None] | None = None,
+        open_settings: Callable[[str], None] | None = None,
     ) -> None:
         self.dialog = load_ui("MainWindow", "ui/project_chooser.ui", None)
+        self._settings_callback = open_settings
         if not isinstance(self.dialog, QtWidgets.QDialog):
             raise RuntimeError("project_chooser.ui root must be a QDialog")
         self.dialog.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
@@ -173,16 +209,6 @@ class ProjectChooserController:
         self._project_item_delegate = _ProjectItemDelegate(self._list_projects)
         self._list_projects.setItemDelegate(self._project_item_delegate)
         self._label_no_projects = self._find_required(QtWidgets.QLabel, "label_no_projects")
-        self._label_opening_project = self._find_required(QtWidgets.QLabel, "label_opening_project")
-        self._progress_opening_project = self._find_required(
-            QtWidgets.QProgressBar, "progress_opening_project"
-        )
-        for widget in (self._label_opening_project, self._progress_opening_project):
-            size_policy = widget.sizePolicy()
-            size_policy.setRetainSizeWhenHidden(True)
-            widget.setSizePolicy(size_policy)
-            widget.hide()
-        self._panel_branding = self._find_required(QtWidgets.QWidget, "panel_branding")
         self._button_open_project = self._find_required(
             QtWidgets.QPushButton, "button_open_project"
         )
@@ -192,11 +218,23 @@ class ProjectChooserController:
         self._button_import_project = self._find_required(
             QtWidgets.QPushButton, "button_import_project"
         )
-        self._button_storage = self._find_required(QtWidgets.QPushButton, "button_storage")
-        self._button_report = self._find_required(QtWidgets.QPushButton, "button_report")
+        self._open_project_menu = QtWidgets.QMenu(self._button_import_project)
+        self._action_open_folder = self._open_project_menu.addAction("Folder…")
+        self._action_import_bundle = self._open_project_menu.addAction("ZIP…")
+        self._button_import_project.setMenu(self._open_project_menu)
+        button_more_options = self._find_required(QtWidgets.QPushButton, "button_more_options")
+        self._more_options_menu = QtWidgets.QMenu(button_more_options)
+        self._action_starter = self._more_options_menu.addAction("Create MET Example…")
+        starter_separator = self._more_options_menu.addSeparator()
+        self._action_settings = self._more_options_menu.addAction("Settings…")
+        self._action_report = self._more_options_menu.addAction("Diagnostics…")
+        button_more_options.setMenu(self._more_options_menu)
+        self._menu_filters = [
+            _ChooserMenuFilter(button)
+            for button in (self._button_import_project, button_more_options)
+        ]
         self._diagnostics_notice = self._find_required(QtWidgets.QLabel, "label_diagnostics_notice")
         self._diagnostics_notice.setVisible(report_repository().has_unreviewed_problem())
-        self._button_starter = self._find_required(QtWidgets.QPushButton, "button_starter")
         from project.starter_collection import bundled_resources, read_manifest
 
         manifest_path = bundled_resources()
@@ -205,7 +243,8 @@ class ProjectChooserController:
             starter_available = (manifest_path.parent / manifest["archive"]).is_file()
         except (OSError, ValueError):
             starter_available = False
-        self._button_starter.setVisible(starter_available)
+        self._action_starter.setVisible(starter_available)
+        starter_separator.setVisible(starter_available)
         self._refresh_branding()
         self._palette_filter = _ChooserPaletteFilter(self.dialog, self._refresh_branding)
 
@@ -226,19 +265,31 @@ class ProjectChooserController:
             self._list_projects.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
         else:
             self._button_new_project.setFocus(QtCore.Qt.FocusReason.OtherFocusReason)
-        return QtWidgets.QDialog.DialogCode(self.dialog.exec())
+        # QDialog.exec() ends when the chooser is hidden for loading. Wait
+        # for accept/reject instead, so an opening failure can restore it.
+        loop = QtCore.QEventLoop()
+        app = QtWidgets.QApplication.instance()
+        self.dialog.setResult(QtWidgets.QDialog.DialogCode.Rejected)
+        self.dialog.finished.connect(loop.quit)
+        app.aboutToQuit.connect(loop.quit)
+        try:
+            self.dialog.show()
+            loop.exec()
+            return QtWidgets.QDialog.DialogCode(self.dialog.result())
+        finally:
+            self.dialog.finished.disconnect(loop.quit)
+            app.aboutToQuit.disconnect(loop.quit)
 
     def refresh(self) -> None:
         selected_path = self._selected_project_path()
-        recent_projects = self._project_service.list_recent_project_entries()
-        self._list_projects.clear()
+        projects = self._project_service.list_known_projects(recent_first=True)
+        clear_list_items(self._list_projects)
         self._projects_by_path = {
-            entry.project.root: entry.project for entry in recent_projects
+            project.root: project for project in projects
         }
 
         selected_row = 0
-        for row, entry in enumerate(recent_projects):
-            project = entry.project
+        for row, project in enumerate(projects):
             item = QtWidgets.QListWidgetItem(f"{project.name}\n{project.root}")
             item.setData(QtCore.Qt.ItemDataRole.UserRole, str(project.root))
             item.setData(_PROJECT_NAME_ROLE, project.name)
@@ -258,7 +309,7 @@ class ProjectChooserController:
             if selected_path is not None and project.root == selected_path:
                 selected_row = row
 
-        has_projects = bool(recent_projects)
+        has_projects = bool(projects)
         self._list_projects.setVisible(has_projects)
         self._label_no_projects.setVisible(not has_projects)
         self._button_new_project.setDefault(not has_projects)
@@ -271,11 +322,17 @@ class ProjectChooserController:
         self._update_open_button()
 
     def dispose(self) -> None:
+        if self._palette_filter is None:
+            return
         self.dialog.removeEventFilter(self._palette_filter)
         self._palette_filter = None
         for signal, slot in self._connections:
             signal.disconnect(slot)
         self._connections.clear()
+        clear_list_items(self._list_projects)
+        # Row callbacks also retain this controller. Delete the entire transient
+        # tree on the GUI thread rather than relying on collection of Qt cycles.
+        self.dialog.deleteLater()
 
     def _refresh_branding(self) -> None:
         dark = self.dialog.palette().color(QtGui.QPalette.ColorRole.Window).lightness() < 128
@@ -299,13 +356,14 @@ class ProjectChooserController:
     def _wire(self) -> None:
         self._connections = [
             (self._button_new_project.clicked, self._create_project),
-            (self._button_import_project.clicked, self._import_existing_project),
+            (self._action_open_folder.triggered, self._import_existing_project),
             (self._button_open_project.clicked, self._open_selected_project),
             (self._list_projects.itemSelectionChanged, self._update_open_button),
             (self._list_projects.itemDoubleClicked, lambda _item: self._open_selected_project()),
-            (self._button_storage.clicked, self._open_storage),
-            (self._button_report.clicked, self._show_report),
-            (self._button_starter.clicked, self._create_starter),
+            (self._action_settings.triggered, self._open_settings),
+            (self._action_report.triggered, self._show_report),
+            (self._action_starter.triggered, self._create_starter),
+            (self._action_import_bundle.triggered, self._import_project_bundle),
         ]
         for signal, slot in self._connections:
             signal.connect(slot)
@@ -318,7 +376,6 @@ class ProjectChooserController:
             return
         project_name, parent = selection
         self._load_project(
-            project_name,
             lambda: self._project_service.create_empty_project(project_name, parent=parent),
             "New Project Failed",
             "Created project",
@@ -328,11 +385,15 @@ class ProjectChooserController:
         show_diagnostics()
         self._diagnostics_notice.setVisible(report_repository().has_unreviewed_problem())
 
-    def _open_storage(self) -> None:
-        from MainWindow.controllers.storage_dialog_controller import StorageDialogController
+    def _open_settings(self) -> None:
+        from MainWindow.controllers.settings_dialog_controller import SettingsDialogController
 
-        controller = StorageDialogController(self._project_service, read_only=self._storage_read_only)
-        controller.exec()
+        if self._settings_callback is not None:
+            self._settings_callback("storage")
+        else:
+            controller = SettingsDialogController(self._project_service, project_open=self._storage_read_only)
+            controller.select_tab("storage")
+            controller.exec()
         self.refresh()
 
     def _create_starter(self) -> None:
@@ -354,72 +415,108 @@ class ProjectChooserController:
             self.refresh()
 
     def _import_existing_project(self) -> None:
-        project_path = QtWidgets.QFileDialog.getExistingDirectory(
+        from shared.qt import file_dialogs
+
+        project_path = file_dialogs.get_import_directory(
             self.dialog,
-            "Import Existing Project",
+            "Open Project Folder",
         )
         if not project_path:
             return
         self._load_project(
-            Path(project_path).name,
             lambda: self._project_service.open_project(project_path),
-            "Import Existing Project Failed",
-            "Imported existing project",
+            "Open Project Folder Failed",
+            "Opened project",
+            source_root=Path(project_path),
         )
+
+    def _import_project_bundle(self) -> None:
+        bundle_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self.dialog, "Open Project ZIP", "", "Project Bundles (*.zip)",
+        )
+        if bundle_path:
+            self._load_project(
+                lambda: self._project_service.import_project_bundle(bundle_path),
+                "Open Project ZIP Failed", "Opened project from ZIP",
+            )
 
     def _open_selected_project(self) -> None:
         project_path = self._selected_project_path()
         if project_path is None:
             return
         self._load_project(
-            self._projects_by_path[project_path].name,
             lambda: self._project_service.open_recent_project(project_path),
             "Open Project Failed",
             "Opened project",
+            source_root=project_path,
         )
 
     def _load_project(
         self,
-        name: str,
         load: Callable[[], Project],
         error_title: str,
         status_prefix: str,
+        *,
+        source_root: Path | None = None,
     ) -> None:
         if self._opening_project:
             return
         self._opening_project = True
+        copy_requested = False
         LOGGER.info("Opening project")
-        self._set_opening_state(True, name)
         try:
-            # Let the chooser paint before project I/O or Qt workspace construction.
-            QtWidgets.QApplication.processEvents(
-                QtCore.QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
-            )
-            project = load()
-            if self._prepare_project is not None:
-                self._progress_opening_project.setValue(75)
-                self._prepare_project(project)
+            self.dialog.hide()
+            loading = LoadingPanelController(owner=self.dialog)
+            project = loading.run(load, self._prepare_project)
         except Exception as exc:
-            self._set_opening_state(False)
-            show_error(self.dialog, error_title, str(exc))
+            self.dialog.show()
+            if source_root is not None and self._is_project_write_failure(exc, source_root):
+                LOGGER.warning("Project opening needs write access: %s", source_root, exc_info=True)
+                copy_requested = self._offer_project_copy(source_root, exc)
+            else:
+                show_error(self.dialog, error_title, str(exc))
             self.refresh()
         else:
             LOGGER.info("Project opened")
-            self._progress_opening_project.setValue(100)
             self._accept_project(project, f"{status_prefix} {project.name}")
-            self._set_opening_state(False)
         finally:
             self._opening_project = False
+        if copy_requested:
+            self._load_project(
+                lambda: self._project_service.copy_project_to_workspace(source_root),
+                "Copy Project Failed", "Opened project copy",
+            )
 
-    def _set_opening_state(self, opening: bool, name: str = "") -> None:
-        if opening:
-            self._label_opening_project.setText(f"Opening {name}…")
-            self._progress_opening_project.setValue(0)
-        self._label_opening_project.setVisible(opening)
-        self._progress_opening_project.setVisible(opening)
-        self._panel_branding.setEnabled(not opening)
-        self._list_projects.setEnabled(not opening)
-        self._button_open_project.setEnabled(not opening and self._selected_project_path() is not None)
+    @staticmethod
+    def _is_project_write_failure(error: Exception, root: Path) -> bool:
+        code = getattr(error, "sqlite_errorcode", 0) or 0
+        if isinstance(error, sqlite3.Error) and code & 0xff == sqlite3.SQLITE_READONLY:
+            return True
+        if isinstance(error, OSError) and error.errno in {errno.EACCES, errno.EPERM, errno.EROFS}:
+            # Copying the project cannot repair access to the recent-history file.
+            return bool(error.filename and Path(error.filename).resolve().is_relative_to(root.resolve()))
+        return False
+
+    def _offer_project_copy(self, root: Path, error: Exception) -> bool:
+        message = QtWidgets.QMessageBox()
+        message.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
+        message.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        message.setWindowTitle("Project Needs Write Access")
+        message.setTextFormat(QtCore.Qt.TextFormat.PlainText)
+        location = getattr(error, "filename", None) or str(root)
+        message.setText(f"EIDORA could not write to this project location:\n{location}")
+        message.setInformativeText(
+            "Opening a project requires write access to its databases and their folders. "
+            "You can copy it to your project storage and open the copy, leaving the original unchanged. "
+            "Close the source project in other EIDORA windows before copying.\n\n"
+            f"Copy destination: {self._project_service.workspace_root}"
+        )
+        message.setDetailedText(str(error))
+        copy_button = message.addButton("Copy to My Projects and Open", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+        cancel = message.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+        message.setDefaultButton(cancel)
+        message.exec()
+        return message.clickedButton() is copy_button
 
     def _rename_project(self, project_path: Path) -> None:
         project = self._projects_by_path.get(project_path)

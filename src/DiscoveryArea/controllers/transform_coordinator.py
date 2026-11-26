@@ -3,20 +3,14 @@ from __future__ import annotations
 import threading
 
 from PySide6 import QtCore
+from shared.qt.background_tasks import BackgroundTasks
 
 from DiscoveryArea.domain import DiscoveryDataset
 from DiscoveryArea.transform_service import DiscoveryTransformService
 from DiscoveryArea.transforms import TransformCancelled, TransformSettings
 
 
-class _TransformSignals(QtCore.QObject):
-    finished = QtCore.Signal(int, object)
-    failed = QtCore.Signal(int, str)
-    cancelled = QtCore.Signal(int)
-    progress = QtCore.Signal(int, int)
-
-
-class _TransformTask(QtCore.QRunnable):
+class _TransformTask:
     def __init__(
         self,
         revision,
@@ -27,8 +21,6 @@ class _TransformTask(QtCore.QRunnable):
         cached_grid,
         event,
     ) -> None:
-        super().__init__()
-        self.setAutoDelete(False)
         self.revision = int(revision)
         self.project = project
         self.scope = scope
@@ -36,10 +28,10 @@ class _TransformTask(QtCore.QRunnable):
         self.settings = settings
         self.cached_grid = cached_grid
         self.event = event
-        self.signals = _TransformSignals()
 
-    @QtCore.Slot()
-    def run(self) -> None:
+    def run(self, progress):
+        if self.event.is_set():
+            return None
         try:
             result = DiscoveryTransformService().transform_and_save(
                 project=self.project,
@@ -48,16 +40,11 @@ class _TransformTask(QtCore.QRunnable):
                 settings=self.settings,
                 cached_grid=self.cached_grid,
                 cancelled=self.event.is_set,
-                progress=lambda value: self.signals.progress.emit(
-                    self.revision, int(value)
-                ),
+                progress=progress,
             )
         except TransformCancelled:
-            self.signals.cancelled.emit(self.revision)
-        except Exception as exc:
-            self.signals.failed.emit(self.revision, f"{type(exc).__name__}: {exc}")
-        else:
-            self.signals.finished.emit(self.revision, result)
+            return None
+        return None if self.event.is_set() else result
 
 
 class TransformCoordinator(QtCore.QObject):
@@ -69,8 +56,11 @@ class TransformCoordinator(QtCore.QObject):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._revision = 0
-        self._tasks = {}
         self._events = {}
+        self._runner = BackgroundTasks(self)
+        self._runner.finished.connect(self._completed)
+        self._runner.failed.connect(self._failed)
+        self._runner.progress.connect(self._progress)
 
     @property
     def revision(self) -> int:
@@ -96,13 +86,8 @@ class TransformCoordinator(QtCore.QObject):
             cached_grid,
             event,
         )
-        task.signals.finished.connect(self._finished)
-        task.signals.failed.connect(self._failed)
-        task.signals.cancelled.connect(self._cancelled)
-        task.signals.progress.connect(self._progress)
-        self._tasks[revision] = task
         self._events[revision] = event
-        QtCore.QThreadPool.globalInstance().start(task)
+        self._runner.submit(revision, task.run)
         return revision
 
     def cancel_pending(self) -> None:
@@ -134,5 +119,15 @@ class TransformCoordinator(QtCore.QObject):
             self.progress.emit(revision, max(0, min(100, int(value))))
 
     def _forget(self, revision: int) -> None:
-        self._tasks.pop(revision, None)
         self._events.pop(revision, None)
+
+    def _completed(self, revision: int, result: object) -> None:
+        if result is None:
+            self._cancelled(revision)
+        else:
+            self._finished(revision, result)
+
+    def shutdown(self) -> None:
+        self.cancel_pending()
+        self._runner.shutdown()
+        self._events.clear()

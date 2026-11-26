@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import math
 
 from matplotlib.backends.backend_agg import RendererAgg
 from matplotlib.figure import Figure
@@ -154,16 +155,12 @@ def measure_page(renderer, composition, figure):
     plots, legends, origins = {}, dict(global_legends), {}
     for key, cell in sorted(cells.items()):
         local_settings = plot_settings(reference_settings, cell)
+        if settings.aspect_ratio == 'snapshot':
+            local_settings = snapshot_dimensions(local_settings, cell)
         elements = {name: plot_element(element, local_settings) for name, element in composition.figure_elements.items() if element.source_cell == key}
         local = replace(composition, settings=local_settings, plot_cells={key: cell}, figure_elements=elements)
-        reference = legacy_page_layout(renderer, local, figure)
-        scale = min(slot_width / reference.width, slot_height / reference.height)
-        # Avoid microscopic rounding differences during saved-layout conversion.
-        if abs(scale - 1.0) < 1e-12:
-            scale = 1.0
-        local_width, local_height, local_bands, local_legends, local_origins, scale = fit_cell(
-            renderer, local, figure, reference, scale, slot_width, slot_height,
-        )
+        local_settings, reference, fitted = fit_plot(renderer, local, figure, slot_width, slot_height)
+        local_width, local_height, local_bands, local_legends, local_origins, scale = fitted
         render_settings = PlotRenderSettings(**vars(local_settings), content_scale=scale)
         x = margins['left'] + (key[1] - min_column) * (slot_width + gap) + (slot_width - local_width) / 2
         y = margins['bottom'] + (max_row - key[0]) * (slot_height + gap) + (slot_height - local_height) / 2
@@ -190,6 +187,52 @@ def measure_page(renderer, composition, figure):
         origins[key] = (min(max(left + x, outer + padding), width - outer - padding - legend_width),
                         min(max(bottom + y, outer + padding), height - outer - padding - legend_height))
     return PageLayout(width, height, plots, legends, origins, margins, bands)
+
+
+def snapshot_dimensions(settings, cell):
+    """Use captured camera spans without loading points or following live sources."""
+    base = cell.render_state.get('snapshot_base', {})
+    state = base.get('state', {}) if isinstance(base, dict) else {}
+    camera = state.get('camera') if isinstance(state, dict) else None
+    if not isinstance(camera, dict):
+        camera = cell.render_state.get('camera', {})
+    if not isinstance(camera, dict):
+        return settings
+    try:
+        spans = [float(camera[f'{axis}_max']) - float(camera[f'{axis}_min']) for axis in ('x', 'y')]
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return settings
+    if not all(math.isfinite(span) and span > 1e-9 for span in spans):
+        return settings
+    ratio = spans[0] / spans[1]
+    if not math.isfinite(ratio) or ratio <= 0:
+        return settings
+    width = min(settings.width_mm, settings.height_mm * ratio)
+    return replace(settings, width_mm=width, height_mm=width / ratio)
+
+
+def fit_plot(renderer, composition, figure, slot_width, slot_height):
+    """Fit styles uniformly; optionally expand the plot into the remaining space."""
+    reference = legacy_page_layout(renderer, composition, figure)
+    scale = min(slot_width / reference.width, slot_height / reference.height)
+    # Avoid microscopic rounding differences during saved-layout conversion.
+    if abs(scale - 1.0) < 1e-12:
+        scale = 1.0
+    for attempt in range(12):
+        fitted = fit_cell(renderer, composition, figure, reference, scale, slot_width, slot_height)
+        width, height, bands, legends, _origins, scale = fitted
+        if composition.settings.aspect_ratio != 'fit' or max(abs(slot_width - width), abs(slot_height - height)) < 1e-8:
+            return composition.settings, reference, fitted
+        # Remeasure after expansion: captions can wrap differently and map
+        # labels can need more room. Only transient render dimensions change.
+        settings = replace(composition.settings,
+            width_mm=(slot_width - bands['left'] - bands['right']) / scale * 25.4,
+            height_mm=(slot_height - bands['top'] - bands['bottom']) / scale * 25.4)
+        for _, legend, _, _ in legends.values():
+            legend.remove()
+        composition = replace(composition, settings=settings)
+        reference = legacy_page_layout(renderer, composition, figure)
+    raise ValueError('The plot annotations do not fit in their grid cell. Increase the figure size or reduce annotation sizes.')
 
 
 def migrate_page_dimensions(composition):
@@ -228,7 +271,7 @@ def fit_cell(renderer, composition, figure, reference, scale, slot_width, slot_h
     plot_width, plot_height = next(iter(reference.plots.values()))[2:4]
     dpi = max(settings.export_dpi, 36)
     metrics = RendererAgg(1, 1, dpi)
-    if scale == 1.0:
+    if scale == 1.0 and reference.width <= slot_width + 1e-10 and reference.height <= slot_height + 1e-10:
         origins = {key: (x - reference.bands['left'], y - reference.bands['bottom'])
                    for key, (x, y) in reference.legend_origins.items()}
         return reference.width, reference.height, reference.bands, reference.legends, origins, scale

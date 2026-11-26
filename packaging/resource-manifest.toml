@@ -11,8 +11,8 @@ patterns = ["src/shared/icons/manifest.yaml", "src/shared/icons/material/*.svg"]
 [[groups]]
 name = "application-branding"
 patterns = [
-  "src/shared/branding/eidora_icon_linux.png",
-  "src/shared/branding/eidora_icon_macos.png",
+  "src/shared/branding/linux/*.png",
+  "src/shared/branding/macos/*.png",
   "src/shared/branding/eidora_icon_windows.ico",
   "src/shared/branding/eidora_logo_ui.png",
   "src/shared/branding/eidora_wordmark.svg",
@@ -61,12 +61,14 @@ bundle_subdirectory = "DiscoveryArea/canvas/native/packaged/DiscoveryRenderer"
 [dynamic_imports]
 modules = [
   "FiguresArea.controllers.snapshot_animation_tab_controller",
-  "AssetsArea.controllers.main_controller",
-  "AssetsArea.controllers.media_sources_panel_controller",
-  "AssetsArea.controllers.thumbnails_panel_controller",
+  "MediaArea.controllers.main_controller",
+  "MediaArea.controllers.media_sources_panel_controller",
+  "MediaArea.controllers.thumbnails_panel_controller",
   "DiscoveryArea.discovery_methods.process_runner",
-  "AssetsArea.video_thumbnail_worker",
+  "MediaArea.video_thumbnail_worker",
   "DiscoveryArea.discovery_methods.methods.custom_coordinates.method",
+  "DiscoveryArea.discovery_methods.methods.mds.method",
+  "DiscoveryArea.discovery_methods.methods.opentsne.method",
   "DiscoveryArea.discovery_methods.methods.pacmap.method",
   "DiscoveryArea.discovery_methods.methods.pca.method",
   "DiscoveryArea.discovery_methods.methods.random.method",
@@ -74,6 +76,7 @@ modules = [
   "DiscoveryArea.discovery_methods.methods.tsne.method",
   "DiscoveryArea.discovery_methods.methods.tsne.worker",
   "DiscoveryArea.discovery_methods.methods.umap.method",
+  "DiscoveryArea.discovery_methods.methods.umap_05.method",
   "EmbeddingsArea.clustering.methods.kmeans.method",
   "EmbeddingsArea.clustering.methods.minibatch_kmeans.method",
   "EmbeddingsArea.clustering.methods.hdbscan.method",
@@ -86,6 +89,9 @@ modules = [
   "FiguresArea.animation_gif_worker",
   "FiguresArea.preview_worker",
   "av",
+  "openTSNE",
+  "openTSNE._matrix_mul.matrix_mul",
+  "pynndescent",
   "matplotlib.backends.backend_agg",
   "matplotlib.backends.backend_pdf",
   "matplotlib.backends.backend_ps",

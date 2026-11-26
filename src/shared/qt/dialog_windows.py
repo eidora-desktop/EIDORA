@@ -3,6 +3,7 @@ from __future__ import annotations
 import weakref
 
 from PySide6 import QtCore, QtWidgets
+from shiboken6 import isValid
 
 
 _FILTER_ATTRIBUTE = "_eidora_dialog_window_filter"
@@ -16,7 +17,17 @@ def set_dialog_window_owner(
 ) -> None:
     """Set the application window that owns otherwise unparented dialogs."""
 
-    setattr(app, _OWNER_ATTRIBUTE, weakref.ref(owner) if owner is not None else None)
+    owner_ref = weakref.ref(owner) if owner is not None and isValid(owner) else None
+    if getattr(app, _OWNER_ATTRIBUTE, None) is owner_ref:
+        return
+    setattr(app, _OWNER_ATTRIBUTE, owner_ref)
+    if owner_ref is not None:
+        def clear_owner(*_args) -> None:
+            # An older window may be destroyed after its replacement is registered.
+            if getattr(app, _OWNER_ATTRIBUTE, None) is owner_ref:
+                setattr(app, _OWNER_ATTRIBUTE, None)
+
+        owner.destroyed.connect(clear_owner)
 
 
 def mark_ephemeral_window(widget: QtWidgets.QWidget) -> None:
@@ -43,7 +54,7 @@ class _DialogWindowFilter(QtCore.QObject):
         if not widget.isWindow():
             return
         owner = cls._configured_owner(widget)
-        if owner is None or owner is widget:
+        if owner is None or owner is widget or not isValid(owner):
             return
 
         owner_handle = owner.windowHandle()

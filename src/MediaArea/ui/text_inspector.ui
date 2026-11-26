@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>dialog_text_inspector</class>
+ <widget class="QDialog" name="dialog_text_inspector">
+  <property name="windowTitle"><string>Inspect Text Excerpts</string></property>
+  <property name="geometry"><rect><x>0</x><y>0</y><width>560</width><height>400</height></rect></property>
+  <property name="surfaceRole" stdset="0"><string>panel</string></property>
+  <layout class="QVBoxLayout" name="layout_inspector">
+   <item><widget class="QLabel" name="label_item">
+    <property name="text"><string>Text excerpt</string></property>
+    <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+   </widget></item>
+   <item><widget class="QPlainTextEdit" name="edit_excerpt">
+    <property name="readOnly"><bool>true</bool></property>
+    <property name="accessibleName"><string>Saved text excerpt</string></property>
+   </widget></item>
+   <item><widget class="QLabel" name="label_status">
+    <property name="text"><string>Excerpt position and source length</string></property>
+    <property name="textFormat"><enum>Qt::TextFormat::PlainText</enum></property>
+    <property name="wordWrap"><bool>true</bool></property>
+   </widget></item>
+   <item><layout class="QHBoxLayout" name="layout_actions">
+    <item><widget class="QPushButton" name="button_previous"><property name="text"><string>Previous Item</string></property></widget></item>
+    <item><widget class="QPushButton" name="button_next"><property name="text"><string>Next Item</string></property></widget></item>
+    <item><spacer name="spacer_actions"><property name="orientation"><enum>Qt::Orientation::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+    <item><widget class="QPushButton" name="button_close"><property name="text"><string>Close</string></property></widget></item>
+   </layout></item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

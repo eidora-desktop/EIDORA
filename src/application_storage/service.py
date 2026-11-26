@@ -122,8 +122,39 @@ class StorageService:
             result[key] = directory_size(path, cancelled)
         return result
 
+    def set_destination(self, kind: str, destination: Path) -> None:
+        """Select a writable destination without moving existing contents."""
+        destination = self.validate_destination(kind, destination)
+        source = self.workspace if kind == "workspace" else self.models
+        self.preferences.update(**{f"{kind}_root": str(destination), f"previous_{kind}_root": str(source)})
+        if kind == "workspace":
+            self.workspace = destination
+        else:
+            self.models = destination
+
+    def validate_destination(self, kind: str, destination: Path) -> Path:
+        """Check separation and writability before changing preferences/history."""
+        from shared.env import get_env
+        from shared.paths import WORKSPACE_ROOT_ENV_VAR
+
+        if kind not in ("workspace", "models"):
+            raise ValueError("Unknown storage location.")
+        if kind == "workspace" and get_env(WORKSPACE_ROOT_ENV_VAR).strip():
+            raise ValueError("The project location is controlled by EIDORA_WORKSPACE_ROOT.")
+        destination = destination.expanduser().resolve()
+        other = self.models if kind == "workspace" else self.workspace
+        for protected in (other.resolve(), self.cache.resolve()):
+            if destination == protected or protected in destination.parents or destination in protected.parents:
+                raise ValueError("Projects, models, and caches must use separate folders.")
+        if any((parent / "project.json").is_file() for parent in (destination, *destination.parents)):
+            raise ValueError("Choose a storage folder outside an existing project.")
+        destination.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryFile(dir=destination):
+            pass
+        return destination
+
     def relocate(self, kind: str, destination: Path, *, cancelled=lambda: False,
-                 progress=lambda text: None) -> None:
+                 progress=lambda text: None, remove_source=False) -> str:
         if kind not in ("workspace", "models"):
             raise ValueError("Unknown storage location.")
         source = self.workspace if kind == "workspace" else self.models
@@ -160,6 +191,17 @@ class StorageService:
             self.workspace = destination
         else:
             self.models = destination
+        if remove_source:
+            # Commit the verified destination before removing anything. From here
+            # cancellation cannot roll back the active location or its contents.
+            try:
+                progress("Removing the verified original files…")
+                if source.exists():
+                    shutil.rmtree(source)
+                self.preferences.update(**{f"previous_{kind}_root": None})
+            except OSError as exc:
+                return f"Location updated. Check the previous folder {source}: {exc}"
+        return ""
 
     def clean(self, *, models: bool, cache: bool, cancelled=lambda: False,
               progress=lambda text: None) -> int:

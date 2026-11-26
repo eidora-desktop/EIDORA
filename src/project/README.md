@@ -8,6 +8,19 @@ Use `project.paths` rather than duplicating folder names. Each feature owns its
 stores; metadata initialization belongs to `MetadataArea.repository`.
 Preserve schema validation and clean up incomplete imports on failure.
 
+`methods_service.py` assembles the project-level Methods & Citations source list
+from completed embedding and clustering runs, projections, and snapshots.
+It deliberately coordinates the feature-owned report builders and repositories;
+it does not require Figures or create a second report store. Source selection
+loads only the selected report. Snapshots retain their frozen descriptions.
+
+Opening a folder edits it in place and probes the project root, metadata folder,
+and metadata database for write access before initialization. ZIP import and
+`copy_project_to_workspace` create separate projects in the configured workspace
+with fresh permissions, unique destination names, and cleanup on failure. Folder
+copies reject symbolic links and destinations inside the source. Close the source
+project before copying. External media references are retained, not collected.
+
 `item_repository.py` owns the permanent item registry in the metadata database.
 Its migration preserves existing metadata IDs and reserves a shared monotonically
 increasing range. Metadata insert triggers keep legacy writers compatible;

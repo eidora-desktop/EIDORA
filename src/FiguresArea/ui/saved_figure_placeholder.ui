@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SavedFigurePlaceholder</class>
+ <widget class="QWidget" name="page_saved_figure">
+  <layout class="QVBoxLayout" name="layout_saved_figure">
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <item>
+    <widget class="QWidget" name="panel_figure_loading">
+     <layout class="QVBoxLayout" name="layout_figure_loading">
+      <item><spacer name="spacer_loading_top"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+      <item><widget class="QLabel" name="label_figure_loading"><property name="text"><string>Loading figure…</string></property><property name="textFormat"><enum>Qt::PlainText</enum></property><property name="alignment"><set>Qt::AlignCenter</set></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+      <item alignment="Qt::AlignHCenter"><widget class="QPushButton" name="button_retry_figure"><property name="text"><string>Retry</string></property></widget></item>
+      <item><spacer name="spacer_loading_bottom"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

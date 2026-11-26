@@ -17,6 +17,7 @@ import traceback
 def probe(case: dict, fixtures: Path, report: dict, save, require_audio_output: bool) -> None:
     from PySide6 import QtCore, QtMultimedia, QtWidgets
     import PySide6
+    from shiboken6 import isValid
     from DiscoveryArea.controllers.selection_actions_dialog_controller import SelectionActionsDialogController, SelectionActionsDialogData
     from DiscoveryArea.domain import ItemMediaSource
     from DiscoveryArea.thumbnails.resolver import ThumbnailResolver
@@ -193,13 +194,13 @@ def probe(case: dict, fixtures: Path, report: dict, save, require_audio_output: 
             stage('close-preview')
         finally:
             controller.close()
-            if player is not None and (player.playbackState() != QtMultimedia.QMediaPlayer.PlaybackState.StoppedState or not player.source().isEmpty()):
+            if player is not None and isValid(player) and (player.playbackState() != QtMultimedia.QMediaPlayer.PlaybackState.StoppedState or not player.source().isEmpty()):
                 raise RuntimeError('Closing the dialog did not stop and unload playback.')
             thumbnails.unsubscribe_thumbnail_ready(bridge.ready.emit)
             thumbnails.shutdown()
-            dialog.close()
-            dialog.deleteLater()
             QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+            if isValid(dialog):
+                raise RuntimeError('Closing the item session did not dispose its dialog.')
 
 
 def main(argv=None) -> int:

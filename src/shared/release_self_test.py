@@ -53,6 +53,9 @@ def run(output_path: Path, *, require_package_identity: bool = False) -> int:
 
         checkpoint("create-application")
         application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        from shared.qt.garbage_collection import install_gui_garbage_collection
+
+        install_gui_garbage_collection(application)
         application.setOrganizationName("EIDORA")
         application.setOrganizationDomain("eidora.app")
         application.setApplicationName("EIDORA Desktop")

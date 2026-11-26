@@ -50,32 +50,27 @@ def build(
         raise RuntimeError("Use an out-of-tree native renderer build directory.")
 
     pyside_qt_root = Path(QtCore.__file__).resolve().parent / "Qt"
-    configure = [
-        _tool("cmake"),
-        "--fresh",
-        "-S",
-        str(source_dir),
-        "-B",
-        str(build_dir),
-        f"-DCMAKE_PREFIX_PATH={qt_sdk}",
-        "-DCMAKE_BUILD_TYPE=Release",
-        f"-DEIDORA_PYSIDE6_QT_VERSION={QtCore.qVersion()}",
-        f"-DEIDORA_PYSIDE6_QT_LIB_DIR={pyside_qt_root / 'lib'}",
-    ]
+    cmake = _tool("cmake")
+    options = [f"-DCMAKE_PREFIX_PATH={qt_sdk}", "-DCMAKE_BUILD_TYPE=Release"]
     ninja = _optional_tool("ninja")
     if sys.platform == "win32":
         # The downloaded Qt SDK uses MSVC; Ninja otherwise discovers MinGW
         # from the runner PATH when no Visual Studio environment is active.
-        configure.extend(["-G", "Visual Studio 17 2022", "-A", "x64"])
+        options.extend(["-G", "Visual Studio 17 2022", "-A", "x64"])
     elif ninja:
-        configure.extend(["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}"])
+        options.extend(["-G", "Ninja", f"-DCMAKE_MAKE_PROGRAM={ninja}"])
     if sys.platform == "darwin":
-        configure.append(f"-DCMAKE_OSX_ARCHITECTURES={architecture}")
+        options.append(f"-DCMAKE_OSX_ARCHITECTURES={architecture}")
 
     build_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.run(configure, check=True)
     subprocess.run(
-        [_tool("cmake"), "--build", str(build_dir), "--config", "Release"],
+        [cmake, "--fresh", "-S", str(source_dir), "-B", str(build_dir), *options,
+         f"-DEIDORA_PYSIDE6_QT_VERSION={QtCore.qVersion()}",
+         f"-DEIDORA_PYSIDE6_QT_LIB_DIR={pyside_qt_root / 'lib'}"],
+        check=True,
+    )
+    subprocess.run(
+        [cmake, "--build", str(build_dir), "--config", "Release"],
         check=True,
     )
 
@@ -96,6 +91,19 @@ def build(
         f"Staged Discovery renderer API for Qt {QtCore.qVersion()} "
         f"({architecture}) at {staged_module}"
     )
+    if sys.platform == "darwin":
+        cocoa_source = Path(__file__).resolve().parents[1] / "packaging/macos/cocoa"
+        cocoa_build = build_dir / "macos-cocoa"
+        subprocess.run(
+            [cmake, "-S", str(cocoa_source), "-B", str(cocoa_build), *options,
+             "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0", "-DQT_GENERATE_SBOM=OFF",
+             "-DQT_BUILD_TESTS=OFF", "-DQT_BUILD_EXAMPLES=OFF"],
+            check=True,
+        )
+        subprocess.run([cmake, "--build", str(cocoa_build), "--config", "Release",
+                        "--target", "QCocoaIntegrationPlugin"], check=True)
+        subprocess.run([cmake, "--install", str(cocoa_build), "--config", "Release",
+                        "--prefix", str(stage_dir), "--component", "EIDORACocoa"], check=True)
     return staged_module
 
 

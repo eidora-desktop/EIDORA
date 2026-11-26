@@ -6,12 +6,12 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>311</width>
-    <height>594</height>
+    <width>350</width>
+    <height>347</height>
    </rect>
   </property>
   <property name="sizePolicy">
-   <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+   <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
     <horstretch>0</horstretch>
     <verstretch>1</verstretch>
    </sizepolicy>
@@ -80,9 +80,6 @@
      </item>
      <item>
       <widget class="QToolButton" name="button_appearance_options">
-       <property name="toolTip">
-        <string>Appearance options</string>
-       </property>
        <property name="minimumSize">
         <size>
          <width>22</width>
@@ -94,6 +91,9 @@
          <width>22</width>
          <height>22</height>
         </size>
+       </property>
+       <property name="toolTip">
+        <string>Appearance options</string>
        </property>
        <property name="text">
         <string>...</string>
@@ -202,6 +202,9 @@
      <property name="horizontalScrollBarPolicy">
       <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
      </property>
+     <property name="sizeAdjustPolicy">
+      <enum>QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents</enum>
+     </property>
      <property name="widgetResizable">
       <bool>true</bool>
      </property>
@@ -210,8 +213,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>305</width>
-        <height>499</height>
+        <width>344</width>
+        <height>253</height>
        </rect>
       </property>
       <property name="sizePolicy">
@@ -245,7 +248,7 @@
           <number>1</number>
          </property>
          <property name="currentIndex">
-          <number>0</number>
+          <number>1</number>
          </property>
          <widget class="QWidget" name="page_appearance_points">
           <property name="surfaceRole" stdset="0">
@@ -350,9 +353,6 @@
                         <verstretch>0</verstretch>
                        </sizepolicy>
                       </property>
-                      <property name="toolTip">
-                       <string>point size</string>
-                      </property>
                       <property name="text">
                        <string/>
                       </property>
@@ -400,14 +400,14 @@
                        </property>
                        <item>
                         <widget class="QToolButton" name="button_point_size_uniform">
-                         <property name="toolTip">
-                          <string>Use one point size</string>
-                         </property>
                          <property name="sizePolicy">
                           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                            <horstretch>0</horstretch>
                            <verstretch>0</verstretch>
                           </sizepolicy>
+                         </property>
+                         <property name="toolTip">
+                          <string>Use one point size</string>
                          </property>
                          <property name="text">
                           <string>Single</string>
@@ -422,14 +422,14 @@
                        </item>
                        <item>
                         <widget class="QToolButton" name="button_point_size_mapped">
-                         <property name="toolTip">
-                          <string>Size points by metadata</string>
-                         </property>
                          <property name="sizePolicy">
                           <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                            <horstretch>0</horstretch>
                            <verstretch>0</verstretch>
                           </sizepolicy>
+                         </property>
+                         <property name="toolTip">
+                          <string>Size points by metadata</string>
                          </property>
                          <property name="text">
                           <string>Mapped</string>
@@ -650,7 +650,7 @@
              <property name="surfaceRole" stdset="0">
               <string>group</string>
              </property>
-             <layout class="QVBoxLayout" name="layout_fill_color_controls" stretch="0,1">
+             <layout class="QVBoxLayout" name="layout_fill_color_controls" stretch="0,1,0">
               <property name="spacing">
                <number>6</number>
               </property>
@@ -703,7 +703,7 @@
                      <number>0</number>
                     </property>
                     <property name="rightMargin">
-                     <number>6</number>
+                     <number>0</number>
                     </property>
                     <property name="bottomMargin">
                      <number>0</number>
@@ -711,7 +711,7 @@
                     <item>
                      <widget class="QLabel" name="label_point_color_icon">
                       <property name="toolTip">
-                       <string>fill coloring</string>
+                       <string/>
                       </property>
                       <property name="text">
                        <string/>
@@ -763,14 +763,14 @@
                     </property>
                     <item>
                      <widget class="QToolButton" name="button_fill_color_uniform">
-                      <property name="toolTip">
-                       <string>Use one point color</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Use one point color</string>
                       </property>
                       <property name="text">
                        <string>Single</string>
@@ -785,14 +785,14 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_fill_color_mapped">
-                      <property name="toolTip">
-                       <string>Color points by metadata</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Color points by metadata</string>
                       </property>
                       <property name="text">
                        <string>Mapped</string>
@@ -804,14 +804,14 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_fill_color_conditional">
-                      <property name="toolTip">
-                       <string>Color points using rules</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Color points using rules</string>
                       </property>
                       <property name="text">
                        <string>Custom</string>
@@ -919,9 +919,6 @@
                      </item>
                      <item>
                       <widget class="QLineEdit" name="line_point_color_value">
-                       <property name="toolTip">
-                        <string>Enter a hex color</string>
-                       </property>
                        <property name="sizePolicy">
                         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                          <horstretch>0</horstretch>
@@ -933,6 +930,9 @@
                          <width>0</width>
                          <height>22</height>
                         </size>
+                       </property>
+                       <property name="toolTip">
+                        <string>Enter a hex color</string>
                        </property>
                       </widget>
                      </item>
@@ -1004,14 +1004,14 @@
                     </item>
                     <item>
                      <widget class="QRadioButton" name="radio_points_continuous">
-                      <property name="toolTip">
-                       <string>Color gradient by value</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Color gradient by value</string>
                       </property>
                       <property name="text">
                        <string>continuous</string>
@@ -1041,14 +1041,14 @@
                       </property>
                       <item>
                        <widget class="QTableWidget" name="table_point_colors">
-                        <property name="toolTip">
-                         <string>Click a swatch to edit</string>
-                        </property>
                         <property name="minimumSize">
                          <size>
                           <width>0</width>
                           <height>148</height>
                          </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Click a swatch to edit</string>
                         </property>
                         <property name="showGrid">
                          <bool>false</bool>
@@ -1130,9 +1130,6 @@
                          </property>
                          <item>
                           <widget class="QToolButton" name="button_point_gradient_start_color">
-                           <property name="toolTip">
-                            <string>Low-value color</string>
-                           </property>
                            <property name="sizePolicy">
                             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                              <horstretch>0</horstretch>
@@ -1150,6 +1147,9 @@
                              <width>22</width>
                              <height>22</height>
                             </size>
+                           </property>
+                           <property name="toolTip">
+                            <string>Low-value color</string>
                            </property>
                            <property name="text">
                             <string/>
@@ -1190,9 +1190,6 @@
                          </item>
                          <item>
                           <widget class="QToolButton" name="button_point_gradient_end_color">
-                           <property name="toolTip">
-                            <string>High-value color</string>
-                           </property>
                            <property name="sizePolicy">
                             <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                              <horstretch>0</horstretch>
@@ -1210,6 +1207,9 @@
                              <width>22</width>
                              <height>22</height>
                             </size>
+                           </property>
+                           <property name="toolTip">
+                            <string>High-value color</string>
                            </property>
                            <property name="text">
                             <string/>
@@ -1257,14 +1257,14 @@
                   </property>
                   <item>
                    <widget class="QTableWidget" name="table_fill_color_conditions">
-                    <property name="toolTip">
-                     <string>Right-click a rule for options</string>
-                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>0</width>
-                      <height>148</height>
+                      <height>0</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Right-click a rule for options</string>
                     </property>
                     <property name="showGrid">
                      <bool>false</bool>
@@ -1337,7 +1337,7 @@
                         <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
                        </property>
                        <property name="minimumContentsLength">
-                        <number>6</number>
+                        <number>4</number>
                        </property>
                       </widget>
                      </item>
@@ -1353,7 +1353,7 @@
                         <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
                        </property>
                        <property name="minimumContentsLength">
-                        <number>6</number>
+                        <number>4</number>
                        </property>
                       </widget>
                      </item>
@@ -1561,9 +1561,6 @@
                      <verstretch>0</verstretch>
                     </sizepolicy>
                    </property>
-                   <property name="toolTip">
-                    <string>border width</string>
-                   </property>
                    <property name="text">
                     <string/>
                    </property>
@@ -1611,14 +1608,14 @@
                     </property>
                     <item>
                      <widget class="QToolButton" name="button_border_width_uniform">
-                      <property name="toolTip">
-                       <string>Use one border width</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Use one border width</string>
                       </property>
                       <property name="text">
                        <string>Single</string>
@@ -1633,14 +1630,14 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_border_width_mapped">
-                      <property name="toolTip">
-                       <string>Size borders by metadata</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Size borders by metadata</string>
                       </property>
                       <property name="text">
                        <string>Mapped</string>
@@ -1900,9 +1897,6 @@
                     </property>
                     <item>
                      <widget class="QLabel" name="label_uniform_border_color_icon">
-                      <property name="toolTip">
-                       <string>border color</string>
-                      </property>
                       <property name="text">
                        <string/>
                       </property>
@@ -1953,14 +1947,14 @@
                     </property>
                     <item>
                      <widget class="QToolButton" name="button_border_color_uniform">
-                      <property name="toolTip">
-                       <string>Use one border color</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Use one border color</string>
                       </property>
                       <property name="text">
                        <string>Single</string>
@@ -1975,14 +1969,14 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_border_color_mapped">
-                      <property name="toolTip">
-                       <string>Color borders by metadata</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Color borders by metadata</string>
                       </property>
                       <property name="text">
                        <string>Mapped</string>
@@ -1994,14 +1988,14 @@
                     </item>
                     <item>
                      <widget class="QToolButton" name="button_border_color_conditional">
-                      <property name="toolTip">
-                       <string>Color borders using rules</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Color borders using rules</string>
                       </property>
                       <property name="text">
                        <string>Custom</string>
@@ -2103,9 +2097,6 @@
                      </item>
                      <item>
                       <widget class="QLineEdit" name="line_border_color_value">
-                       <property name="toolTip">
-                        <string>Enter a hex color</string>
-                       </property>
                        <property name="sizePolicy">
                         <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                          <horstretch>0</horstretch>
@@ -2117,6 +2108,9 @@
                          <width>0</width>
                          <height>22</height>
                         </size>
+                       </property>
+                       <property name="toolTip">
+                        <string>Enter a hex color</string>
                        </property>
                       </widget>
                      </item>
@@ -2188,14 +2182,14 @@
                     </item>
                     <item>
                      <widget class="QRadioButton" name="radio_borders_continuous">
-                      <property name="toolTip">
-                       <string>Border gradient by value</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Border gradient by value</string>
                       </property>
                       <property name="text">
                        <string>continuous</string>
@@ -2225,14 +2219,14 @@
                       </property>
                       <item>
                        <widget class="QTableWidget" name="table_border_colors">
-                        <property name="toolTip">
-                         <string>Click a swatch to edit</string>
-                        </property>
                         <property name="minimumSize">
                          <size>
                           <width>0</width>
                           <height>148</height>
                          </size>
+                        </property>
+                        <property name="toolTip">
+                         <string>Click a swatch to edit</string>
                         </property>
                         <property name="showGrid">
                          <bool>false</bool>
@@ -2314,9 +2308,6 @@
                          </property>
                          <item>
                           <widget class="QToolButton" name="button_border_gradient_start_color">
-                           <property name="toolTip">
-                            <string>Low-value color</string>
-                           </property>
                            <property name="minimumSize">
                             <size>
                              <width>22</width>
@@ -2328,6 +2319,9 @@
                              <width>22</width>
                              <height>22</height>
                             </size>
+                           </property>
+                           <property name="toolTip">
+                            <string>Low-value color</string>
                            </property>
                            <property name="text">
                             <string/>
@@ -2368,9 +2362,6 @@
                          </item>
                          <item>
                           <widget class="QToolButton" name="button_border_gradient_end_color">
-                           <property name="toolTip">
-                            <string>High-value color</string>
-                           </property>
                            <property name="minimumSize">
                             <size>
                              <width>22</width>
@@ -2382,6 +2373,9 @@
                              <width>22</width>
                              <height>22</height>
                             </size>
+                           </property>
+                           <property name="toolTip">
+                            <string>High-value color</string>
                            </property>
                            <property name="text">
                             <string/>
@@ -2429,14 +2423,14 @@
                   </property>
                   <item>
                    <widget class="QTableWidget" name="table_border_color_conditions">
-                    <property name="toolTip">
-                     <string>Right-click a rule for options</string>
-                    </property>
                     <property name="minimumSize">
                      <size>
                       <width>0</width>
-                      <height>148</height>
+                      <height>0</height>
                      </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Right-click a rule for options</string>
                     </property>
                     <property name="showGrid">
                      <bool>false</bool>
@@ -2496,7 +2490,7 @@
                        <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
                       </property>
                       <property name="minimumContentsLength">
-                       <number>6</number>
+                       <number>4</number>
                       </property>
                      </widget>
                     </item>
@@ -2512,7 +2506,7 @@
                        <enum>QComboBox::SizeAdjustPolicy::AdjustToMinimumContentsLengthWithIcon</enum>
                       </property>
                       <property name="minimumContentsLength">
-                       <number>6</number>
+                       <number>4</number>
                       </property>
                      </widget>
                     </item>
@@ -2737,9 +2731,6 @@
                     </property>
                     <item>
                      <widget class="QLabel" name="label_point_color_icon_2">
-                      <property name="toolTip">
-                       <string>thumbnail body</string>
-                      </property>
                       <property name="text">
                        <string/>
                       </property>
@@ -2816,7 +2807,7 @@
                     <item>
                      <widget class="QLabel" name="label_point_color_icon_3">
                       <property name="toolTip">
-                       <string>thumbnail coloring</string>
+                       <string>Previews coloring</string>
                       </property>
                       <property name="text">
                        <string/>
@@ -2850,14 +2841,14 @@
                  </item>
                  <item>
                   <widget class="QComboBox" name="combo_preview_fill_color">
-                   <property name="toolTip">
-                    <string>Choose preview background color</string>
-                   </property>
                    <property name="sizePolicy">
                     <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                      <horstretch>0</horstretch>
                      <verstretch>0</verstretch>
                     </sizepolicy>
+                   </property>
+                   <property name="toolTip">
+                    <string>Choose background color for Previews</string>
                    </property>
                   </widget>
                  </item>
@@ -2909,7 +2900,7 @@
                     <item>
                      <widget class="QLabel" name="label_frame_opacity_icon_2">
                       <property name="toolTip">
-                       <string>coloring intensity</string>
+                       <string>Previews coloring intensity</string>
                       </property>
                       <property name="text">
                        <string/>
@@ -2938,7 +2929,7 @@
                  <item>
                   <widget class="QSpinBox" name="spin_preview_fill_opacity">
                    <property name="toolTip">
-                    <string>Preview background opacity</string>
+                    <string>Previews coloring intensity</string>
                    </property>
                    <property name="suffix">
                     <string>%</string>
@@ -3009,7 +3000,7 @@
                        <item>
                         <widget class="QLabel" name="label_frame_opacity_icon_3">
                          <property name="toolTip">
-                          <string>body opacity</string>
+                          <string>Previews body opacity</string>
                          </property>
                          <property name="text">
                           <string/>
@@ -3038,7 +3029,7 @@
                     <item>
                      <widget class="QSpinBox" name="spin_body_opacity">
                       <property name="toolTip">
-                       <string>Preview image opacity</string>
+                       <string>Previews body opacity</string>
                       </property>
                       <property name="suffix">
                        <string>%</string>
@@ -3149,9 +3140,6 @@
                         <verstretch>0</verstretch>
                        </sizepolicy>
                       </property>
-                      <property name="toolTip">
-                       <string>thumbnail frame</string>
-                      </property>
                       <property name="text">
                        <string/>
                       </property>
@@ -3210,7 +3198,7 @@
                  <item>
                   <widget class="QLabel" name="label_preview_border_color_icon">
                    <property name="toolTip">
-                    <string>frame coloring</string>
+                    <string>Previews frame coloring</string>
                    </property>
                    <property name="text">
                     <string/>
@@ -3235,14 +3223,14 @@
                  </item>
                  <item>
                   <widget class="QComboBox" name="combo_preview_border_color">
-                   <property name="toolTip">
-                    <string>Choose preview border color</string>
-                   </property>
                    <property name="sizePolicy">
                     <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
                      <horstretch>0</horstretch>
                      <verstretch>0</verstretch>
                     </sizepolicy>
+                   </property>
+                   <property name="toolTip">
+                    <string>Choose border color for Previews</string>
                    </property>
                   </widget>
                  </item>
@@ -3312,7 +3300,7 @@
                           </sizepolicy>
                          </property>
                          <property name="toolTip">
-                          <string>frame width</string>
+                          <string>Previews frame width</string>
                          </property>
                          <property name="text">
                           <string/>
@@ -3346,14 +3334,14 @@
                     </item>
                     <item>
                      <widget class="QSpinBox" name="spin_frame_width">
-                      <property name="toolTip">
-                       <string>Preview border width</string>
-                      </property>
                       <property name="sizePolicy">
                        <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
                         <horstretch>0</horstretch>
                         <verstretch>0</verstretch>
                        </sizepolicy>
+                      </property>
+                      <property name="toolTip">
+                       <string>Previews frame width</string>
                       </property>
                       <property name="minimum">
                        <number>1</number>
@@ -3421,7 +3409,7 @@
                        <item>
                         <widget class="QLabel" name="label_frame_opacity_icon">
                          <property name="toolTip">
-                          <string>frame opacity</string>
+                          <string>Previews frame opacity</string>
                          </property>
                          <property name="text">
                           <string/>
@@ -3450,7 +3438,7 @@
                     <item>
                      <widget class="QSpinBox" name="spin_frame_opacity">
                       <property name="toolTip">
-                       <string>Preview border opacity</string>
+                       <string>Previews frame opacity</string>
                       </property>
                       <property name="suffix">
                        <string>%</string>

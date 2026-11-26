@@ -68,12 +68,23 @@ selector or metadata-key pairing. Metadata columns are not offered, even if an
 older run registered one as a text source. Existing saved runs retain their input
 snapshots and service-level compatibility.
 
+Text files are whole documents regardless of extension, including CSV and JSONL.
+Importing a file does not select columns or expand records. Existing indexed text
+records and materialized metadata text retain their explicit record keys in run
+snapshots; previews and inference use the same distinction. Rescanning an old
+file source now catalogs the file as one document. Previously prepared runs must
+be prepared again before resuming with the updated preparation contract.
+Text preparation uses UTF-8 or BOM-marked UTF-16/32, rejects empty/invalid input
+with its path, and limits a document/record to 2,000,000 characters. Tokenization
+uses the package's existing length, truncation and padding settings; full-document
+chunking and format-specific extraction are not performed.
+
 **Run Model** saves the configuration and closes the dialog immediately. The
 embedding card opens with input preparation running in its background job, followed
 by inference. Preparation supports pause/cancel and reports failures on the card
-for retry. Optional default thumbnails start as a separate Assets job only after
+for retry. Optional Preview Assets creation starts as a separate Media job only after
 the embedding completes and releases its worker. The current workspace stays open;
-the footer tracks the thumbnail job. They use the same visual source,
+the footer tracks the Preview Assets job. The assets use the same visual source,
 original aspect ratio, and the middle frame for video; model tensor resizing does
 not affect previews. The Designer-owned
 focused form presents the model heading, Media Source, output name, and execution
@@ -91,13 +102,70 @@ Artifact ordinals remain the mapping into run inputs. Relocating media updates
 future preparation and preview lookup without rewriting saved run provenance.
 Deleting a source or vector set does not implicitly delete its items.
 
-Completed vector-data and clustering card menus expose **Citations…**.
+Completed vector-data and clustering card menus expose **Methods & Citations…**,
+also available through the project menu. Reports start with brief methods and
+references; detailed parameters and technical records remain expandable.
 `provenance.py` formats saved model metadata, execution/preprocessing settings,
 and clustering parameters without running analysis. New embedding artifacts
-retain the model package's citation metadata and version; older artifacts report
-missing citations explicitly rather than substituting the current catalog.
+retain the model package's citation metadata and version. When references are
+missing, saved-run reports consult the installed package with the same model ID
+and recorded version (when available). Recovered references are labeled with
+their source; saved artifact metadata is unchanged. Unmatched models retain an
+explicit missing-citation warning.
 
 ONNX configs require top-level `bibtex` with self-contained model references.
 `model_package.py` validates the records; the runtime freezes the exact config
 text in artifact provenance. Citation reports prefer this frozen BibTeX and
 retain metadata-based fallbacks for older saved runs.
+
+Vector Data’s **PCA** tab saves PCA or Incremental PCA results as normal
+vector artifacts. The Incremental checkbox selects batch fitting. Copy names use
+`Model name (PCA_48)` or `Model name (PCAin_48)`, with the source name
+as fallback for imported vectors. Replacement starts with the existing name and
+the same suffix; both output modes allow editing the name. It defaults to a copy, accepts a target dimension count and
+estimates vector payload storage (excluding metadata and the fitted transform).
+64-bit inputs use float64; other widths use float32. Whitening and automatic
+normalization are disabled. Explained variance is saved with the method, source
+artifact identity, dimensions, solver/batch settings and scikit-learn version;
+constant inputs have undefined retained variance. The fitted mean and components
+are stored in the result artifact for reproducibility.
+
+Creating a reduced copy immediately creates its destination card and opens its
+**Progress** tab. This card owns the source-import history, stage status, progress
+bar and cancellation; the original card retains its existing status and history.
+The destination identity stays the same when its saved artifact is published.
+Failed or cancelled unpublished copies remain visible until dismissed or the
+project is closed. Replacement runs stay in the existing card.
+Reduction uses the same progress bar and Cancel button as
+embedding generation. These controls remain available with details collapsed;
+Pause is disabled because PCA does not support resumable fitting.
+All activity text appears in the Progress textbox, with rapid live updates
+coalesced once per second between stage messages. Collapsed cards contain only
+their header and progress controls.
+Batch counts update without appending repeated log entries;
+ordinary PCA fitting shows indeterminate progress. The report includes method,
+source, vector count, original/reduced dimensions and output choice. Completed
+artifacts retain the report summary, processing duration and explained variance
+relative to the immediate source, including after reopening the project.
+
+**Info** shows origin, model, source, vector count, dimensions, actual artifact
+storage, precision, normalization and creation date, plus a reduction summary
+when applicable. **Technical details** starts collapsed and contains saved
+settings, identifiers, preprocessing and provenance. Missing historical metadata
+is shown as not recorded; import filenames are recorded for new imports.
+
+Reduction runs in a cancellable spawned process through the area coordinator.
+Incremental PCA reads compressed inputs through disk-backed arrays, fits bounded
+batches and transforms in a second pass. Its final fitting batch includes any
+short tail. PCA can require the full input matrix in memory. Both methods require
+temporary disk space. Item ordinals and all run input bindings remain intact.
+
+Replacement publishes a new artifact path and commits the run pointer before
+removing owned original files and runtime caches. A failed computation or database
+publication leaves the original intact. Cleanup failures are reported separately
+from successful publication. Saved projections, clusters and figures remain as
+previously computed; future analyses use the reduced vectors.
+
+Embedding-run methods reports describe the model, input data, preprocessing and
+resulting vectors. Their bibliography includes recorded model and processing
+references, without automatically adding EIDORA.
