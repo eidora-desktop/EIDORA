@@ -544,7 +544,7 @@ class MediaSourcesPanelController(UiPanelController):
             return
         self._scroll_to_source(source_id)
         menu = QtWidgets.QMenu(self._widget)
-        action_link = menu.addAction("Relink..." if self._summaries[source_id].linked_count else "Link...")
+        action_link = menu.addAction("Relink…" if self._summaries[source_id].linked_count else "Link…")
         from project.item_repository import ItemRepository
         action_link.setEnabled(not self._jobs.busy() and not self._in_use(source_id)
                                and ItemRepository.has_items(self._project.paths.metadata_database))

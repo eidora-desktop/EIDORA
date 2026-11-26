@@ -37,13 +37,10 @@ class ProjectPanelController(QtCore.QObject):
         switch_action.triggered.connect(lambda: self._switch_timer.start(0))
         self._menu.addSeparator()
         self._project_actions = []
-        methods_action = self._menu.addAction("Methods && Citations…")
-        methods_action.triggered.connect(lambda: self._invoke(methods))
-        self._project_actions.append(methods_action)
-        self._menu.addSeparator()
         for title, callback in (
             ("Rename Project…", rename),
             ("Export Bundle…", export),
+            ("Methods && Citations…", methods),
             ("Delete From Disk…", delete),
         ):
             if title == "Delete From Disk…":

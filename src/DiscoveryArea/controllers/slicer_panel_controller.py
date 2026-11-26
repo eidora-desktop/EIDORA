@@ -442,12 +442,8 @@ class SlicerPanelController(UiPanelController):
 
     def _configure_menu(self) -> None:
         menu = QtWidgets.QMenu(self._menu_button)
-        animation_action = menu.addAction("Create animation…")
+        animation_action = menu.addAction("Create Animation…")
         animation_action.triggered.connect(self._create_animation)
-        menu.addSeparator()
-        self._menu_load_recent = menu.addMenu("Apply preset…")
-        save_action = menu.addAction("Save as preset…")
-        save_action.triggered.connect(self._save_current_preset)
         menu.addSeparator()
         speed_menu = menu.addMenu("Set Speed")
         self._speed_actions: dict[int, QtGui.QAction] = {}
@@ -462,6 +458,10 @@ class SlicerPanelController(UiPanelController):
             speed_group.addAction(action)
             self._speed_actions[interval_ms] = action
         self._update_speed_menu_selection()
+        menu.addSeparator()
+        self._menu_load_recent = menu.addMenu("Apply Preset")
+        save_action = menu.addAction("Save as Preset…")
+        save_action.triggered.connect(self._save_current_preset)
         self._menu_button.setMenu(menu)
         self._menu_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._menu_button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")

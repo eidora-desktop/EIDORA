@@ -224,9 +224,9 @@ class ProjectChooserController:
         self._button_import_project.setMenu(self._open_project_menu)
         button_more_options = self._find_required(QtWidgets.QPushButton, "button_more_options")
         self._more_options_menu = QtWidgets.QMenu(button_more_options)
-        self._action_settings = self._more_options_menu.addAction("Settings...")
-        self._more_options_menu.addSeparator()
         self._action_starter = self._more_options_menu.addAction("Create MET Example…")
+        starter_separator = self._more_options_menu.addSeparator()
+        self._action_settings = self._more_options_menu.addAction("Settings…")
         self._action_report = self._more_options_menu.addAction("Diagnostics…")
         button_more_options.setMenu(self._more_options_menu)
         self._menu_filters = [
@@ -244,6 +244,7 @@ class ProjectChooserController:
         except (OSError, ValueError):
             starter_available = False
         self._action_starter.setVisible(starter_available)
+        starter_separator.setVisible(starter_available)
         self._refresh_branding()
         self._palette_filter = _ChooserPaletteFilter(self.dialog, self._refresh_branding)
 

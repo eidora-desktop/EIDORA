@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Standardize pop-up menu ordering, separators, preset labels, and pin-scope wording across all areas; label project deletion explicitly as Delete From Disk and projection-panel deletion as Delete Selected Projection.
+
 - Let the Discovery Appearance panel expand while retaining a compact content-based minimum that keeps controls visible, without changing margins or layout.
 
 - Reduce the Custom fill/border color field and value dropdown minimums while allowing them to expand with the Appearance sidebar.

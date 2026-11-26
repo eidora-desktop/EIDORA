@@ -233,8 +233,8 @@ class TransformPanelController(UiPanelController):
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._widget)
         self._options_menu = menu
-        self._load_recent_menu = menu.addMenu("Apply preset…")
-        self._save_preset_action = menu.addAction("Save as preset…")
+        self._load_recent_menu = menu.addMenu("Apply Preset")
+        self._save_preset_action = menu.addAction("Save as Preset…")
         self._save_preset_action.triggered.connect(self._save_current_preset)
         self._options_button.setMenu(menu)
         self._options_button.setPopupMode(

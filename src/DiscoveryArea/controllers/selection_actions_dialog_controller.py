@@ -315,8 +315,8 @@ class SelectionActionsDialogController(QtCore.QObject):
         )
         preferred_scope = self._preferences.read()["pin_scope"]
         menu = QtWidgets.QMenu(button)
-        collection_wide = menu.addAction("Collection-wide")
-        projection_exclusive = menu.addAction("Projection only")
+        collection_wide = menu.addAction("In All Projections")
+        projection_exclusive = menu.addAction("This Projection Only")
         scopes = QtGui.QActionGroup(menu)
         collection_wide.setCheckable(True)
         projection_exclusive.setCheckable(True)
@@ -329,7 +329,7 @@ class SelectionActionsDialogController(QtCore.QObject):
             projection_exclusive.setChecked(scope == "projection")
             button.setChecked(bool(current_scope))
             action = "Remove pin" if current_scope else "Create pin"
-            label = "Collection-wide" if scope == "project" else "Projection only"
+            label = "In All Projections" if scope == "project" else "This Projection Only"
             button.setToolTip(f"{action} ({label}). Press and hold to change scope.")
             button.setAccessibleName(action)
 

@@ -59,9 +59,17 @@ class MetadataTablesPanelController(QtCore.QObject):
     def _menu(self, parent, position, actions):
         menu = QtWidgets.QMenu(parent)
         callbacks = {}
-        for label, callback in actions:
+        separator_pending = False
+        for entry in actions:
+            if entry is None:
+                separator_pending = bool(callbacks)
+                continue
+            label, callback = entry
             if callback in (self._link_tables, self._link) and not self.link_button.isEnabled():
                 continue
+            if separator_pending:
+                menu.addSeparator()
+                separator_pending = False
             action = menu.addAction(label)
             if callback == self._unlink:
                 action.setEnabled(self.owner._project is not None
@@ -77,18 +85,18 @@ class MetadataTablesPanelController(QtCore.QObject):
             return
         self.tabs.setCurrentIndex(index)
         if self.owner._table_id == 'metadata':
-            actions = [('Unlink all', self._unlink), ('Delete all', self._delete),
-                       ('Export', self.owner._on_export_metadata)]
+            actions = [('Export…', self.owner._on_export_metadata), None,
+                       ('Unlink All', self._unlink), ('Delete All…', self._delete)]
         else:
-            actions = [('Link tables…', self._link_tables), ('Unlink', self._unlink),
-                       ('Rename table…', self._rename), ('Delete table…', self._delete),
-                       ('Export table…', self.owner._on_export_metadata)]
+            actions = [('Link Tables…', self._link_tables), ('Rename Table…', self._rename),
+                       ('Export Table…', self.owner._on_export_metadata), None,
+                       ('Unlink', self._unlink), ('Delete Table…', self._delete)]
         self._menu(self.tabs.tabBar(), position, actions)
 
     def _record_menu(self, position):
-        self._menu(self.owner._table, position, [('Set value…', self._set_value),
-            ('Assign source…', self._assign_source), ('Link records…', self._link),
-            ('Link tables…', self._link_tables)])
+        self._menu(self.owner._table, position, [('Set Value…', self._set_value), None,
+            ('Assign Source…', self._assign_source), ('Link Records…', self._link),
+            ('Link Tables…', self._link_tables)])
 
     def _run(self, action):
         if self.owner._project is None or self.owner._media_publication_active:

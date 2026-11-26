@@ -163,11 +163,11 @@ class SnapshotSourcesPanelController(UiPanelController):
 
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._options_button)
+        action_refresh = menu.addAction("Refresh")
+        action_refresh.triggered.connect(self.refresh_snapshots)
         cite = menu.addAction("Methods && Citations…")
         cite.triggered.connect(self._cite_selected_snapshot)
         menu.aboutToShow.connect(lambda: cite.setEnabled(self._list.currentItem() is not None))
-        action_refresh = menu.addAction("Refresh")
-        action_refresh.triggered.connect(self.refresh_snapshots)
         self._options_button.setMenu(menu)
         self._options_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._options_button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")

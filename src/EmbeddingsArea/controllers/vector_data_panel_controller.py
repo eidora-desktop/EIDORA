@@ -244,7 +244,8 @@ class VectorDataPanelController(UiPanelController):
             again.setEnabled(model_run and run.state == EmbeddingRunState.COMPLETED and not active)
             if not again.isEnabled():
                 again.setToolTip("Run Again is available only for successful model runs.")
-        if dataset: menu.addSeparator()
+        if any(action is not None for action in (resume, retry, again)):
+            menu.addSeparator()
         rename = menu.addAction("Rename…"); export = menu.addAction("Export Data…") if dataset else None
         cite = menu.addAction("Methods && Citations…") if dataset else None
         menu.addSeparator()
@@ -279,8 +280,11 @@ class VectorDataPanelController(UiPanelController):
         show = menu.addAction("Show Groups") if state == "completed" else None
         retry = menu.addAction("Run Again…" if state == "completed" else "Retry…") if not active and state != "draft" else None
         configure = menu.addAction("Configure…") if not active and state == "draft" else None
+        if any(item is not None for item in (cancel, show, retry, configure)):
+            menu.addSeparator()
+        rename = menu.addAction("Rename…")
         cite = menu.addAction("Methods && Citations…") if state == "completed" else None
-        rename = menu.addAction("Rename…"); menu.addSeparator()
+        menu.addSeparator()
         remove_label = "Dismiss" if state in {"failed", "aborted", "interrupted"} else "Remove"
         if record.get("group_set_id"):
             remove_label = "Remove and Keep Groups"

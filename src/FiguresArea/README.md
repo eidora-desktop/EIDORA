@@ -38,8 +38,8 @@ same copy. Saved collections retain referenced baseline data through cleanup and
 project moves. Legacy animation references are still readable; reimport them to
 capture independent sources. Figure settings presets remain separate from plot
 appearance/filter/slicer presets. All preset catalogs belong to the current
-project. Menus expose **Apply preset…** and **Save as preset…**, with **Manage Presets...**
-at the bottom of each **Apply preset…** submenu opening Settings on the Presets tab.
+project. Menus expose **Apply Preset** and **Save as Preset…**, with **Manage Presets…**
+at the bottom of each **Apply Preset** submenu opening Settings on the Presets tab.
 Static exports
 are staged beside the destination and replace it only after a successful write.
 Right-click a figure tab and choose **Rename…**, or double-click its label, to

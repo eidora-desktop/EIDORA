@@ -770,11 +770,12 @@ class ThumbnailsPanelController(UiPanelController):
             if record.parameters.get("preview_kind") in {"audio_clip", "video_clip", "animated_gif", "text_excerpt"}:
                 actions["inspect"] = menu.addAction("Inspect…")
                 actions["inspect"].setEnabled(record.generated_files > 0)
-            actions["rename"] = menu.addAction("Rename…")
             actions["run_again"] = menu.addAction("Run Again…")
             actions["run_again"].setEnabled(current_input is not None)
             actions["create_from"] = menu.addAction("Create Previews From…")
             actions["create_from"].setEnabled(thumbnail_input is not None)
+            menu.addSeparator()
+            actions["rename"] = menu.addAction("Rename…")
             menu.addSeparator()
             actions["remove"] = menu.addAction("Remove…")
             if self.input_in_use(record.output_id):

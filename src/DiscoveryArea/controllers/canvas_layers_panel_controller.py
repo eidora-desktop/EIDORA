@@ -108,7 +108,7 @@ class CanvasLayersPanelController(UiPanelController):
         camera_options.setToolTip("Camera presets")
         camera_options.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
         camera_menu = QtWidgets.QMenu(camera_options)
-        camera_menu.addAction("Save as preset…").triggered.connect(self._save_camera_preset)
+        camera_menu.addAction("Save as Preset…").triggered.connect(self._save_camera_preset)
         camera_options.setMenu(camera_menu)
         camera_options.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._camera_combo.setToolTip("Apply camera preset; settings are copied into the current view.")

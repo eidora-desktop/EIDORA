@@ -657,8 +657,8 @@ class FiltersPanelController(UiPanelController):
 
     def _configure_options_menu(self) -> None:
         menu = QtWidgets.QMenu(self._options_button)
-        self._load_menu = menu.addMenu("Apply preset…")
-        menu.addAction("Save as preset…").triggered.connect(self._save_current_preset)
+        self._load_menu = menu.addMenu("Apply Preset")
+        menu.addAction("Save as Preset…").triggered.connect(self._save_current_preset)
         self._options_button.setMenu(menu)
         self._options_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         self._options_button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")

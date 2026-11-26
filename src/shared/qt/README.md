@@ -32,6 +32,30 @@ busy indicators; `deferred.py` defers actions.
 
 Keep feature computation and persistence out of these helpers.
 
+## Pop-up menus
+
+Keep menu construction explicit in the owning controller. Use the same relative
+order when an action appears in both a panel menu and an object context menu:
+
+- Primary actions first, then Rename/configuration, Export, and Methods & Citations
+  or other information. Short sets of secondary actions can share one group.
+- Panel menus put create/import/load actions before actions on the current selection.
+- Keep removal, deletion, unlinking, discard, and overwrite actions in the final
+  group, separated from preceding actions. A single-action menu needs no separator.
+- Job menus put available execution controls first. Cancel controls an ongoing job;
+  dismissal/discard/removal belongs last. Preserve state-dependent availability.
+- Preset menus use `Apply Preset` (submenu), then `Save as Preset…`. Saved choices
+  stay together; `Manage Presets…` follows a separator inside the submenu.
+- Choice menus keep related options together, use checkmarks for state, and retain
+  meaningful numeric, spatial, or domain ordering.
+
+Separate changes of purpose or target, not every command. Omit leading, trailing,
+consecutive, and empty-group separators, including when actions are hidden.
+Use title capitalization and the Unicode ellipsis `…` for actions opening a dialog
+or confirmation. Submenu headings have no ellipsis. Immediate actions have none.
+Describe destructive scope explicitly: project deletion is `Delete From Disk…`.
+Preserve callbacks, confirmation behavior, native menu roles, and Qt text-edit menus.
+
 ## Lightweight accessibility
 
 - Keep ordinary Qt keyboard behavior and a logical Tab order in Designer forms.

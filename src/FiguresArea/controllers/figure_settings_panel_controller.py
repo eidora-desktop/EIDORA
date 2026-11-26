@@ -98,9 +98,9 @@ class FigureSettingsPanelController(UiPanelController):
             return
         button.setProperty("hasRealAction", True)
         menu = QtWidgets.QMenu(button)
-        self._menu_load_recent = QtWidgets.QMenu("Apply preset…", menu)
+        self._menu_load_recent = QtWidgets.QMenu("Apply Preset", menu)
         menu.addMenu(self._menu_load_recent)
-        menu.addAction("Save as preset…").triggered.connect(self._save_current_preset)
+        menu.addAction("Save as Preset…").triggered.connect(self._save_current_preset)
         button.setMenu(menu)
         button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
         button.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")

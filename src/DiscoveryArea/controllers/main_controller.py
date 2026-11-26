@@ -2565,8 +2565,8 @@ class DiscoveryAreaController:
         position = global_pos if isinstance(global_pos, QtCore.QPoint) else QtGui.QCursor.pos()
         revision = self._selection_session_revision
         menu = QtWidgets.QMenu(self._widget)
-        create_pin = menu.addAction("Create Pin")
         show_item = menu.addAction("Show Item…")
+        create_pin = menu.addAction("Create Pin")
         create_pin.setEnabled(not self._metadata_pin_scope_mode(metadata_id))
         try:
             chosen = menu.exec(position)
@@ -2603,6 +2603,7 @@ class DiscoveryAreaController:
         )
         menu = QtWidgets.QMenu(self._widget)
         action_show_item = menu.addAction("Show Item…")
+        menu.addSeparator()
         action_all_projections = menu.addAction("In All Projections")
         action_this_projection = menu.addAction("This Projection Only")
         menu.addSeparator()
@@ -5459,7 +5460,7 @@ class DiscoveryAreaController:
         action_rename.setEnabled(bool(area_id))
         action_export = menu.addAction("Export Area…")
         action_export.setEnabled(bool(area_id))
-        action_groups = menu.addAction("Save as groups…")
+        action_groups = menu.addAction("Save as Groups…")
         action_groups.setEnabled(bool(self._polygon_areas))
         menu.addSeparator()
         if anchor_index is not None:

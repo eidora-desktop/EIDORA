@@ -104,7 +104,7 @@ class MethodsCitationsDialogController:
             set_markdown(details_browser, report.details_markdown())
             button_bibtex.setEnabled(bool(report.publication_references()))
             export_bibtex.setEnabled(button_bibtex.isEnabled())
-            export_brief.setText("Reference text + BibTeX…" if report.is_reference_only else "Brief methods + references…")
+            export_brief.setText("Reference Text + BibTeX…" if report.is_reference_only else "Brief Methods + References…")
             export_full.setVisible(report.has_details)
 
         def toggle_details(expanded: bool) -> None:
@@ -171,8 +171,8 @@ class MethodsCitationsDialogController:
             dialog.accept()
 
         export_menu = QtWidgets.QMenu(button_save)
-        export_brief = export_menu.addAction("Brief methods + references…")
-        export_full = export_menu.addAction("Full report + references…")
+        export_brief = export_menu.addAction("Brief Methods + References…")
+        export_full = export_menu.addAction("Full Report + References…")
         export_bibtex = export_menu.addAction("BibTeX…")
         button_save.setMenu(export_menu)
         connections = [

@@ -331,10 +331,11 @@ class SnapshotsPanelController(UiPanelController):
     def _configure_options_menu(self) -> None:
         self._menu = QtWidgets.QMenu(self._options_button)
         self._load_recent_menu = self._menu.addMenu("Load Recent")
-        self._action_cite = self._menu.addAction("Methods && Citations…")
-        self._action_cite.triggered.connect(lambda: self._cite_snapshot(self.selected_snapshot_path()))
         self._action_save_current = self._menu.addAction("Save Snapshot…")
         self._action_save_current.triggered.connect(self._open_snapshot_save_dialog)
+        self._action_cite = self._menu.addAction("Methods && Citations…")
+        self._action_cite.triggered.connect(lambda: self._cite_snapshot(self.selected_snapshot_path()))
+        self._menu.addSeparator()
         self._action_update_selected = self._menu.addAction("Overwrite Snapshot")
         self._action_update_selected.triggered.connect(self._update_selected_snapshot)
         self._options_button.setMenu(self._menu)
@@ -346,7 +347,7 @@ class SnapshotsPanelController(UiPanelController):
         self._load_recent_menu.clear()
         recent = self._entries[:10]
         if not recent:
-            action = self._load_recent_menu.addAction("No Presets Saved")
+            action = self._load_recent_menu.addAction("No Snapshots Saved")
             action.setEnabled(False)
         for entry in recent:
             action = self._load_recent_menu.addAction(entry.label)

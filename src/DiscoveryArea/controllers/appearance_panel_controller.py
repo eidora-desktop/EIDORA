@@ -1442,8 +1442,8 @@ class AppearancePanelController(UiPanelController):
 
     def _build_preset_menu(self, parent: QtWidgets.QWidget) -> QtWidgets.QMenu:
         menu = QtWidgets.QMenu(parent)
-        self._load_project_menu = menu.addMenu("Apply preset…")
-        menu.addAction("Save as preset…").triggered.connect(self._save_project_preset)
+        self._load_project_menu = menu.addMenu("Apply Preset")
+        menu.addAction("Save as Preset…").triggered.connect(self._save_project_preset)
         self._refresh_preset_menus()
         return menu
 

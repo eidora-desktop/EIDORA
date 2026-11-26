@@ -43,8 +43,8 @@ Snapshots capture their settings inline and never create or update component
 presets. Inline state, including an explicitly empty or disabled component, is
 authoritative. Preset references are read only to recover missing legacy state.
 Snapshots also retain the active slicer values alongside its navigation recipe.
-Presets belong to the current project. Panel menus expose **Apply preset…** and
-**Save as preset…**. **Manage Presets...** at the bottom of each **Apply preset…**
+Presets belong to the current project. Panel menus expose **Apply Preset** and
+**Save as Preset…**. **Manage Presets…** at the bottom of each **Apply Preset**
 submenu opens Settings directly on the Presets tab. No application-wide template
 catalog is loaded. Applying a preset
 copies settings; later edits do not overwrite that preset. Existing presets remain
