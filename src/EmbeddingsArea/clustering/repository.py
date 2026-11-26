@@ -39,6 +39,15 @@ class ClusteringRepository:
             raise ValueError("Clustering result no longer exists.")
         return self._record(row)
 
+    def for_group_set(self, group_set_id):
+        with closing(connect_read_only(self.groups.database_path)) as connection:
+            row = connection.execute(
+                "SELECT runs.payload, groups.name " + _RESULTS +
+                " WHERE runs.deleted = 0 AND json_extract(runs.payload, '$.group_set_id') = ?",
+                (group_set_id,),
+            ).fetchone()
+        return self._record(row) if row is not None else None
+
     def _record(self, row):
         record = json.loads(row[0])
         if record.get("source_artifact"):
@@ -182,3 +191,23 @@ class ClusteringRepository:
                 "DELETE FROM clustering_runs WHERE id=?",
                 (result_id,),
             )
+
+    def delete_subgroup(self, result_id, group_id):
+        """Remove one subgroup and mark its owning result modified atomically."""
+        with self.groups.transaction() as connection:
+            row = connection.execute(
+                "SELECT state, payload FROM clustering_runs WHERE id=? AND deleted=0",
+                (result_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("Clustering result no longer exists.")
+            if row[0] in ACTIVE:
+                raise ValueError("Abort the clustering run before modifying its groups.")
+            record = json.loads(row[1])
+            removed = connection.execute(
+                "DELETE FROM groups WHERE group_id=? AND group_set_id=?",
+                (group_id, record.get("group_set_id")),
+            )
+            if removed.rowcount:
+                record["groups_modified"] = True
+                self.write(connection, record)

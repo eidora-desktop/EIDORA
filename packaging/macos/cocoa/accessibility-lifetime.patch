@@ -88,3 +88,21 @@
          QMacAccessibilityElement *rowElement = tableElement->rows[m_rowIndex];
          return rowElement;
      }
+--- a/src/plugins/platforms/cocoa/qcocoaeventdispatcher.mm
++++ b/src/plugins/platforms/cocoa/qcocoaeventdispatcher.mm
+@@ -454,13 +454,13 @@
+                 // When called "manually", always process posted events and timers
+                 bool oldInterrupt = d->interrupt;
+                 d->processPostedEvents();
++                retVal = d->processTimers() || retVal;
+                 if (!oldInterrupt && d->interrupt && !d->currentModalSession()) {
+                     // We had direct processEvent call, coming not from QEventLoop::exec().
+-                    // One of the posted events triggered an application to interrupt the loop.
++                    // A posted event or timer triggered an application to interrupt the loop.
+                     // But bool blocker will reset d->interrupt to false, so the real event
+                     // loop will never notice it was interrupted. Now we'll have to fix it by
+                     // enforcing the value of d->interrupt.
+                     d->propagateInterrupt = true;
+                 }
+-                retVal = d->processTimers() || retVal;
+             }

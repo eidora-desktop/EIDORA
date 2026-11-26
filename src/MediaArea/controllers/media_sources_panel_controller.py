@@ -124,8 +124,10 @@ class MediaSourcesPanelController(UiPanelController):
             item = self._table.item(row, 0)
             source_id = str(item.data(QtCore.Qt.ItemDataRole.UserRole) or "") if item else ""
             if source_id not in wanted:
-                self._table.removeRow(row)
                 removed = self._rows.pop(source_id, None)
+                if removed is not None:
+                    removed.dispose()
+                self._table.removeRow(row)
                 if removed is not None:
                     delete_removed_widgets(self._table, [removed.widget])
         if not wanted:
@@ -595,6 +597,8 @@ class MediaSourcesPanelController(UiPanelController):
 
     def _clear_rows(self):
         widgets = [row.widget for row in self._rows.values()]
+        for row in self._rows.values():
+            row.dispose()
         self._table.setRowCount(0)
         self._rows.clear()
         delete_removed_widgets(self._table, widgets)

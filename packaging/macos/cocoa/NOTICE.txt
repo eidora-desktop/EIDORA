@@ -1,5 +1,6 @@
 EIDORA macOS builds use the Qt 6.11.2 Cocoa platform plugin with three
-upstream accessibility fixes. The rest of the Qt runtime comes from PySide6.
+upstream accessibility fixes and an EIDORA event-loop correction. The rest of
+the Qt runtime comes from PySide6.
 
 Qt Base and the Cocoa changes are copyright The Qt Company Ltd. and their
 respective contributors. The affected Qt files are available under LGPL-3.0-only,
@@ -13,6 +14,10 @@ Upstream changes by Yuri Barreira and Qt contributors
 https://github.com/qt/qtbase/commit/b74d6cb3c5e8418602494ae549b60839d88ef858
 https://github.com/qt/qtbase/commit/fb4c6f64fdace5ba049d4be53f3e9d09ff017f3e
 https://github.com/qt/qtbase/commit/98dd5e7c0d2cdf9a7bc6264b4950a66eff32647d
+
+EIDORA's event-loop correction processes timers before preserving interrupts
+from manual event dispatch, so a timer's quit request can unwind a nested loop.
+This correction is not an upstream backport.
 
 The accompanying accessibility-lifetime.patch and CMakeLists.txt reproduce
 the modified plugin from that source and the matching Qt SDK. From EIDORA's

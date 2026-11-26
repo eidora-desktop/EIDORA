@@ -170,16 +170,30 @@ class MetadataGroupsPanelController:
         group_set_id, group_id = self._item_key(selected)
         kind = "Subgroup" if group_id else "Group"
         contents = "its memberships" if group_id else "all its subgroups and memberships"
+        service = self._service()
+        message = f"Delete '{selected.text(0)}' and {contents}? This cannot be undone."
+        try:
+            result = service.clustering_result(group_set_id)
+        except Exception as exc:
+            show_error(self.widget, f"Delete {kind} Failed", str(exc))
+            return
+        if result is not None:
+            consequence = (
+                "The linked clustering result in Embeddings will be kept and marked Modified. "
+                "The other subgroups will be kept."
+                if group_id else
+                "This will also remove the linked clustering result in Embeddings."
+            )
+            message += f"\n\n{consequence}"
         if QtWidgets.QMessageBox.question(
             self.widget,
             f"Delete {kind}",
-            f"Delete '{selected.text(0)}' and {contents}? This cannot be undone.",
+            message,
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.No,
         ) != QtWidgets.QMessageBox.StandardButton.Yes:
             return
         try:
-            service = self._service()
             if group_id:
                 service.delete_group(group_id)
             else:

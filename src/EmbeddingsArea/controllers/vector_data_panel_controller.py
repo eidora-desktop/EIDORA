@@ -285,13 +285,8 @@ class VectorDataPanelController(UiPanelController):
         rename = menu.addAction("Rename…")
         cite = menu.addAction("Methods && Citations…") if state == "completed" else None
         menu.addSeparator()
-        remove_label = "Dismiss" if state in {"failed", "aborted", "interrupted"} else "Remove"
-        if record.get("group_set_id"):
-            remove_label = "Remove and Keep Groups"
-        remove = menu.addAction(remove_label)
-        remove_groups = menu.addAction("Remove and Delete Groups") if record.get("group_set_id") else None
+        remove = menu.addAction("Remove")
         rename.setEnabled(not active); remove.setEnabled(not active)
-        if remove_groups: remove_groups.setEnabled(not active)
         selected = menu.exec(anchor.mapToGlobal(QtCore.QPoint(0, anchor.height())))
         if selected is None or not selected.isEnabled():
             return
@@ -301,8 +296,7 @@ class VectorDataPanelController(UiPanelController):
         elif selected == configure: self.open_clustering(str(record["run_id"]), identity)
         elif selected == cite and cite is not None: self._cite_run(str(record["run_id"]), record)
         elif selected == rename: self._rename_cluster(record)
-        elif selected == remove: self._remove_cluster(record, False)
-        elif selected == remove_groups: self._remove_cluster(record, True)
+        elif selected == remove: self._remove_cluster(record)
 
     def _cite_run(self, run_id, cluster=None):
         from project.methods_service import ProjectMethodsService
@@ -385,8 +379,8 @@ class VectorDataPanelController(UiPanelController):
             self._notify_groups_changed()
         self.refresh()
 
-    def _remove_cluster(self, record, delete_groups):
-        try: deleted = self._session.clusters.delete_result(str(record["id"]), delete_groups=delete_groups)
+    def _remove_cluster(self, record):
+        try: deleted = self._session.clusters.delete_result(str(record["id"]), delete_groups=True)
         except Exception as exc: self._show_status(str(exc)); return
         if deleted and self._groups_changed: self._groups_changed()
         self.refresh()

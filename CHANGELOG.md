@@ -4,7 +4,14 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Prevent delayed Media row resize callbacks from accessing deleted table items after source removal or project switching.
+
 - Standardize pop-up menu ordering, separators, preset labels, and pin-scope wording across all areas; label project deletion explicitly as Delete From Disk and projection-panel deletion as Delete Selected Projection.
+
+- Simplify clustering removal to one Remove action that deletes the result and its generated groups together.
+- Confirm that deleting a clustering group set in Metadata also removes its result in Embeddings; deleting one subgroup keeps the result and marks it Modified.
+
+- Preserve timer-triggered event-loop exits on macOS so nested waits and dialogs can finish after manual event processing.
 
 - Let the Discovery Appearance panel expand while retaining a compact content-based minimum that keeps controls visible, without changing margins or layout.
 

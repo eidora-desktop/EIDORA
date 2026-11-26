@@ -614,6 +614,8 @@ class VectorDataCardController(QtCore.QObject):
     @staticmethod
     def _cluster_status(record, state: str) -> str:
         if state == "completed":
+            if record.get("groups_modified"):
+                return "Modified"
             count = int(record.get("cluster_count", 0) or 0)
             noise = int(record.get("noise_count", 0) or 0)
             return f"Done: {count} clusters, {noise} noise"
@@ -623,6 +625,8 @@ class VectorDataCardController(QtCore.QObject):
     def _cluster_details(record):
         method = record.get("method_name") or record.get("method_id")
         values = [("Algorithm", method)]
+        if record.get("groups_modified"):
+            values.append(("Groups", "Modified in Metadata"))
         parameters = record.get("parameters") or record.get("method_settings", {}).get(record.get("method_id"), {})
         if parameters:
             values.append(("Settings", parameters))
@@ -634,6 +638,8 @@ class VectorDataCardController(QtCore.QObject):
             ("skipped_item_count", "Skipped"), ("duration_seconds", "Duration (s)"),
         ):
             if record.get(key) is not None:
+                if record.get("groups_modified") and key in {"assigned_item_count", "cluster_count", "noise_count"}:
+                    label = f"Original {label.lower()}"
                 values.append((label, record[key]))
         diagnostics = record.get("error") or record.get("warnings")
         if diagnostics:

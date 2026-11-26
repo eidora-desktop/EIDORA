@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
+from shiboken6 import isValid
 
 from shared.qt.ui_loader import load_ui
 from shared.qt.panel_rows import PanelRowHeader, section_widget
@@ -122,7 +123,13 @@ class MediaSourceRowController(QtCore.QObject):
         self.widget.layout().activate()
         self._resize()
 
+    def dispose(self):
+        # Table items die immediately; row widgets survive until deferred deletion.
+        self.header.resized.disconnect(self._resize)
+
     def _resize(self):
+        if not isValid(self.item) or self.item.tableWidget() is None:
+            return
         height = self.header.collapsed_height
         self.widget.setMinimumHeight(height)
         self.widget.resize(self.widget.width(), height)

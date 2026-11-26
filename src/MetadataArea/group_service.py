@@ -91,10 +91,29 @@ class MetadataGroupService:
         self._repository.rename_group(group_id, name)
 
     def delete_group_set(self, group_set_id: str) -> None:
-        self._repository.delete_group_set(group_set_id)
+        repository = self._clustering_repository()
+        result = repository.for_group_set(group_set_id)
+        if result is not None:
+            repository.delete_with_group_set(result["id"], group_set_id)
+        else:
+            self._repository.delete_group_set(group_set_id)
 
     def delete_group(self, group_id: str) -> None:
-        self._repository.delete_group(group_id)
+        group_set_id = self._repository.group_set_id_for_group(group_id)
+        repository = self._clustering_repository()
+        result = repository.for_group_set(group_set_id)
+        if result is not None:
+            repository.delete_subgroup(result["id"], group_id)
+        else:
+            self._repository.delete_group(group_id)
+
+    def clustering_result(self, group_set_id: str):
+        return self._clustering_repository().for_group_set(group_set_id)
+
+    def _clustering_repository(self):
+        from EmbeddingsArea.clustering.repository import ClusteringRepository
+
+        return ClusteringRepository(self._repository.database_path)
 
     def save_memberships(
         self,

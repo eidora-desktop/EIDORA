@@ -258,6 +258,14 @@ class MetadataGroupRepository:
     def delete_group(self, group_id: str) -> None:
         self._delete("groups", "group_id", group_id)
 
+    def group_set_id_for_group(self, group_id: str) -> str | None:
+        with self._connect() as connection:
+            self._initialize(connection)
+            row = connection.execute(
+                "SELECT group_set_id FROM groups WHERE group_id = ?", (group_id,)
+            ).fetchone()
+        return str(row[0]) if row else None
+
     def member_ids(self, group_id: str) -> tuple[int, ...]:
         if not self._database_path.exists():
             return ()

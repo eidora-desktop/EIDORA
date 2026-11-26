@@ -203,7 +203,8 @@ Use a clean native build directory and a Qt SDK matching the installed PySide
 runtime. Preserve platform-specific dependency pins when updating build settings.
 On macOS, the same native build also stages the Qt Cocoa platform plugin.
 It builds the checksum-pinned Qt 6.11.2 sources with the upstream accessibility
-ownership fixes in `macos/cocoa/`. PyInstaller installs that plugin in its
+ownership fixes and EIDORA's timer interrupt correction in `macos/cocoa/`.
+PyInstaller installs that plugin in its
 standard PySide6 location for both Mac architectures. For a source checkout,
 set `QT_PLUGIN_PATH` to the absolute native stage directory before launching
 EIDORA or its desktop stress test. It should contain `platforms/libqcocoa.dylib`.
