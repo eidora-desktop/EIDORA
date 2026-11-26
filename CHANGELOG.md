@@ -4,6 +4,8 @@ Release-relevant changes are tracked here. Version selection follows the [versio
 
 ## Unreleased
 
+- Detect macOS Qt SDK paths by their framework contents so the native renderer uses the selected PySide runtime regardless of SDK folder names.
+
 ## 0.3.0 — Prepared
 
 First public release. Earlier versions were development prototypes; compatibility
